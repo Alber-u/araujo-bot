@@ -53,10 +53,11 @@ const VERSION = "0.8.0";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
-const RENTAB_MS = 5 * 60 * 1000;         // caché de rentabilidad-obra por obra
-const RENTAB_TIMEOUT_MS = 45 * 1000;
-const TIMEOUT_MS = 30 * 1000;
-const TIMEOUT_LARGO_MS = 90 * 1000;   // clientes-pendientes lee todo el histórico la primera vez
+// DINERO_ESCALA_TIEMPO: solo para la prueba local del bucle (acorta las esperas)
+const ESCALA_T = Number(process.env.DINERO_ESCALA_TIEMPO) > 0 ? Number(process.env.DINERO_ESCALA_TIEMPO) : 1;
+const RENTAB_TIMEOUT_MS = 45 * 1000 * ESCALA_T;
+const TIMEOUT_MS = 30 * 1000 * ESCALA_T;
+const TIMEOUT_LARGO_MS = 90 * 1000 * ESCALA_T;   // clientes-pendientes lee todo el histórico la primera vez
 const CONFIG_HEADERS = ["clave", "valor", "nota"];
 const CUENTA_BANCO_2 = "57200006";      // segunda cuenta corriente del Santander
 // Foto diaria de los movimientos del banco sin conciliar (la sube la rutina de
@@ -69,21 +70,48 @@ let _foto = null;                       // última foto leída/guardada (caché)
 // Fuentes lentas del cash flow (recorren posicion-neta-real): 30 min de caché
 // y, si fallan, el último dato bueno.
 const LENTO_MS = 30 * 60 * 1000, TIMEOUT_LENTO_MS = 150 * 1000;
-const _lento = {};
-const ESPERA_LENTO_MS = 20 * 1000;      // la escalera no espera más: la lectura sigue por detrás
+const ESPERA_LENTO_MS = 20 * 1000 * ESCALA_T;      // la escalera no espera más: la lectura sigue por detrás
 const _enVuelo = {};
-async function lento(clave, fn) {
-  const c = _lento[clave];
-  if (c && Date.now() - c.ts < LENTO_MS) return c.r;
+// Caché por fuente (04/10/2026: tras el despliegue, 1.431 peticiones a Holded
+// en 6 min). Cada fuente de Holded:
+//   · si tiene un dato bueno de menos de su TTL, se usa sin llamar;
+//   · si ya se está leyendo, se espera a ESA lectura (nunca dos a la vez);
+//   · se espera como mucho «espera»; si no llega, la lectura SIGUE por detrás
+//     (no se aborta: su resultado queda guardado para la siguiente carga) y
+//     mientras tanto se usa el último dato bueno, marcado «viejo».
+// Así un timeout propio no vuelve a lanzar cientos de llamadas.
+const _fuente = {};          // clave → { ts, r } (último dato bueno)
+const LECTURA_MAX_MS = 10 * 60 * 1000;   // límite duro de una lectura por detrás
+// Una lectura que acaba en error no se repite hasta FALLO_PAUSA_MS después
+// (antes, cada recálculo volvía a lanzar posicion-neta-real y la anual enteras)
+const _fallo = {};           // clave → { ts, error }
+const FALLO_PAUSA_MS = 5 * 60 * 1000;
+async function cacheFuente(clave, { ttl, espera }, fn) {
+  const c = _fuente[clave];
+  if (c && Date.now() - c.ts < ttl) return c.r;
+  const f = _fallo[clave];
+  if (!_enVuelo[clave] && f && Date.now() - f.ts < FALLO_PAUSA_MS) {
+    if (c) return { ...c.r, viejo_min: Math.round((Date.now() - c.ts) / 60000), error_ultimo: f.error };
+    return { ok: false, error: `${f.error} (se vuelve a intentar a partir de las ${new Date(f.ts + FALLO_PAUSA_MS).toISOString().slice(11, 16)} UTC)` };
+  }
   if (!_enVuelo[clave]) {
-    _enVuelo[clave] = fn().catch((e) => ({ ok: false, error: e.message }))
-      .then((r) => { if (r.ok) _lento[clave] = { ts: Date.now(), r }; return r; })
+    _enVuelo[clave] = Promise.resolve().then(fn).catch((e) => ({ ok: false, error: e.message }))
+      .then((r) => { if (r?.ok) { _fuente[clave] = { ts: Date.now(), r }; delete _fallo[clave]; } else _fallo[clave] = { ts: Date.now(), error: r?.error || "error" }; return r; })
       .finally(() => { delete _enVuelo[clave]; });
   }
-  const r = await Promise.race([_enVuelo[clave], new Promise((res) => setTimeout(() => res(null), ESPERA_LENTO_MS).unref?.())]);
+  let t;
+  const r = await Promise.race([_enVuelo[clave], new Promise((res) => { t = setTimeout(() => res(null), espera); t.unref?.(); })]).finally(() => clearTimeout(t));
   if (r?.ok) return r;
-  if (c) return { ...c.r, viejo_min: Math.round((Date.now() - c.ts) / 60000) };
-  return r || { ok: false, error: `${clave}: calculando (primera lectura, más de ${ESPERA_LENTO_MS / 1000} s)` };
+  if (c) return { ...c.r, viejo_min: Math.round((Date.now() - c.ts) / 60000), error_ultimo: r ? r.error : "sigue leyendo" };
+  if (r) return r;   // error de verdad (Holded 429/5xx, HTTP…)
+  return { ok: false, pendiente: true, error: `${clave}: leyendo de Holded (más de ${Math.round(espera / 1000)} s; sigue por detrás)` };
+}
+const lecturasEnVuelo = () => Object.values(_enVuelo);
+// TTL por fuente: lo que cambia poco se lee poco
+const TTL = { tesoreria: 5 * 60e3, clientes: 30 * 60e3, custodias: 15 * 60e3, obligaciones: 15 * 60e3, ot: 2 * 60e3, oo: 10 * 60e3, iva: 60 * 60e3,
+              invoices: 15 * 60e3, banco: 10 * 60e3, compras: 15 * 60e3, pnr: 12 * 3600e3, anual: 6 * 3600e3, ledger: 60 * 60e3, rentab: 30 * 60e3, a465: 30 * 60e3 };
+async function lento(clave, fn, ttl = LENTO_MS) {
+  return cacheFuente(clave, { ttl, espera: ESPERA_LENTO_MS }, fn);
 }
 
 async function leerUltimaFoto() {
@@ -120,9 +148,12 @@ const TAGS_HEADERS = ["tag_id", "ccpp_id", "tag", "created_at", "created_by", "b
 
 let _cache = null;          // { ts, data }
 let _reintento = null;      // temporizador de reintento cuando una fuente ha fallado
-const REINTENTO_MS = 60 * 1000;
+const REINTENTO_MS = 60 * 1000 * ESCALA_T;
 const REINTENTO_MAX_MS = 15 * 60 * 1000;
 let _fallosSeguidos = 0;
+let _esperaLecturas = null; // recálculo pendiente de que terminen las lecturas por detrás
+const COLA_MAX_REINTENTO = 20;   // con más peticiones en cola no se lanza un reintento
+const holdedEmbudo = require("./lib/holded-fetch.cjs");
 // ¿Ha fallado alguna fuente? (data.fuentes: nombre → "ok" | error)
 const fuenteCaida = (data) => Object.values(data?.fuentes || {}).some((v) => v !== "ok");
 let _enCurso = null;        // promesa compartida si llegan dos peticiones a la vez
@@ -183,7 +214,6 @@ function aServir(cache) {
   const caidas = Object.entries(cache.data.fuentes || {}).filter(([, v]) => v !== "ok").map(([k, v]) => ({ fuente: k, error: String(v).slice(0, 200) }));
   return { ts: u.ts, data: { ...u.data, de_cache: { generado: u.data.generado || new Date(u.ts).toISOString(), ts: u.ts, motivo: "Holded no responde", fuentes_caidas: caidas, intento: new Date(cache.ts).toISOString() } } };
 }
-const _rentab = {};         // ccpp_id → { ts, fuente } (último dato bueno)
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 
@@ -244,13 +274,9 @@ async function apuntesCuenta(cuenta, desde, hasta) {
 // rentabilidad-obra de una obra, con caché de 5 min. Es lenta (lee compras y
 // hojas): si hay un dato bueno de menos de 5 min se usa sin llamar; si la
 // llamada falla o tarda, se usa el último dato bueno que haya, avisándolo.
-async function rentabObra(ccppId, token, force) {
-  const c = _rentab[ccppId];
-  if (!force && c && Date.now() - c.ts < RENTAB_MS) return c.fuente;
-  const r = await local(`/api/ara-os/holded/rentabilidad-obra/${encodeURIComponent(ccppId)}`, token, {}, RENTAB_TIMEOUT_MS);
-  if (r.ok) { _rentab[ccppId] = { ts: Date.now(), fuente: r }; return r; }
-  if (c) return { ...c.fuente, viejo_min: Math.round((Date.now() - c.ts) / 60000), error_ultimo: r.error };
-  return r;
+async function rentabObra(ccppId, token) {
+  return cacheFuente(`rentab_${ccppId}`, { ttl: TTL.rentab, espera: RENTAB_TIMEOUT_MS },
+    () => local(`/api/ara-os/holded/rentabilidad-obra/${encodeURIComponent(ccppId)}`, token, {}, LECTURA_MAX_MS));
 }
 
 // Saldo contable de una cuenta: suma de TODOS sus apuntes en el libro (debe −
@@ -290,12 +316,19 @@ async function cuadreCuenta(tesoreria, cuenta, hasta, force) {
   if (!tesoreria?.ok) return { ok: false, error: `sin saldo del banco (${tesoreria?.error || "tesorería"})` };
   const cta = (tesoreria.data?.cuentas || []).find((c) => String(c.cuenta || "") === String(cuenta));
   if (!cta) return { ok: false, error: `la tesorería de Holded no trae la cuenta ${cuenta}` };
-  const cont = await conTimeout(saldoContableCuenta(cuenta, hasta, force), TIMEOUT_LARGO_MS, `saldo contable ${cuenta}`).catch((e) => ({ ok: false, error: e.message }));
+  const cont = await cacheFuente(`ledger_${cuenta}_${hasta}`, { ttl: TTL.ledger, espera: TIMEOUT_LARGO_MS }, () => saldoContableCuenta(cuenta, hasta, true));
   if (!cont.ok) return { ok: false, error: cont.error };
   return { ok: true, data: { saldo_banco: Number(cta.saldo), saldo_movimientos: cont.data.saldo, cuenta, apuntes: cont.data.apuntes, ultimo_apunte: cont.data.ultimo_apunte } };
 }
 
 async function construir(token, force) {
+  const t0 = Date.now(), p0 = holdedEmbudo.stats().peticiones;
+  const data = await construirFuentes(token, force);
+  // cuántas llamadas a Holded ha costado esta carga (incluye las lecturas por detrás que coincidan)
+  data.holded = { peticiones: holdedEmbudo.stats().peticiones - p0, segundos: Math.round((Date.now() - t0) / 1000), lecturas_por_detras: lecturasEnVuelo().length };
+  return data;
+}
+async function construirFuentes(token, force) {
   const hoy = hoyISO();
   const manana = calc.sumarDias(hoy, 1);   // end_date de Holded excluye ese día
   const iva = calc.periodoIvaSinLiquidar(hoy);
@@ -309,17 +342,17 @@ async function construir(token, force) {
   const [ya, ma] = hoy.split("-").map(Number);
   const ref = ma === 1 ? { año: ya - 1, mes: 12 } : { año: ya, mes: ma - 1 };   // último mes cerrado
   const res = await Promise.allSettled([
-    local("/api/ara-os/holded/tesoreria", token),
-    local("/api/ara-os/holded/clientes-pendientes", token, f, TIMEOUT_LARGO_MS),
-    local("/api/ara-os/custodias", token, {}, TIMEOUT_LARGO_MS),
-    local("/api/ara-os/obligaciones", token, f, TIMEOUT_LARGO_MS),
-    local("/api/ara-os/ordenes-trabajo", token),
-    local("/api/ara-os/obras-otras", token, {}, TIMEOUT_LARGO_MS),
-    local("/api/ara-os/holded/iva-trimestre", token, { desde: iva.desde, hasta: iva.hasta }, TIMEOUT_LARGO_MS),
-    conTimeout(holded.obtenerInvoices(), TIMEOUT_LARGO_MS, "facturas Holded")
+    cacheFuente("tesoreria", { ttl: TTL.tesoreria, espera: TIMEOUT_MS }, () => local("/api/ara-os/holded/tesoreria", token, {}, LECTURA_MAX_MS)),
+    cacheFuente("clientes", { ttl: TTL.clientes, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/holded/clientes-pendientes", token, f, LECTURA_MAX_MS)),
+    cacheFuente("custodias", { ttl: TTL.custodias, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/custodias", token, {}, LECTURA_MAX_MS)),
+    cacheFuente("obligaciones", { ttl: TTL.obligaciones, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/obligaciones", token, f, LECTURA_MAX_MS)),
+    cacheFuente("ot", { ttl: TTL.ot, espera: TIMEOUT_MS }, () => local("/api/ara-os/ordenes-trabajo", token, {}, LECTURA_MAX_MS)),
+    cacheFuente("oo", { ttl: TTL.oo, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/obras-otras", token, {}, LECTURA_MAX_MS)),
+    cacheFuente(`iva_${iva.desde}_${iva.hasta}`, { ttl: TTL.iva, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/holded/iva-trimestre", token, { desde: iva.desde, hasta: iva.hasta }, LECTURA_MAX_MS)),
+    cacheFuente("invoices", { ttl: TTL.invoices, espera: TIMEOUT_LARGO_MS }, () => holded.obtenerInvoices()
       .then((r) => (r?.error ? { ok: false, error: r.error }
         : r?.incompleto ? { ok: false, error: `facturas Holded cortadas a medias (${r.error_parcial})` }
-        : { ok: true, data: r.docs || [] })),
+        : { ok: true, data: r.docs || [] }))),
     conTimeout(leerPestana("prestamos", PRESTAMOS_HEADERS), TIMEOUT_MS, "hoja prestamos")
       .then((r) => ({ ok: true, data: r.filas, faltan: r.faltan })),
     conTimeout(leerPestana("config_dinero", CONFIG_HEADERS), TIMEOUT_MS, "hoja config_dinero")
@@ -332,11 +365,11 @@ async function construir(token, force) {
       }),
     // Las dos cuentas corrientes: nóminas y recibos pueden salir de cualquiera.
     // Si la segunda falla, se sigue con la principal (lo dice data.banco_cuentas).
-    Promise.all([
-      conTimeout(apuntesCuenta(calc.CUENTA_BANCO, calc.sumarDias(hoy, -75), manana), TIMEOUT_MS, "apuntes banco"),
-      conTimeout(apuntesCuenta(CUENTA_BANCO_2, calc.sumarDias(hoy, -75), manana), TIMEOUT_MS, "apuntes banco 2").catch((e) => ({ ok: false, error: e.message })),
-    ]).then(([a, b]) => (!a.ok ? a : { ok: true, data: [...a.data, ...(b.ok ? b.data : [])], cuentas: b.ok ? [calc.CUENTA_BANCO, CUENTA_BANCO_2] : [calc.CUENTA_BANCO], error_cuenta_2: b.ok ? null : b.error })),
-    local("/api/ara-os/holded/compras-pendientes", token, {}, TIMEOUT_LARGO_MS),   // vencimientos para la previsión semanal
+    cacheFuente(`banco_${hoy}`, { ttl: TTL.banco, espera: TIMEOUT_LARGO_MS }, () => Promise.all([
+      apuntesCuenta(calc.CUENTA_BANCO, calc.sumarDias(hoy, -75), manana),
+      apuntesCuenta(CUENTA_BANCO_2, calc.sumarDias(hoy, -75), manana).catch((e) => ({ ok: false, error: e.message })),
+    ]).then(([a, b]) => (!a.ok ? a : { ok: true, data: [...a.data, ...(b.ok ? b.data : [])], cuentas: b.ok ? [calc.CUENTA_BANCO, CUENTA_BANCO_2] : [calc.CUENTA_BANCO], error_cuenta_2: b.ok ? null : b.error }))),
+    cacheFuente("compras", { ttl: TTL.compras, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/holded/compras-pendientes", token, {}, LECTURA_MAX_MS)),   // vencimientos para la previsión semanal
     conTimeout(leerUltimaFoto(), TIMEOUT_MS, "hoja banco_sin_conciliar"),
     conTimeout(leerPestana("nominas_mes", NOMINAS_MES_HEADERS, { crear: false }), TIMEOUT_MS, "hoja nominas_mes")
       .then((r) => {
@@ -349,8 +382,9 @@ async function construir(token, force) {
       }),
     // Cash flow: último mes cerrado (obras 05-09, horas, material, fijos) y la
     // serie del año (beneficio acumulado para el IS, media de gastos fijos)
-    lento(`pnr_${ref.año}_${ref.mes}`, () => local("/api/ara-os/holded/posicion-neta-real", token, { año: String(ref.año), mes: String(ref.mes) }, TIMEOUT_LENTO_MS)),
-    lento(`anual_${ya}`, () => local("/api/ara-os/holded/resultado-real-anual", token, { año: String(ya) }, TIMEOUT_LENTO_MS)),
+    // mes cerrado y serie del año: se calculan una vez y se guardan (12 h y 6 h)
+    lento(`pnr_${ref.año}_${ref.mes}`, () => local("/api/ara-os/holded/posicion-neta-real", token, { año: String(ref.año), mes: String(ref.mes) }, LECTURA_MAX_MS), TTL.pnr),
+    lento(`anual_${ya}`, () => local("/api/ara-os/holded/resultado-real-anual", token, { año: String(ya) }, LECTURA_MAX_MS), TTL.anual),
     conTimeout(leerPestana(HOJA_PREV, PREV_HEADERS, { crear: false }), TIMEOUT_MS, `hoja ${HOJA_PREV}`).then((r) => ({ ok: true, data: r.filas || [] })),
     // Documentación de cada expediente (hoja de comunidades, solo lectura): orden del calendario
     conTimeout(getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "comunidades!A2:BO", valueRenderOption: "UNFORMATTED_VALUE" }), TIMEOUT_MS, "hoja comunidades")
@@ -394,8 +428,8 @@ async function construir(token, force) {
     ? Object.keys(fuentes.clientes.data.saldos_por_cuenta || {}).filter((c) => c.startsWith("465"))
     : [];
   const [rentab, n465] = await Promise.all([
-    Promise.allSettled(enCurso.map((o) => rentabObra(o.ccpp_id, token, false))),
-    Promise.allSettled(cuentas465.map((c) => conTimeout(apuntesCuenta(c, calc.sumarDias(hoy, -DIAS_465), manana), TIMEOUT_MS, `apuntes ${c}`))),
+    Promise.allSettled(enCurso.map((o) => rentabObra(o.ccpp_id, token))),
+    Promise.allSettled(cuentas465.map((c) => cacheFuente(`a465_${c}_${hoy}`, { ttl: TTL.a465, espera: TIMEOUT_MS }, () => apuntesCuenta(c, calc.sumarDias(hoy, -DIAS_465), manana)))),
   ]);
   fuentes.rentab = Object.fromEntries(enCurso.map((o, i) => [o.ccpp_id, aFuente(rentab[i])]));
   const n465f = n465.map(aFuente);
@@ -530,6 +564,8 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.fuentes = Object.fromEntries(Object.entries(fuentes)
     .filter(([k]) => k !== "rentab")
     .map(([k, v]) => [k, v.ok ? "ok" : v.error]));
+  // fuentes servidas con el último dato bueno porque la lectura nueva no llegó a tiempo
+  data.fuentes_viejas = Object.fromEntries(Object.entries(fuentes).filter(([k, v]) => k !== "rentab" && v?.ok && v.viejo_min != null).map(([k, v]) => [k, v.viejo_min]));
   data.banco_tipos_apunte = tiposBanco;   // diagnóstico: qué tipos trae la 572 y cuáles se descartan (entry)
   data.banco_cuentas = fuentes.banco?.cuentas || null;
   if (fuentes.banco?.error_cuenta_2) data.avisos.push({ nivel: "ambar", texto: `No se han podido leer los movimientos de la cuenta ${CUENTA_BANCO_2}: nóminas y recibos solo se buscan en la ${calc.CUENTA_BANCO}.` });
@@ -813,26 +849,39 @@ module.exports = function (app) {
         .then((data) => {
           _cache = { ts: Date.now(), data };
           if (!fuenteCaida(data)) guardarUltimoCompleto(_cache.ts, data);
+          console.log(`[ara-os-dinero-empresa] carga ${fuenteCaida(data) ? "INCOMPLETA" : "completa"} · ${data.holded?.peticiones ?? "?"} peticiones a Holded en ${data.holded?.segundos ?? "?"} s · lecturas por detrás: ${lecturasEnVuelo().length}`);
           // Seguimiento previsto vs real: no bloquea la respuesta
           guardarPrevision(data, new Date().toISOString().slice(0, 10)).catch((e) => console.error("[ara-os-dinero-empresa] previsión del mes:", e.message));
           // Si alguna fuente ha fallado (Holded 503, timeout…), se reintenta
           // solo al cabo de REINTENTO_MS aunque nadie abra el panel, hasta que
           // vuelva. Nunca se guarda un fallo como si fuera el dato bueno.
           if (!fuenteCaida(data)) _fallosSeguidos = 0;
-          else if (!_reintento) {
-            // 1, 2, 4, 8 y como mucho 15 min entre reintentos
-            const espera = Math.min(REINTENTO_MS * 2 ** _fallosSeguidos++, REINTENTO_MAX_MS);
-            _reintento = setTimeout(() => {
-              _reintento = null;
-              refrescar(token).catch((e) => console.error("[ara-os-dinero-empresa] reintento:", e.message));
-            }, espera);
-            _reintento.unref?.();
-          }
+          else if (lecturasEnVuelo().length) {
+            // Faltan fuentes porque sus lecturas siguen en marcha (timeout propio,
+            // no fallo de Holded): no se reintenta nada; cuando terminen, se
+            // recalcula UNA vez con lo ya leído (todo sale de la caché por fuente).
+            if (!_esperaLecturas) {
+              _esperaLecturas = Promise.allSettled(lecturasEnVuelo()).then(() => new Promise((r) => setTimeout(r, 2000).unref?.()))
+                .then(() => { _esperaLecturas = null; return refrescar(token); })
+                .catch((e) => { _esperaLecturas = null; console.error("[ara-os-dinero-empresa] tras las lecturas:", e.message); });
+            }
+          } else if (!_reintento) programarReintento(token);
           return data;
         })
         .finally(() => { _enCurso = null; });
     }
     return _enCurso;
+  }
+  // Fallo de verdad de Holded (429/5xx): 1, 2, 4, 8 y como mucho 15 min entre
+  // reintentos; y nunca con la cola del embudo llena ni con otra carga en marcha.
+  function programarReintento(token) {
+    const espera = Math.min(REINTENTO_MS * 2 ** _fallosSeguidos++, REINTENTO_MAX_MS);
+    _reintento = setTimeout(() => {
+      _reintento = null;
+      if (_enCurso || _esperaLecturas || holdedEmbudo.stats().en_cola > COLA_MAX_REINTENTO) { _fallosSeguidos--; return programarReintento(token); }
+      refrescar(token).catch((e) => console.error("[ara-os-dinero-empresa] reintento:", e.message));
+    }, espera);
+    _reintento.unref?.();
   }
   const conEdad = (opciones, extra = {}) => {
     const c = aServir(_cache);
@@ -863,7 +912,7 @@ module.exports = function (app) {
         // Con una fuente caída (Holded 429/503) NO se recalcula en cada
         // petición: ya hay un reintento programado con espera creciente
         // (1, 2, 4, 8… 15 min). Se sirve la última carga completa.
-        if (fuenteCaida(_cache.data) && (_reintento || _enCurso)) return res.json(conEdad(opciones, { reintento_programado: true }));
+        if (fuenteCaida(_cache.data) && (_reintento || _enCurso || _esperaLecturas)) return res.json(conEdad(opciones, { reintento_programado: true }));
         if (edad < CACHE_STALE_MS) {
           // Se sirve ya lo último calculado y se recalcula por detrás: el panel no espera.
           refrescar(tokenInterno).catch((e) => console.error("[ara-os-dinero-empresa] refresco:", e.message));
@@ -879,6 +928,31 @@ module.exports = function (app) {
   });
 
   cargarUltimoCompleto().catch(() => {});
+  // Sembrar la última carga completa (tras un despliegue no hay ninguna y Holded
+  // puede tardar): POST con el JSON de una carga completa de /dinero-empresa.
+  // Solo se acepta si está completa y es más nueva que la que haya.
+  const RUTA_ULT = "/api/ara-os/holded/dinero-empresa/ultima-completa";
+  app.options(RUTA_ULT, (req, res) => { cors(res); res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS"); res.status(204).end(); });
+  app.get(RUTA_ULT, (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    const u = _ultimoCompleto;
+    res.json({ ok: true, hay: !!u, generado: u?.data?.generado || null, edad_min: u ? Math.round((Date.now() - u.ts) / 60000) : null, lecturas_por_detras: Object.keys(_enVuelo), ultima_carga: _cache ? { generado: _cache.data.generado, completa: !fuenteCaida(_cache.data), holded: _cache.data.holded || null } : null, embudo: holdedEmbudo.stats() });
+  });
+  app.post(RUTA_ULT, require("express").json({ limit: "2mb" }), (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    const d = req.body || {};
+    const ts = Date.parse(d.generado);
+    if (!d.generado || isNaN(ts)) return res.status(400).json({ ok: false, error: "generado: fecha ISO obligatoria" });
+    if (d.completo !== true || fuenteCaida(d) || !d.cashflow || !d.kpis) return res.status(400).json({ ok: false, error: "no es una carga completa de /dinero-empresa" });
+    if (Date.now() - ts > ULTIMO_COMPLETO_MAX_MS) return res.status(400).json({ ok: false, error: "más vieja que una semana" });
+    if (_ultimoCompleto && _ultimoCompleto.ts >= ts) return res.status(409).json({ ok: false, error: `ya hay una carga completa igual o más nueva (${_ultimoCompleto.data.generado})` });
+    const { cache, de_cache, ...limpia } = d;
+    guardarUltimoCompleto(ts, limpia);
+    res.json({ ok: true, guardada: d.generado });
+  });
+
   // Precálculo al arrancar, para que la primera apertura del panel no espere.
   if (process.env.ADMIN_TOKEN) {
     setTimeout(() => {
@@ -893,4 +967,4 @@ module.exports.construir = construir;
 module.exports.componer = componer;
 module.exports.validarFoto = validarFoto;
 module.exports.cuadreCuenta = cuadreCuenta;
-module.exports._prueba = { aServir, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };
+module.exports._prueba = { cacheFuente, lecturasEnVuelo, aServir, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };
