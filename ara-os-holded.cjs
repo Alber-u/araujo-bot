@@ -452,7 +452,7 @@ async function obtenerPurchaseRefunds({ force = false, mesesHaciaAtras = 36 } = 
   // Lectura cortada a medias (Holded 503…): no se guarda, se reintenta en la siguiente
   if (!cortadaRef) {
     _cacheRefunds = docs;
-    _cacheRefundsTs = ahora;
+    _cacheRefundsTs = Date.now();   // desde que TERMINA la lectura
   }
   return { docs, cached: false };
 }
@@ -716,7 +716,10 @@ async function fetchHolded(path, params = {}) {
 let _cachePurchases = null;
 let _cachePurchasesTs = 0;
 let _cachePurchasesMeses = 0; // meses que cubre la caché: no se sirve a quien pide más
-const CACHE_TTL_MS = 60 * 1000;
+// 04/10/2026: 60 s → 15 min. Cada lectura son 36 ventanas de 31 días; con 60 s
+// (contados desde que EMPEZABA la lectura) la caché casi nunca servía y cada
+// obra de posicion-neta-real volvía a leer las 72 ventanas de compras.
+const CACHE_TTL_MS = 15 * 60 * 1000;
 
 async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
   const ahora = Date.now();
@@ -778,7 +781,7 @@ async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
   // Lectura cortada a medias (Holded 503…): no se guarda, se reintenta en la siguiente
   if (!cortadaCompras) {
     _cachePurchases = docs;
-    _cachePurchasesTs = ahora;
+    _cachePurchasesTs = Date.now();   // desde que TERMINA la lectura
     _cachePurchasesMeses = mesesHaciaAtras;
   }
   return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
@@ -852,7 +855,7 @@ async function obtenerInvoices({ force = false, mesesHaciaAtras = 36, soloCache 
   // guarda en caché, para que la siguiente petición lo vuelva a intentar.
   if (!cortada) {
     _cacheInvoices = docs;
-    _cacheInvoicesTs = ahora;
+    _cacheInvoicesTs = Date.now();   // desde que TERMINA la lectura
     _cacheInvoicesMeses = mesesHaciaAtras;
   }
   return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos, ...(cortada ? { incompleto: true, error_parcial: cortada } : {}) };
@@ -1439,6 +1442,24 @@ async function leerEtiquetasObra(obra_id) {
   return parseTagsCSV(fila.etiqueta_holded);
 }
 
+// Una sola lectura a la vez de compras, rectificativas y facturas (04/10/2026).
+// Siempre se leen 36 meses: así quien pide 24 (balance-anual) comparte la
+// lectura y la caché con quien pide 36, en vez de lanzar otra.
+function unaLecturaHolded(fn) {
+  let vuelo = null;
+  return (o = {}) => {
+    if (o.soloCache) return fn(o);
+    const opts = { ...o, mesesHaciaAtras: Math.max(36, Number(o.mesesHaciaAtras) || 36) };
+    if (vuelo && !o.force) return vuelo;
+    const p = Promise.resolve().then(() => fn(opts)).finally(() => { if (vuelo === p) vuelo = null; });
+    vuelo = p;
+    return p;
+  };
+}
+obtenerPurchases = unaLecturaHolded(obtenerPurchases);
+obtenerPurchaseRefunds = unaLecturaHolded(obtenerPurchaseRefunds);
+obtenerInvoices = unaLecturaHolded(obtenerInvoices);
+
 // ============================================================
 // MÓDULO
 // ============================================================
@@ -1452,6 +1473,17 @@ module.exports = function setupAraOSHolded(app) {
   function tokenValido(req) {
     return validToken(req.query.token);
   }
+
+  // Endpoints pesados: caché y una sola ejecución a la vez (lib/cache-respuesta.cjs)
+  const { cacheRespuesta } = require("./lib/cache-respuesta.cjs");
+  const mesCerrado = (año, mes) => { const h = new Date(); return año * 12 + mes < h.getFullYear() * 12 + (h.getMonth() + 1); };
+  const pesado = (clave, ttl) => cacheRespuesta({ clave, ttl, autorizado: (req) => tokenValido(req), cors: (res) => responderCORS(res) });
+  const cacheRentab = pesado((req) => String(req.params.obra_id), () => 30 * 60e3);
+  const cachePNR = pesado((req) => { const h = new Date(); return `${parseInt(req.query.año || h.getFullYear())}-${parseInt(req.query.mes || h.getMonth() + 1)}`; },
+    (req) => { const h = new Date(); return mesCerrado(parseInt(req.query.año || h.getFullYear()), parseInt(req.query.mes || h.getMonth() + 1)) ? 12 * 3600e3 : 15 * 60e3; });
+  const cacheAnual = pesado((req) => String(parseInt(req.query.año || new Date().getFullYear())), (req) => (parseInt(req.query.año || new Date().getFullYear()) < new Date().getFullYear() ? 12 * 3600e3 : 60 * 60e3));
+  const cacheBalance = pesado((req) => String(req.query.año || ""), () => 15 * 60e3);
+  const cacheGastosObras = pesado(() => "todo", () => 15 * 60e3);
 
   function responderCORS(res) {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -2176,7 +2208,7 @@ module.exports = function setupAraOSHolded(app) {
   app.options("/api/ara-os/holded/gastos-resumen-obras", (req, res) => {
     responderCORS(res); res.status(204).end();
   });
-  app.get("/api/ara-os/holded/gastos-resumen-obras", async (req, res) => {
+  app.get("/api/ara-os/holded/gastos-resumen-obras", cacheGastosObras, async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
 
@@ -2260,7 +2292,7 @@ module.exports = function setupAraOSHolded(app) {
   });
   // Caché rentabilidad 3 min
   const _cacheRent = {};
-  app.get("/api/ara-os/holded/rentabilidad-obra/:obra_id", async (req, res) => {
+  app.get("/api/ara-os/holded/rentabilidad-obra/:obra_id", cacheRentab, async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
 
@@ -2719,7 +2751,7 @@ module.exports = function setupAraOSHolded(app) {
   // Resumen financiero anual: ingresos, gastos, margen por mes
   // ─────────────────────────────────────────────────────────────
   app.options("/api/ara-os/holded/balance-anual", (req, res) => { responderCORS(res); res.status(204).end(); });
-  app.get("/api/ara-os/holded/balance-anual", async (req, res) => {
+  app.get("/api/ara-os/holded/balance-anual", cacheBalance, async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
@@ -2875,7 +2907,7 @@ module.exports = function setupAraOSHolded(app) {
   // ─────────────────────────────────────────────────────────────
   const _cacheResultadoAnual = {};
   app.options("/api/ara-os/holded/resultado-real-anual", (req, res) => { responderCORS(res); res.status(204).end(); });
-  app.get("/api/ara-os/holded/resultado-real-anual", async (req, res) => {
+  app.get("/api/ara-os/holded/resultado-real-anual", cacheAnual, async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
     try {
@@ -2940,7 +2972,7 @@ module.exports = function setupAraOSHolded(app) {
   // Avance automático: horas acumuladas registradas / (dias_estimados × 16h)
   // ─────────────────────────────────────────────────────────────
   app.options("/api/ara-os/holded/posicion-neta-real", (req, res) => { responderCORS(res); res.status(204).end(); });
-  app.get("/api/ara-os/holded/posicion-neta-real", async (req, res) => {
+  app.get("/api/ara-os/holded/posicion-neta-real", cachePNR, async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
