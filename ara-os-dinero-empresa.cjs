@@ -659,9 +659,10 @@ function financiadosSinCubrir(obras, expedientes, custodias) {
     const total = Number(o.importe_total) || Number(o.importe) || 0;
     const porPiso = e.pisos > 0 ? Math.round(total * 1.1 / e.pisos * 100) / 100 : 0;
     const importe = Math.round(fin.reduce((t, f) => t + (f.importe > 0 ? f.importe : porPiso), 0) * 100) / 100;
+    const nEst = fin.filter((f) => !(f.importe > 0)).length;
     const c = (custodias || []).find((x) => x.ccpp_id === o.obra_id);
     const saldo = c ? Math.max(0, Number(c.en_custodia) || 0) : 0;
-    out.push({ ccpp_id: o.obra_id, nombre: o.nombre, pisos: fin.length, importe, estimado: fin.some((f) => !(f.importe > 0)), cuenta_5610: !!c, saldo_5610: saldo,
+    out.push({ ccpp_id: o.obra_id, nombre: o.nombre, pisos: fin.length, importe, estimado: nEst > 0, pisos_estimados: nEst, pisos_sabadell: fin.length - nEst, por_piso_estimado: nEst ? porPiso : null, cuenta_5610: !!c, saldo_5610: saldo,
                adelanto: Math.max(0, Math.round((importe - saldo) * 100) / 100) });
   }
   return out;

@@ -163,7 +163,7 @@ module.exports = function(app) {
       ]);
 
       // Mapa pagos por comunidad
-      const IDX_COMUNIDAD_PISO = 0; // col A
+      const IDX_COMUNIDAD_PISO = 1; // col B (la A es el teléfono)
       const IDX_EST_PISO_PAGO  = 44; // col AS
       const VALORES_FINANCIA = new Set(['6','12','18','FFCC']);
       const pagosPorComunidad = {};
