@@ -41,6 +41,7 @@ const simulador = require("./lib/simulador-caja.cjs");
 const ordenCartera = require("./lib/orden-cartera.cjs");
 const planCalendario = require("./lib/planificacion-calendario.cjs");
 const festivosLib = require("./lib/festivos.cjs");
+const jornadaLib = require("./lib/jornada.cjs");
 const ccppAlias = require("./lib/ccpp-alias.cjs");
 // Seguimiento previsto vs real (punto 8): una fila por mes con la previsión
 // del día 1 y, al cerrar el mes, lo real.
@@ -511,6 +512,11 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     cobrado: c.cobrado ?? null, previsto: c.previsto ?? null, entregado_emasesa: c.entregado_emasesa ?? null, vecinos_censo: c.vecinos_censo ?? null,
     vecinos_faltan: Array.isArray(c.vecinos) && c.vecinos_censo != null ? c.vecinos.filter((v) => v.tipo !== "entrega_emasesa" && !v.en_holded).length : null })) : [];
   data.cashflow.festivos = festivosLib.leerFestivos(cfgTxt("festivos"));
+  // Jornada del convenio (7,7 h) y vacaciones (21 días, por defecto en agosto): Planificación y cash flow
+  data.cashflow.jornada = jornadaLib.leerJornada({ horas_dia: cfgTxt("horas_dia"), vacaciones_dias: cfgTxt("vacaciones_dias"), vacaciones_personas: cfgTxt("vacaciones_personas") });
+  const festSet = new Set(data.cashflow.festivos.lista);
+  const esLabCfg = (x) => { const d = new Date(x + "T00:00:00Z").getUTCDay(); return d !== 0 && d !== 6 && !festSet.has(x); };
+  const convenio = { ...jornadaLib.hppConvenio(data.cashflow.jornada, hoy, esLabCfg), horas_dia: data.cashflow.jornada.horas_dia, vacaciones_dias: data.cashflow.jornada.vacaciones_dias };
   // Custodias cuyo id no está en la cartera: posibles comunidades duplicadas (→ ccpp_alias)
   if (fuentes.custodias?.ok && fuentes.pnr_ref?.ok) {
     const ids = [...(fuentes.pnr_ref.data.obras || []).map((o) => o.obra_id), ...(fuentes.ot?.ok ? Object.values(fuentes.ot.data.grupos || {}).flat().map((o) => o.ccpp_id) : [])];
@@ -542,11 +548,12 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     const filaExcl = (fuentes.config?.ok ? fuentes.config.data : []).find((r) => String(r.clave || "").trim().toLowerCase() === "obras_excluidas_calibracion");
     // fuera de la calibración: las de config y las cobradas confirmadas (sin horas o con horas sin confirmar)
     const excluir = [...String(filaExcl?.valor || "").split(/[;,\n]+/).map((x) => x.trim()).filter(Boolean), ...ordenCartera.COBRADAS_CONFIRMADAS, ...cobradasCfg];
-    const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir, cuadrillas: cuadrillasCfg, grande: grandeCfg });
+    const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir, cuadrillas: cuadrillasCfg, grande: grandeCfg, convenio });
     data.cashflow.simulador.historico.personas_base = cal.mandos.personas;
     data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
     // fechas de inicio de Planificación (la misma cola, en jornadas y sin desvío): ahí se entregan las custodias
-    data.cashflow.fechas_inicio_plan = planCalendario.fechasInicioPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy, festivos: data.cashflow.festivos });
+    data.cashflow.fechas_inicio_plan = planCalendario.fechasInicioPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
+      nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgTxt("cuadrillas_personas")) });
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
       custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan });
     const serie = simulador.serieMensual(data.cashflow, sim);
@@ -746,7 +753,7 @@ module.exports = function (app) {
       const tam = req.query.tam ? String(req.query.tam).split(",").map(Number).filter((n) => n > 0) : null;
       const cf = _cache.data.cashflow;
       const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador: json("borrador"), conf: json("conf"), tam, alternativas: String(req.query.alternativas || "") === "1",
-        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrillas_personas")?.valor) });
+        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, jornada: cf.jornada || null, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrillas_personas")?.valor) });
       res.json({ ...r, generado: _cache.data.generado, cache: { edad_s: Math.round((Date.now() - _cache.ts) / 1000) } });
     } catch (e) {
       if (e.status === 400) return res.status(400).json({ ok: false, error: e.message });
