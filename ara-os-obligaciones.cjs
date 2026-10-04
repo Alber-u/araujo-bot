@@ -457,8 +457,15 @@ function pagoEnBanco(importe, desde, apuntes, usados) {
   return null;
 }
 
+// Una sola lectura a la vez (04/10/2026): si ya hay una en marcha, se espera
+// a esa en vez de lanzar otra igual contra Holded.
+let _enCurso = null;
 async function construir(force = false) {
   if (!force && _cache && Date.now() - _cache.ts < TTL) return _cache.data;
+  if (!_enCurso) _enCurso = construirLectura().finally(() => { _enCurso = null; });
+  return _enCurso;
+}
+async function construirLectura() {
 
   const hoy = hoyISO();
   const año = new Date().getFullYear();
