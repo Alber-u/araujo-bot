@@ -72,6 +72,26 @@
 // ============================================================
 
 module.exports = function setupAraOSPanelObras(app) {
+  // Bloqueos de contrato y pago con el expediente de Guillermo (la misma fuente que «Lista para
+  // empezar»); sin obras terminadas ni facturadas ni la fila de prueba (lib/bloqueos-expediente.cjs)
+  const bloqueosExp = require("./lib/bloqueos-expediente.cjs");
+  const leerBloqueosExpediente = async () => {
+    const [rows, exp] = await Promise.all([leerHoja("bloqueos_operativos!A2:V"), bloqueosExp.leerExpedientes(app)]);
+    return bloqueosExp.filasConExpediente(rows, exp, undefined, bloqueosExp.leerPendientes(app));
+  };
+  // «Lista para empezar» de una obra (la misma regla que Planificación), o null sin expediente
+  const { norm: normExp } = require("./lib/expediente-estado.cjs");
+  async function listaPorComunidad() {
+    const exp = await bloqueosExp.leerExpedientes(app);
+    if (!exp) return null;
+    const pend = bloqueosExp.leerPendientes(app);
+    const m = new Map();
+    for (const e of Object.values(exp)) {
+      const r = bloqueosExp.faltasExpediente(e, pend ? pend.find((x) => x.ccpp_id === e.ccpp_id) || null : null, !!pend);
+      for (const k of [e.comunidad, e.direccion]) if (k) m.set(normExp(k), r);
+    }
+    return m;
+  }
 
   const { validToken } = require("./lib/auth.cjs");
 
@@ -719,9 +739,18 @@ module.exports = function setupAraOSPanelObras(app) {
   // Las fases 01-07 se siguen tomando de fase_presupuesto sin
   // inferencia, igual que en v0.5.0.
   // ============================================================
-  function clasificarObra(obra, bloqueosObra, pagos) {
+  // lista: «Lista para empezar» del expediente (listaPorComunidad), la misma regla que Planificación.
+  // Con ella, 08/09 van a PREPARADA solo si está lista; a FINANCIACIÓN si falta el abono de Sabadell;
+  // si no, 08 se queda en CyCP y 09 va a BLOQUEOS. Sin expediente, la regla de antes (est_piso_pago).
+  function clasificarObra(obra, bloqueosObra, pagos, lista = null) {
     const fase = (obra.fase_presupuesto || "").trim();
     if (fase.startsWith("ZZ_")) return null;
+    if (lista && (fase === "08_CYCP" || fase === "09_TRAMITADA")) {
+      if (lista.lista) return ["11_PREPARADA"];
+      const abono = lista.pago.some((t) => /Sabadell/.test(t));
+      if (fase === "08_CYCP") return abono ? ["08_CYCP", "09_FINANCIACION"] : ["08_CYCP"];
+      return abono ? ["09_FINANCIACION"] : ["10_BLOQUEOS"];
+    }
 
     // v0.10.0: estado real de pagos en los pisos
     const p = pagos || { financia: 0, pendiente_f: 0 };
@@ -761,13 +790,14 @@ module.exports = function setupAraOSPanelObras(app) {
 
     try {
       // Leer en paralelo: comunidades + bloqueos + pisos + temperatura + ordenes_trabajo
-      const [rowsCom, rowsBloq, rowsPisos, rowsTemp, rowsOT, rowsFinSab] = await Promise.all([
+      const [rowsCom, rowsBloq, rowsPisos, rowsTemp, rowsOT, rowsFinSab, listas] = await Promise.all([
         leerHoja("comunidades!A2:BD"),
-        leerHoja("bloqueos_operativos!A2:V"),
+        leerBloqueosExpediente(),
         leerHoja("pisos!A2:AS"),
         leerHojaSafe("temperatura_contacto!A2:D"),
         leerHojaSafe("ordenes_trabajo!A2:AJ"),
         leerHojaSafe("financiaciones_sabadell!A2:L"),
+        listaPorComunidad().catch(() => null),
       ]);
 
       // Mapa de cobros Sabadell por comunidad
@@ -869,8 +899,9 @@ module.exports = function setupAraOSPanelObras(app) {
         // v0.10.0: estado real de pagos en los pisos (sustituye al motor de bloqueos
         // para detectar 09 FINANCIACIÓN / 10 BLOQUEOS / 11 PREPARADA)
         const pagos = calcularPagosObra(pisosObra, sabadellPorComunidad[obra.comunidad.trim()] || 0);
+        const listaObra = listas ? listas.get(normExp(obra.comunidad)) || listas.get(normExp(obra.direccion)) || null : null;
 
-        const grupos_obra = clasificarObra(obra, bloqObra, pagos);
+        const grupos_obra = clasificarObra(obra, bloqObra, pagos, listaObra);
         if (!grupos_obra) continue;
         // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
         const ot = otPorComunidad[obra.comunidad.trim()];
@@ -957,6 +988,10 @@ module.exports = function setupAraOSPanelObras(app) {
         const item = {
           comunidad: obra.comunidad,
           direccion: obra.direccion,
+          // «Lista para empezar / qué falta»: la misma regla y textos que Planificación
+          // (pendiente_eur solo lo enseña el front al CEO)
+          lista_para_empezar: listaObra ? !!listaObra.lista : null,
+          expediente: listaObra ? { texto: listaObra.estado.texto, faltas: listaObra.estado.faltas, financiacion: listaObra.estado.financiacion } : null,
           ccpp_id: claveCcpp ? ccppId(claveCcpp) : "",
           fase: obra.fase_presupuesto,
           pto_total: importe,
@@ -1123,7 +1158,7 @@ module.exports = function setupAraOSPanelObras(app) {
     try {
       const [rowsCom, rowsBloq, rowsPisos, docsPiso, rowsOT] = await Promise.all([
         leerHoja("comunidades!A2:BD"),
-        leerHoja("bloqueos_operativos!A2:V"),
+        leerBloqueosExpediente(),
         leerHoja("pisos!A2:AS"),
         leerDocsManualesPiso(),
         leerHojaSafe("ordenes_trabajo!A2:AJ"),
@@ -1626,7 +1661,7 @@ module.exports = function setupAraOSPanelObras(app) {
       // Cargar TODO el panel + pisos para tener contexto completo
       const [rowsCom, rowsBloq, rowsPisos] = await Promise.all([
         leerHoja("comunidades!A2:BD"),
-        leerHoja("bloqueos_operativos!A2:V"),
+        leerBloqueosExpediente(),
         leerHoja("pisos!A2:AS"),
       ]);
 

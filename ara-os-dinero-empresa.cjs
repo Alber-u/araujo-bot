@@ -1031,6 +1031,13 @@ module.exports = function (app) {
   });
 
   _cargaUltimo = cargarUltimoCompleto().catch(() => {});
+  // Abonos de Sabadell pendientes (financiaciones_sabadell + 5610 de Holded) de la última carga, para
+  // los bloqueos de pago del Panel de Obras y del Operativo (lib/bloqueos-expediente.cjs): sin llamadas nuevas
+  app.locals = app.locals || {};
+  app.locals.sabadellPendientes = () => {
+    const c = _cache && !fuenteCaida(_cache.data) ? _cache : (_ultimoCompleto || _cache);
+    return c?.data?.cashflow?.sabadell?.pendientes || null;
+  };
   // Sembrar la última carga completa (tras un despliegue no hay ninguna y Holded
   // puede tardar): POST con el JSON de una carga completa de /dinero-empresa.
   // Solo se acepta si está completa y es más nueva que la que haya.

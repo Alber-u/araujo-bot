@@ -4,7 +4,7 @@
 // SOLO LECTURA de la hoja de Guillermo (comunidades y pisos): no escribe nada.
 //   GET /api/ara-os/expediente-estado?token=          → todas las obras
 //   GET /api/ara-os/expediente-estado/:ccpp_id?token= → una
-// Siete lecturas de Sheets para todas las obras (nunca Holded), con caché de
+// Ocho lecturas de Sheets para todas las obras (nunca Holded), con caché de
 // 10 min y una sola lectura a la vez. ?refresh=1 vuelve a leer.
 // ============================================================
 "use strict";
@@ -29,13 +29,14 @@ module.exports = function (app) {
     // «Faltan N de M»: el contador del panel de Guillermo con sus mismos datos (docs manuales
     // activos, pisos con los campos del bot, bot_documentos y bot_expedientes). Solo lectura.
     const conPanel = typeof P?._contarFaltanBot === "function" && typeof P?._leerDocsManuales === "function" && typeof P?._leerBotDatosHoyIndex === "function";
-    const [com, pis, docs, sab, cfg, bot] = await Promise.all([
+    const [com, pis, docs, sab, cfg, bot, ots] = await Promise.all([
       s.get({ spreadsheetId: id, range: "comunidades!A:BO", valueRenderOption: "UNFORMATTED_VALUE" }),
       s.get({ spreadsheetId: id, range: "pisos!A:AX" }),
       conPanel ? P._leerDocsManuales() : s.get({ spreadsheetId: id, range: "documentos_manuales!A:G" }),
       s.get({ spreadsheetId: id, range: "financiaciones_sabadell!A2:L" }).catch(() => ({ data: { values: [] } })),
       s.get({ spreadsheetId: id, range: "config_dinero!A:B" }).catch(() => ({ data: { values: [] } })),
       conPanel ? P._leerBotDatosHoyIndex().catch(() => ({})) : Promise.resolve({}),
+      s.get({ spreadsheetId: id, range: "ordenes_trabajo!A2:B" }).catch(() => ({ data: { values: [] } })),
     ]);
     let piso = [], ccpp = [];
     if (conPanel) ({ docsPiso: piso, docsCcpp: ccpp } = docs);
@@ -52,12 +53,15 @@ module.exports = function (app) {
     const contarFaltan = conPanel ? (estC, dC, ps, dP, fase, clave) => P._contarFaltanBot(estC, dC, ps, dP, fase, bot[P._normDirBot(clave)] || null)
       : typeof P?._contarFaltan === "function" ? P._contarFaltan : null;
     const filaAlias = (cfg.data.values || []).find((r) => String(r[0] || "").trim().toLowerCase() === "ccpp_alias");
-    const data = aplicarAliasExpedientes(estadosExpedientes({ comunidades: com.data.values || [], pisos: pis.data.values || [], docs: { piso, ccpp }, sabadell: sab.data.values || [], contarFaltan }),
+    const data = aplicarAliasExpedientes(estadosExpedientes({ comunidades: com.data.values || [], pisos: pis.data.values || [], docs: { piso, ccpp }, sabadell: sab.data.values || [], contarFaltan, ots: ots.data.values || [] }),
       leerAlias(filaAlias ? filaAlias[1] : ""));
     _cache = { ts: Date.now(), data };
     return _cache;
   });
   const obtener = async (refresh) => (!refresh && _cache && Date.now() - _cache.ts < TTL_MS ? _cache : leer());
+  // Para los demás módulos (bloqueos de contrato y pago, lib/bloqueos-expediente.cjs): la misma caché
+  app.locals = app.locals || {};
+  app.locals.expedienteEstado = async () => (await obtener(false)).data;
 
   app.options("/api/ara-os/expediente-estado", (req, res) => { cors(res); res.status(204).end(); });
   app.options("/api/ara-os/expediente-estado/:ccpp_id", (req, res) => { cors(res); res.status(204).end(); });

@@ -61,13 +61,16 @@ module.exports = function setupAraOSInferencia(app) {
     if(!FASES_ACTIVAS.includes(fase)&&!com.fecha_documentacion_completa&&!com.fecha_contratos_pagos_completa)return[];
     const pisosDoc=pisos.filter(pisoTieneDocPendiente);
     if(pisosDoc.length>0){ const v=pisosDoc.map(p=>p.vivienda).join(", "); const p=[...new Set(pisosDoc.flatMap(p=>(p.documentos_pendientes||"").split(/[,;|]+/).map(d=>d.trim()).filter(Boolean)))].slice(0,5).join(", "); bloqueos.push({tipo_bloqueo:"DOC_PENDIENTE",severidad:pisosDoc.length>=3?"critica":"seguimiento",pelota_en:"vecino",impacto:"bloquea_inicio",vecinos_afectados:v,accion_exacta:"Reclamar documentación: "+(p||"ver pisos"),ultimo_movimiento_humano:"",dias_sin_movimiento:""}); }
+    // PAGO_PENDIENTE y CONTRATOS_PAGOS ya no se escriben: se calculan al leer con el expediente de
+    // Guillermo (lib/bloqueos-expediente.cjs). Solo cuentan, como antes, para no añadir SIN_MOVIMIENTO.
+    let deContratoPago=0;
     const pisosPago=pisos.filter(pisoTienePagoPendiente);
-    if(pisosPago.length>0){ bloqueos.push({tipo_bloqueo:"PAGO_PENDIENTE",severidad:"critica",pelota_en:"vecino",impacto:"bloquea_cobro",vecinos_afectados:pisosPago.map(p=>p.vivienda).join(", "),accion_exacta:"Reclamar pago a "+pisosPago.length+" vecino(s)",ultimo_movimiento_humano:"",dias_sin_movimiento:""}); }
+    if(pisosPago.length>0){ deContratoPago++; }
     const pisosFin=pisos.filter(pisoTieneFinanciacion);
     if(pisosFin.length>0){ bloqueos.push({tipo_bloqueo:"FINANCIACION",severidad:"seguimiento",pelota_en:"financiera",impacto:"bloquea_inicio",vecinos_afectados:pisosFin.map(p=>p.vivienda).join(", "),accion_exacta:"Documentación financiación incompleta en "+pisosFin.length+" piso(s)",ultimo_movimiento_humano:"",dias_sin_movimiento:""}); }
-    if(comunidadTieneContratosPendientes(com)){ bloqueos.push({tipo_bloqueo:"CONTRATOS_PAGOS",severidad:"critica",pelota_en:"administrador",impacto:"bloquea_cobro",vecinos_afectados:"",accion_exacta:"Gestionar contratos y cartas de pago con administrador",ultimo_movimiento_humano:"",dias_sin_movimiento:""}); }
+    if(comunidadTieneContratosPendientes(com)) deContratoPago++;
     const sinMov=comunidadSinMovimiento(com,pisos);
-    if(sinMov&&bloqueos.length===0){ bloqueos.push({tipo_bloqueo:"SIN_MOVIMIENTO",severidad:sinMov.dias>30?"critica":"seguimiento",pelota_en:"nosotros",impacto:"bloquea_ejecucion",vecinos_afectados:"",accion_exacta:"Sin movimiento humano en "+sinMov.dias+" días",ultimo_movimiento_humano:sinMov.fecha,dias_sin_movimiento:String(sinMov.dias)}); }
+    if(sinMov&&bloqueos.length===0&&!deContratoPago){ bloqueos.push({tipo_bloqueo:"SIN_MOVIMIENTO",severidad:sinMov.dias>30?"critica":"seguimiento",pelota_en:"nosotros",impacto:"bloquea_ejecucion",vecinos_afectados:"",accion_exacta:"Sin movimiento humano en "+sinMov.dias+" días",ultimo_movimiento_humano:sinMov.fecha,dias_sin_movimiento:String(sinMov.dias)}); }
     return bloqueos;
   }
   async function ejecutarInferencia(escribir) {

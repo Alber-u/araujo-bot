@@ -69,7 +69,11 @@ module.exports = function setupAraOSPanel(app) {
   }
 
   async function obtenerPanel() {
-    const rows = await leerHoja("bloqueos_operativos!A:V");
+    // contrato y pago: con el expediente de Guillermo (lib/bloqueos-expediente.cjs), igual que
+    // «Lista para empezar»; sin obras terminadas ni facturadas ni la fila de prueba
+    const bloqueosExp = require("./lib/bloqueos-expediente.cjs");
+    const [crudas, exp] = await Promise.all([leerHoja("bloqueos_operativos!A:V"), bloqueosExp.leerExpedientes(app)]);
+    const rows = [crudas[0] || [], ...bloqueosExp.filasConExpediente(crudas.slice(1), exp, undefined, bloqueosExp.leerPendientes(app))];
 
     const bloqueos = [];
     for (let i = 1; i < rows.length; i++) {
