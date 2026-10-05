@@ -196,10 +196,10 @@ async function configCertif() {
   if (_cfgCertif && Date.now() - _cfgCertifTs < 60 * 1000) return _cfgCertif;
   const out = { coste_hora: require("./lib/presupuesto-privado.cjs").COSTE_HORA_DEF, horas_visita: avanceCert.HORAS_VISITA_DEF };
   try {
-    const { leerPestana } = require("./lib/sheets-tabla.cjs");
-    const r = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
-    // el número de la celda aunque lleve unidades o espacios («30», «30 €», «30,00 €/h», « 30 »): 07/10/2026
-    const v = (k) => { const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase().replace(/\s+/g, "_") === k); const m = f ? String(f.valor ?? "").replace(/\s/g, "").match(/-?\d+(?:[.,]\d+)?/) : null; const n = m ? Number(m[0].replace(",", ".")) : NaN; return Number.isFinite(n) && n > 0 ? n : null; };
+    // toda la hoja (config_dinero!A:C), la misma lectura que presupuestos y el dinero (08/10/2026)
+    const CD = require("./lib/config-dinero.cjs");
+    const r = await CD.leerConfigDinero();
+    const v = (k) => CD.numConfig(r.filas, k);
     if (v("coste_hora_eur") != null) out.coste_hora = v("coste_hora_eur");
     if (v("horas_visita") != null) out.horas_visita = v("horas_visita");
   } catch (e) { console.warn("[certif] config_dinero:", e.message); return out; }

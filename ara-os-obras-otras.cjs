@@ -35,14 +35,18 @@ async function configPresupuesto() {
   if (_cfgPresu && Date.now() - _cfgPresuTs < 60 * 1000) return _cfgPresu;
   const out = { coste_hora_eur: presuPriv.COSTE_HORA_DEF, margen_minimo_privadas: presuPriv.MARGEN_MIN_DEF, fuente: "por defecto" };
   try {
-    const { leerPestana } = require("./lib/sheets-tabla.cjs");
-    const r = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
-    // el número de la celda aunque lleve unidades o espacios («30», «30 €», «30,00 €/h», « 30 »): 07/10/2026
-    const v = (k) => { const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase().replace(/\s+/g, "_") === k); const m = f ? String(f.valor ?? "").replace(/\s/g, "").match(/-?\d+(?:[.,]\d+)?/) : null; const n = m ? Number(m[0].replace(",", ".")) : NaN; return Number.isFinite(n) && n > 0 ? n : null; };
+    // toda la hoja (config_dinero!A:C), por posición; de una clave repetida, la última fila con valor (08/10/2026)
+    const CD = require("./lib/config-dinero.cjs");
+    const r = await CD.leerConfigDinero();
+    const v = (k) => CD.numConfig(r.filas, k);
     if (v("coste_hora_eur") != null) out.coste_hora_eur = v("coste_hora_eur");
     if (v("margen_minimo_privadas") != null) out.margen_minimo_privadas = v("margen_minimo_privadas");
     out.fuente = "config_dinero";
-    if (out.coste_hora_eur == null) out.aviso = "Falta «coste_hora_eur» en config_dinero: sin coste por hora no se calcula el margen.";
+    if (out.coste_hora_eur == null) {
+      out.aviso = "Falta «coste_hora_eur» en config_dinero: sin coste por hora no se calcula el margen.";
+      // por qué: filas leídas y las filas con esa clave (o parecidas) que se han encontrado
+      out.diagnostico = CD.diagnosticoClave(r.filas, r.filas_hoja, "coste_hora_eur");
+    }
   } catch (e) {
     // sin leer config_dinero no hay coste por hora: aviso (y se reintenta en la siguiente petición)
     console.warn("[obras-otras] config_dinero:", e.message);

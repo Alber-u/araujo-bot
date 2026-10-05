@@ -383,7 +383,8 @@ async function construirFuentes(token, force) {
         : { ok: true, data: r.docs || [] }))),
     conTimeout(leerPestana("prestamos", PRESTAMOS_HEADERS), TIMEOUT_MS, "hoja prestamos")
       .then((r) => ({ ok: true, data: r.filas, faltan: r.faltan })),
-    conTimeout(leerPestana("config_dinero", CONFIG_HEADERS), TIMEOUT_MS, "hoja config_dinero")
+    // toda la hoja (config_dinero!A:C) por posición, la misma lectura que presupuestos y certificaciones (08/10/2026)
+    conTimeout(asegurarPestana("config_dinero", CONFIG_HEADERS).then(() => require("./lib/config-dinero.cjs").leerConfigDinero()), TIMEOUT_MS, "hoja config_dinero")
       .then((r) => ({ ok: true, data: r.filas })),
     conTimeout(leerPestana("comunidades_tags_holded", TAGS_HEADERS, { crear: false }), TIMEOUT_MS, "hoja comunidades_tags_holded")
       .then((r) => {
@@ -438,7 +439,7 @@ async function construirFuentes(token, force) {
   // Comunidades duplicadas (config_dinero «ccpp_alias»): custodias, etiquetas y OT
   // con el id bueno antes de cualquier cálculo; nunca por nombre
   {
-    const fila = (fuentes.config?.ok ? fuentes.config.data : []).find((r) => String(r.clave || "").trim().toLowerCase() === "ccpp_alias");
+    const fila = require("./lib/config-dinero.cjs").valorConfig(fuentes.config?.ok ? fuentes.config.data : [], "ccpp_alias");
     ccppAlias.aplicarAlias(fuentes, ccppAlias.leerAlias(fila?.valor));
   }
 
@@ -495,7 +496,7 @@ async function construirFuentes(token, force) {
 // sin volver a leer Holded.
 // Lo que el cash flow necesita de las fuentes lentas
 function extraCashflow(fuentes, hoy) {
-  const cfgf = { txt: (k) => { const r = (fuentes.config?.ok ? fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; } };
+  const cfgf = { txt: (k) => { const r = require("./lib/config-dinero.cjs").valorConfig(fuentes.config?.ok ? fuentes.config.data : [], k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; } };
   cfgf.num = (k) => { const v = cfgf.txt(k); const n = v == null ? null : Number(String(v).replace(",", ".")); return Number.isFinite(n) ? n : null; };
   const an = fuentes.res_anual;
   const meses = an?.ok ? (an.data.por_mes || []).filter((m) => !m.sin_datos && m.beneficio_real != null) : [];
@@ -545,7 +546,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.cashflow.vista = data.real ? "real" : "contable";
   data.cashflow.simulador = cashflow.baseSimulador(fuentes.pnr_ref);
   // Obras cobradas enteras confirmadas a mano (además de las de la hoja)
-  const filaCob = (fuentes.config?.ok ? fuentes.config.data : []).find((r) => String(r.clave || "").trim().toLowerCase() === "obras_cobradas");
+  const filaCob = require("./lib/config-dinero.cjs").valorConfig(fuentes.config?.ok ? fuentes.config.data : [], "obras_cobradas");
   const cobradasCfg = String(filaCob?.valor || "").split(/[;,\n]+/).map((x) => x.trim()).filter(Boolean);
   // Orden de la cartera según la documentación de cada expediente
   // + fechas de inicio/fin del panel de obras (OT) y las otras obras aceptadas (OO)
@@ -559,7 +560,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     { ot: fuentes.ot?.ok ? fuentes.ot.data : null, oo: fuentes.oo?.ok ? fuentes.oo.data : null, hoy, cobradas: cobradasCfg }),
     fuentes.planificacion?.ok ? fuentes.planificacion.data : []));
   // Cuadrillas reales (config_dinero «cuadrillas», p. ej. "2,3") y obra grande
-  const cfgTxt = (k) => { const r = (fuentes.config?.ok ? fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; };
+  const cfgTxt = (k) => { const r = require("./lib/config-dinero.cjs").valorConfig(fuentes.config?.ok ? fuentes.config.data : [], k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; };
   const cuadrillasCfg = cfgTxt("cuadrillas");
   const grandeCfg = cfgTxt("obra_grande_horas") != null && Number.isFinite(Number(cfgTxt("obra_grande_horas"))) ? Number(cfgTxt("obra_grande_horas")) : null;
   // Custodias por obra (cuentas 5610): se entregan a EMASESA el día que empieza la obra
@@ -625,7 +626,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   }
   // «Real (automático)»: mandos calibrados con lo último de ARA-OS y su serie
   if (data.cashflow.simulador.ok) {
-    const filaExcl = (fuentes.config?.ok ? fuentes.config.data : []).find((r) => String(r.clave || "").trim().toLowerCase() === "obras_excluidas_calibracion");
+    const filaExcl = require("./lib/config-dinero.cjs").valorConfig(fuentes.config?.ok ? fuentes.config.data : [], "obras_excluidas_calibracion");
     // fuera de la calibración: las de config y las cobradas confirmadas (sin horas o con horas sin confirmar)
     const excluir = [...String(filaExcl?.valor || "").split(/[;,\n]+/).map((x) => x.trim()).filter(Boolean), ...ordenCartera.COBRADAS_CONFIRMADAS, ...cobradasCfg];
     const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir, cuadrillas: cuadrillasCfg, grande: grandeCfg, convenio });
@@ -894,7 +895,8 @@ module.exports = function (app) {
   // GET ?modo=real|simulacion&borrador={json}&tam=2,3&conf={json}&alternativas=1
   // La misma cola que el cash flow, en jornadas y SIN euros (para nadie).
   const RUTA_CAL = "/api/ara-os/planificacion-obras/calendario";
-  const cfgFila = (k) => (_cache?.data?._base?.fuentes?.config?.ok ? _cache.data._base.fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k);
+  // de una clave repetida, la última fila con valor (como en todo el dinero)
+  const cfgFila = (k) => require("./lib/config-dinero.cjs").valorConfig(_cache?.data?._base?.fuentes?.config?.ok ? _cache.data._base.fuentes.config.data : [], k) || undefined;
   app.options(RUTA_CAL, (req, res) => { cors(res); res.status(204).end(); });
   app.get(RUTA_CAL, async (req, res) => {
     cors(res);
@@ -993,10 +995,12 @@ module.exports = function (app) {
   async function escribirConfig(valores) {
     await asegurarPestana("config_dinero", CONFIG_HEADERS);
     const sheets = getSheetsClient();
-    const r = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "config_dinero!A1:C" });
+    const CD = require("./lib/config-dinero.cjs");
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: CD.RANGO });
     const filas = r.data.values || [];
     for (const [k, v] of Object.entries(valores)) {
-      const i = filas.findIndex((f, j) => j > 0 && String(f[0] || "").trim().toLowerCase() === k);
+      // se escribe en la fila que se lee (la última con esa clave)
+      const i = filas.map((f, j) => (j > 0 && CD.normClave(f[0]) === k ? j : -1)).filter((j) => j > 0).pop() ?? -1;
       if (i > 0) await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `config_dinero!B${i + 1}`, valueInputOption: "RAW", requestBody: { values: [[v]] } });
       else await sheets.spreadsheets.values.append({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "config_dinero!A:C", valueInputOption: "RAW", requestBody: { values: [[k, v, "Planificación (quién va en cada cuadrilla)"]] } });
     }

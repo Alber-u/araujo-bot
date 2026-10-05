@@ -562,9 +562,8 @@ let _provCache = null, _provTs = 0;
 async function presupuestosProvisionales() {
   if (_provCache && Date.now() - _provTs < 5 * 60 * 1000) return _provCache;
   try {
-    const { leerPestana } = require("./lib/sheets-tabla.cjs");
-    const cfg = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
-    const fila = (cfg.filas || []).find(f => String(f.clave || "").trim().toLowerCase() === "presupuesto_provisional");
+    const CD = require("./lib/config-dinero.cjs");
+    const fila = CD.valorConfig((await CD.leerConfigDinero()).filas, "presupuesto_provisional");
     _provCache = require("./lib/presupuesto-provisional.cjs").leerProvisionales(fila?.valor);
   } catch (e) { console.warn("[presupuesto_provisional]", e.message); _provCache = _provCache || {}; }
   _provTs = Date.now();
@@ -3368,12 +3367,12 @@ module.exports = function setupAraOSHolded(app) {
       // config_dinero «presupuesto_provisional»: importe de obras sin pto_total en el panel (excepción temporal)
       let provisionales = {};
       try {
-        const { leerPestana } = require("./lib/sheets-tabla.cjs");
-        const cfg = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
-        const fila = (cfg.filas || []).find(f => String(f.clave || "").trim().toLowerCase() === "comision_comercial_pct");
+        const CD = require("./lib/config-dinero.cjs");
+        const cfg = await CD.leerConfigDinero();
+        const fila = CD.valorConfig(cfg.filas, "comision_comercial_pct");
         const v = fila ? _parseEurFlexible(fila.valor) : null;
         if (v != null && v > 0) comisionPct = v > 1 ? v / 100 : v;
-        const filaProv = (cfg.filas || []).find(f => String(f.clave || "").trim().toLowerCase() === "presupuesto_provisional");
+        const filaProv = CD.valorConfig(cfg.filas, "presupuesto_provisional");
         provisionales = require("./lib/presupuesto-provisional.cjs").leerProvisionales(filaProv?.valor);
       } catch (e) { console.warn("[posicion-neta-real] config_dinero:", e.message); }
       let comisionDevengadaMes = 0;
