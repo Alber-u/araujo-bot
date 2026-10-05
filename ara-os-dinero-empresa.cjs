@@ -842,14 +842,16 @@ module.exports = function (app) {
                    // «Programar obra»: quién la hace, uno a uno
                    operarios: ordenCartera.leerOperarios(b.operarios).join(", "),
                    // «Cambiar personas desde» (obra ya en obra): un tramo, no se toca la OT
-                   desde: b.desde ? String(b.desde).slice(0, 10) : "" };
+                   desde: b.desde ? String(b.desde).slice(0, 10) : "",
+                   // «Pausar obra» / «Dar por terminada» / «Reanudar»: no se toca la OT
+                   estado: b.estado ? String(b.estado).trim().toLowerCase() : "" };
     try {
       await guardarFilasPlan([fila]);
       // La OT recibe lo de Planificación: con personas y fecha se crea o actualiza; sin nada
       // (Quitar programación) se deshace si seguía en «12_PROGRAMADA». Si falla, lo guardado se queda.
       const ops = ordenCartera.leerOperarios(b.operarios);
       const programa = ops.length && fila.fecha_inicio_fija && !fila.desde;
-      const quita = !fila.desde && !fila.fecha_inicio_fija && !ops.length && (fila.posicion === "" || fila.posicion == null) && (fila.cuadrilla === "" || fila.cuadrilla == null);
+      const quita = !fila.desde && !fila.estado && !fila.fecha_inicio_fija && !ops.length && (fila.posicion === "" || fila.posicion == null) && (fila.cuadrilla === "" || fila.cuadrilla == null);
       let ot = null;
       if ((programa || quita) && typeof app.locals?.otDesdePlanificacion === "function") {
         try { ot = await app.locals.otDesdePlanificacion({ ccpp_id: fila.obra_id, fecha_inicio: programa ? fila.fecha_inicio_fija : null, operarios: ops, usuario: fila.usuario }); }
@@ -935,7 +937,7 @@ module.exports = function (app) {
     await asegurarCabeceraPlan();
     await getSheetsClient().spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: `${ordenCartera.HOJA_PLAN}!A:I`,
+      range: `${ordenCartera.HOJA_PLAN}!A:J`,
       valueInputOption: "RAW",
       requestBody: { values: filas.map((f) => ordenCartera.PLAN_HEADERS.map((h) => f[h] ?? "")) },
     });
@@ -946,18 +948,18 @@ module.exports = function (app) {
       _cache = { ts: _cache.ts, data: { ...componer(base), _base: base } };
     }
   }
-  // planificacion_obras ya existía con 7 columnas: añade «operarios» (H1) y «desde» (I1) si faltan
+  // planificacion_obras ya existía con 7 columnas: añade «operarios» (H1), «desde» (I1) y «estado» (J1) si faltan
   let _cabeceraPlanOk = false;
   async function asegurarCabeceraPlan() {
     if (_cabeceraPlanOk) return;
     await asegurarPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS);
     const sheets = getSheetsClient();
-    const r = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${ordenCartera.HOJA_PLAN}!A1:I1` });
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${ordenCartera.HOJA_PLAN}!A1:J1` });
     const cab = (r.data.values?.[0] || []).map((h) => String(h || "").trim().toLowerCase());
     const falta = ordenCartera.PLAN_HEADERS.map((h, i) => [h, i]).filter(([h, i]) => cab[i] !== h);
-    // columnas añadidas después: «operarios» (H) y «desde» (I); el resto tiene que estar igual
-    if (falta.some(([h]) => !["operarios", "desde"].includes(h))) throw new Error(`cabecera de ${ordenCartera.HOJA_PLAN} distinta de la esperada: ${cab.join(", ")}`);
-    if (falta.length) await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${ordenCartera.HOJA_PLAN}!H1:I1`, valueInputOption: "RAW", requestBody: { values: [["operarios", "desde"]] } });
+    // columnas añadidas después: «operarios» (H), «desde» (I) y «estado» (J); el resto tiene que estar igual
+    if (falta.some(([h]) => !["operarios", "desde", "estado"].includes(h))) throw new Error(`cabecera de ${ordenCartera.HOJA_PLAN} distinta de la esperada: ${cab.join(", ")}`);
+    if (falta.length) await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${ordenCartera.HOJA_PLAN}!H1:J1`, valueInputOption: "RAW", requestBody: { values: [["operarios", "desde", "estado"]] } });
     _cabeceraPlanOk = true;
   }
   // Escribe (o añade) claves en config_dinero
