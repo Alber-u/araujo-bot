@@ -33,6 +33,7 @@
 
 const { validToken } = require("./lib/auth.cjs");
 const { leerPestana } = require("./lib/sheets-tabla.cjs");
+const custodiaHolded = require("./lib/custodia-holded.cjs");
 const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
 const concil = require("./lib/conciliacion-provisional.cjs");
@@ -430,7 +431,9 @@ async function construirFuentes(token, force) {
   // 5610 sin obra (p. ej. una caché de /custodias de antes): por el nombre, sin tildes ni mayúsculas
   if (fuentes.custodias?.ok && fuentes.comunidades_doc?.ok && Array.isArray(fuentes.custodias.data?.comunidades)) {
     fuentes.custodias = { ...fuentes.custodias, data: { ...fuentes.custodias.data,
-      comunidades: require("./lib/custodia-holded.cjs").asignarObras(fuentes.custodias.data.comunidades, fuentes.comunidades_doc.data, ordenCartera.ccppId) } };
+      comunidades: require("./lib/custodia-holded.cjs").asignarObras(fuentes.custodias.data.comunidades, fuentes.comunidades_doc.data, ordenCartera.ccppId,
+        // comunidad repetida en la hoja: la de la cartera
+        new Set([...(fuentes.pnr_ref?.ok ? (fuentes.pnr_ref.data.obras || []).map((o) => o.obra_id) : []), ...(fuentes.ot?.ok ? Object.values(fuentes.ot.data.grupos || {}).flat().map((o) => o.ccpp_id) : [])].filter(Boolean))) } };
   }
   // Comunidades duplicadas (config_dinero «ccpp_alias»): custodias, etiquetas y OT
   // con el id bueno antes de cualquier cálculo; nunca por nombre
@@ -725,10 +728,13 @@ async function guardarPrevision(data, hoy) {
 //     EMASESA, ni está terminada o facturada): aviso rojo de contabilidad. Solo lectura de lo ya cargado de Holded.
 function sabadellCustodia(obras, expedientes, custodias, hoy) {
   const out = { abonos_futuros: [], pendientes: [], sin_5610: [], cubiertos_5610: [] };
+  const idxCust = custodiaHolded.indexarCustodias((custodias || []).filter((x) => !x.ccpp_id));
   for (const o of obras || []) {
     const e = expedientes?.[o.obra_id];
     if (!e) continue;
-    const c = (custodias || []).find((x) => x.ccpp_id === o.obra_id) || null;
+    // la 5610 de la obra: por su id o, si no lo trae (cuentas que Holded descubre solas), por el nombre
+    // sin tildes ni mayúsculas («Custodia Plan Cinco - Rafael Laffon 7» = Rafael Laffón 7)
+    const c = (custodias || []).find((x) => x.ccpp_id === o.obra_id) || custodiaHolded.custodiaDe(idxCust, { comunidad: o.nombre }) || null;
     const saldo = c ? Math.max(0, Number(c.en_custodia) || 0) : 0;
     const entregado = c ? Math.max(0, Number(c.entregado_emasesa) || 0) : 0;
     const sab = e.sabadell || { abonado_eur: 0, abonos: [], entregado_emasesa_eur: 0 };
