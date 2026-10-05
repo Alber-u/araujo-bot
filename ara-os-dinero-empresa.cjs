@@ -568,6 +568,8 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     cobrado: c.cobrado ?? null, previsto: c.previsto ?? null, entregado_emasesa: c.entregado_emasesa ?? null, vecinos_censo: c.vecinos_censo ?? null,
     vecinos_faltan: Array.isArray(c.vecinos) && c.vecinos_censo != null ? c.vecinos.filter((v) => v.tipo !== "entrega_emasesa" && !v.en_holded).length : null })) : [];
   data.cashflow.festivos = festivosLib.leerFestivos(cfgTxt("festivos"));
+  // cada cuántas horas toca visita de Certificaciones (config_dinero «horas_visita»; Planificación, 32 por defecto)
+  data.cashflow.horas_visita = cfgTxt("horas_visita");
   // avance de Certificaciones (sin euros: Planificación la ve JM)
   data.cashflow.certificaciones = fuentes.certif?.ok ? (fuentes.certif.data.obras || []).map((c) => ({ obra_id: c.obra_id, avance_pct: c.avance_pct, ultima_visita_fecha: c.ultima_visita_fecha,
     horas_fichadas_visita: c.horas_fichadas_visita, horas_fichadas: c.horas_fichadas, previsto_horas: c.previsto_horas, total_visitas: c.total_visitas,

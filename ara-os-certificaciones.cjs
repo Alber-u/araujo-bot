@@ -190,26 +190,28 @@ async function actualizarFaseObra(obra_id, nueva_fase) {
 const DIA_CUADRILLA_HORAS = 16; // 1 día/cuadrilla = 2 personas × 8h (solo display)
 const avanceCert = require("./lib/avance-certificaciones.cjs");
 // coste por hora (config_dinero «coste_hora_eur»; si no, el de los presupuestos privados): desvío en €
-let _costeHora = null, _costeHoraTs = 0;
-async function costeHoraConfig() {
-  if (_costeHora != null && Date.now() - _costeHoraTs < 5 * 60 * 1000) return _costeHora;
-  let v = require("./lib/presupuesto-privado.cjs").COSTE_HORA_DEF;
+// y cada cuántas horas toca visita (config_dinero «horas_visita», 32 por defecto)
+let _cfgCertif = null, _cfgCertifTs = 0;
+async function configCertif() {
+  if (_cfgCertif && Date.now() - _cfgCertifTs < 5 * 60 * 1000) return _cfgCertif;
+  const out = { coste_hora: require("./lib/presupuesto-privado.cjs").COSTE_HORA_DEF, horas_visita: avanceCert.HORAS_VISITA_DEF };
   try {
     const { leerPestana } = require("./lib/sheets-tabla.cjs");
     const r = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
-    const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase() === "coste_hora_eur");
-    const n = f ? Number(String(f.valor).replace(",", ".")) : NaN;
-    if (Number.isFinite(n) && n > 0) v = n;
-  } catch (e) { console.warn("[certif] coste_hora_eur:", e.message); }
-  _costeHora = v; _costeHoraTs = Date.now();
-  return v;
+    const v = (k) => { const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase() === k); const n = f ? Number(String(f.valor).replace(",", ".")) : NaN; return Number.isFinite(n) && n > 0 ? n : null; };
+    if (v("coste_hora_eur") != null) out.coste_hora = v("coste_hora_eur");
+    if (v("horas_visita") != null) out.horas_visita = v("horas_visita");
+  } catch (e) { console.warn("[certif] config_dinero:", e.message); }
+  _cfgCertif = out; _cfgCertifTs = Date.now();
+  return out;
 }
+const costeHoraConfig = async () => (await configCertif()).coste_hora;
 
 // Umbral para alarma "toca visitar": horas reales fichadas desde la última visita.
 // Configurable en el futuro por obra (TODO: campo en certif_partidas o tabla aparte).
 // 32 = 2 días/cuadrilla — JM debería visitar cada ~2 días de trabajo efectivo.
-const UMBRAL_VISITA_HORAS = 32;
-const UMBRAL_VISITA_CRITICO_HORAS = 48; // 50% más → bandera roja
+// Umbral de visita (07/10/2026): config_dinero «horas_visita» (32 por defecto), el mismo que Planificación:
+// con esas horas fichadas desde la última visita, toca certificar (roja). Ya no hay 32/48.
 
 const HOJA_PARTIDAS = "certif_partidas";
 const HOJA_VISITAS = "certif_visitas";
@@ -541,7 +543,7 @@ function avancePctPonderado(partidas) {
 //   - registros: registros_tiempo filtrados para esa obra (output de horasRealesPorObra)
 //   - ultimaVisitaFecha: ISO string YYYY-MM-DD o null
 // Devuelve: { horas_desde_visita, nivel: 'ok'|'pendiente'|'critica' }
-function alarmaVisita(registros, ultimaVisitaFecha) {
+function alarmaVisita(registros, ultimaVisitaFecha, umbral = avanceCert.HORAS_VISITA_DEF) {
   // Si no hay visita previa, "horas desde" = todas las horas de la obra
   // Si hay, solo las posteriores (>=) a la fecha de la última visita
   const desde = ultimaVisitaFecha ? String(ultimaVisitaFecha).slice(0, 10) : null;
@@ -553,12 +555,11 @@ function alarmaVisita(registros, ultimaVisitaFecha) {
     horas += toNum(r.horas);
   }
   horas = Math.round(horas * 10) / 10;
-  let nivel = "ok";
-  if (horas >= UMBRAL_VISITA_CRITICO_HORAS) nivel = "critica";
-  else if (horas >= UMBRAL_VISITA_HORAS) nivel = "pendiente";
+  // la misma regla que las visitas previstas de Planificación (lib/avance-certificaciones)
+  const nivel = avanceCert.atrasadaPorHoras(horas, umbral) ? "critica" : "ok";
   return {
     horas_desde_visita: horas,
-    umbral: UMBRAL_VISITA_HORAS,
+    umbral,
     nivel,
   };
 }
@@ -1063,6 +1064,7 @@ module.exports = function (app) {
       }
 
       const costeHora = await costeHoraConfig();
+      const umbralVisita = (await configCertif()).horas_visita;
       const obras = Object.values(porObra).map((o) => {
         const acum = acumPorObra[o.obra_id];
         const avance = acum && acum.sumPrev > 0
@@ -1070,7 +1072,7 @@ module.exports = function (app) {
           : 0;
         const ult = ultimaPorObra[o.obra_id];
         const regs = registrosPorObra[o.obra_id] || [];
-        const alarma = alarmaVisita(regs, ult ? ult.fecha : null);
+        const alarma = alarmaVisita(regs, ult ? ult.fecha : null, umbralVisita);
         const abierta = visitaAbiertaDe(visitasRaw, o.obra_id);
 
         // v0.12.1 — Cálculo de retraso por obra (KPI principal):
@@ -1343,7 +1345,7 @@ module.exports = function (app) {
 
       // Avance ponderado por horas previstas:
       // recompongo lista plana de partidas con sus progresos para usar el helper
-      const alarma = alarmaVisita(horasReales, ultimaVisita?.fecha);
+      const alarma = alarmaVisita(horasReales, ultimaVisita?.fecha, (await configCertif()).horas_visita);
       const abierta = visitaAbiertaDe(visitas, obra_id);
 
       res.json({
