@@ -3922,10 +3922,14 @@ async function leerTodosExpedientes() {
   }
 }
 
+// v19.96 (criterio de Guille) -- salud del job, para el aviso de sistema de HOY (presupuestos.cjs la lee
+// en app.locals.botWhatsapp.salud). En memoria: al reiniciar se empieza de cero.
+const _saludBot = { jobOk: null, jobErr: "" };
 async function ejecutarJobSeguimiento() {
   console.log("Job seguimiento: inicio", new Date().toISOString());
   let enviados = 0;
   let omitidos = 0;
+  let _errGeneral = null;
 
   try {
     const expedientes = await leerTodosExpedientes();
@@ -4004,7 +4008,10 @@ async function ejecutarJobSeguimiento() {
     }
   } catch (err) {
     console.error("Job seguimiento: error general:", err.message);
+    _errGeneral = err;
   }
+  if (_errGeneral) _saludBot.jobErr = String(_errGeneral.message || _errGeneral).slice(0, 120);
+  else { _saludBot.jobOk = Date.now(); _saludBot.jobErr = ""; }
 
   console.log("Job seguimiento: fin. Enviados:", enviados, "| Omitidos:", omitidos);
 }
@@ -4019,6 +4026,7 @@ setTimeout(() => {
   // v0.10 - Envio de presentacion a UN solo piso (lo dispara el switch M->W del
   // programa via app.locals). No reenvia si el vecino ya tiene ficha.
   app.locals.botWhatsapp = {
+    salud: _saludBot,   // v19.96: para el aviso de sistema de HOY
     enviarPresentacionPiso: async (telefono, datos) => {
       const tel = normalizarTelefono(telefono);
       if (!tel) return { ok: false, estado: "sin_telefono" };

@@ -89,6 +89,9 @@ module.exports = function (app) {
   // (guardar, marcar, cambiar de modo, mensajes del bot...) la vacia antes de nada, para que despues de
   // escribir nunca se lea un dato de antes. Va aqui arriba para registrarse antes que todas las rutas.
   const _lecturaCorta = {};
+  // v19.96 (criterio de Guille) -- SALUD de los automatismos, para avisar en HOY si algo deja de funcionar
+  // (hasta ahora el error solo quedaba en el registro de Render). En memoria: al reiniciar se empieza de cero.
+  const _salud = { arranque: Date.now(), imapOk: null, imapErr: "", imapFallos: 0, cronOk: null, cronErr: "" };
   if (app && typeof app.use === "function") {
     app.use((req, res, next) => { if (req.method === "POST") { for (const k in _lecturaCorta) delete _lecturaCorta[k]; } next(); });
   }
@@ -2019,8 +2022,11 @@ module.exports = function (app) {
         if (r.procesados > 0 || r.errores > 0) {
           console.log(`[presupuestos][imap][cron] procesados=${r.procesados} errores=${r.errores}`);
         }
+        if (r && r.ok === false) { _salud.imapFallos++; _salud.imapErr = String(r.error || "sin detalle").slice(0, 120); }   // v19.96
+        else { _salud.imapOk = Date.now(); _salud.imapFallos = 0; _salud.imapErr = ""; }
       } catch (e) {
         console.error("[presupuestos][imap][cron] error:", e.message);
+        _salud.imapFallos++; _salud.imapErr = String(e.message || e).slice(0, 120);   // v19.96
       } finally {
         _imapCronEnMarcha = false;
       }
@@ -12579,9 +12585,10 @@ module.exports = function (app) {
     try {
       const r = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
       const f = (r.data.values || []).find(x => x && String(x[0] || "").trim() === "cron_ultima_ronda");
-      if (f && String(f[3] || "").slice(0, 10) === hoy) { console.log("[presupuestos][cron] ya paso hoy (" + hoy + "): no se repite"); return; }
+      if (f && String(f[3] || "").slice(0, 10) === hoy) { console.log("[presupuestos][cron] ya paso hoy (" + hoy + "): no se repite"); _salud.cronOk = Date.now(); return; }
     } catch (e) { /* si no se puede leer la marca, se hace la ronda como antes */ }
-    await ejecutarCronEnviosAutomaticos();
+    try { await ejecutarCronEnviosAutomaticos(); _salud.cronOk = Date.now(); _salud.cronErr = ""; }
+    catch (e) { _salud.cronErr = String(e.message || e).slice(0, 120); throw e; }
     try { await guardarAjusteBot("cron_ultima_ronda", hoy + " " + new Date().toISOString(), false); }
     catch (e) { console.warn("[presupuestos][cron] no se pudo apuntar la marca:", e.message); }
   }
@@ -13453,13 +13460,33 @@ module.exports = function (app) {
           ${_waHtml}
         </div>`;
       };
+      // v19.96 (criterio de Guille) -- Avisos de SISTEMA: si un automatismo deja de funcionar, se ve aqui
+      // (antes solo quedaba en el registro de Render). Margenes para no avisar recien arrancado el servidor.
+      const _avSis = [];
+      try {
+        const _ah = Date.now(), _up = _ah - _salud.arranque, _H = 3600 * 1000;
+        const _hm = (ms) => { const d = new Date(ms); return d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
+        if (_up > 40 * 60 * 1000 && (!_salud.imapOk || (_ah - _salud.imapOk) > 2 * _H)) {
+          _avSis.push("La lectura del correo no funciona " + (_salud.imapOk ? "desde el " + _hm(_salud.imapOk) : "desde que arrancó el servidor (" + _hm(_salud.arranque) + ")") + (_salud.imapErr ? " · último error: " + _salud.imapErr : "") + ". Los mails nuevos no entran en Mails pendientes.");
+        }
+        if (_up > 15 * 60 * 1000 && (!_salud.cronOk || (_ah - _salud.cronOk) > 26 * _H)) {
+          _avSis.push("La ronda automática de correos (reenvíos y seguimientos) no se ha hecho " + (_salud.cronOk ? "desde el " + _hm(_salud.cronOk) : "desde que arrancó el servidor (" + _hm(_salud.arranque) + ")") + (_salud.cronErr ? " · error: " + _salud.cronErr : "") + ".");
+        }
+        const _bs = (app.locals.botWhatsapp && app.locals.botWhatsapp.salud) || null;
+        if (_bs && _up > 15 * 60 * 1000 && (!_bs.jobOk || (_ah - _bs.jobOk) > 3 * _H)) {
+          _avSis.push("El repaso automático del bot (recordatorios por WhatsApp) no ha terminado " + (_bs.jobOk ? "desde el " + _hm(_bs.jobOk) : "desde que arrancó el servidor") + (_bs.jobErr ? " · error: " + _bs.jobErr : "") + ".");
+        }
+      } catch (e) {}
+      const _avSisHtml = _avSis.map(m => `<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;margin-bottom:4px;border-radius:5px;background:var(--ptl-danger-light);color:var(--ptl-danger-dark);font-size:12px;font-weight:600">⚠ ${_esc(m)}</div>`).join("");
       const cajaSinRespuesta = `
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div class="ptl-card-title ptl-m0">🔔 Avisos (${_avisosArr.length})</div>
+            <div class="ptl-card-title ptl-m0">🔔 Avisos (${_avisosArr.length + _avSis.length})</div>
           </div>
-          ${_avisosArr.length === 0
+          ${_avSisHtml}
+          ${(_avisosArr.length === 0 && _avSis.length === 0)
             ? `<div class="ptl-empty-msg">— Sin avisos —</div>`
+            : _avisosArr.length === 0 ? ""
             : `<div style="overflow:visible;border-radius:5px;background:var(--ptl-general-3)">${_avisosArr.map(renderAviso).join("")}</div>`
           }
         </div>
