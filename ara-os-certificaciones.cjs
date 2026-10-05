@@ -558,8 +558,8 @@ const PERS_HEADERS = [
 
 async function horasRealesPorObra(obra_id) {
   const registros = await leerTabla("registros_tiempo", RT_HEADERS);
-  return registros.filter((r) =>
-    r.obra_id === obra_id &&
+  // (Orad: con su parte de lo fichado en «Urbano Orad 13-15»)
+  return registrosDeObra(registros, obra_id, await partesGrupo()).filter((r) =>
     (r.tipo === "trabajo" || r.tipo === "extra") &&
     String(r.borrado).toUpperCase() !== "TRUE"
   );
@@ -677,9 +677,44 @@ function rangoTramo(visitas, visita_id) {
 //   desde EXCLUSIVO (no incluido), hasta EXCLUSIVO (no incluido).
 //   Si desde=null → desde el inicio.
 //   Si hasta=null → hasta el infinito (hoy).
-function registrosDelTramo(registros, obra_id, desde, hasta) {
-  return registros.filter((r) => {
-    if (r.obra_id !== obra_id) return false;
+// ── Obras de varias OO (Urbano Orad 13 y 15, 08/10/2026): se fichan juntas en «Urbano Orad 13-15» y se
+// visitan juntas. partesGrupo: { obra_id de Certificaciones → { grupo, hermanas, parte } } (parte = sus horas
+// presupuestadas ÷ las del grupo: mitad y mitad en Orad). Caché de 60 s.
+let _partesGrupo = null, _partesGrupoTs = 0;
+function partesDeGrupo(partidas) {
+  const OC = require("./lib/orden-cartera.cjs");
+  const prev = {};
+  for (const p of partidas || []) prev[p.obra_id] = (prev[p.obra_id] || 0) + toNum(p.tiempo_previsto_horas);
+  const porGrupo = new Map();
+  for (const id of Object.keys(prev)) { const g = OC.grupoDe({ nombre: id }); if (g) porGrupo.set(g, [...(porGrupo.get(g) || []), id]); }
+  const out = {};
+  for (const [g, ids] of porGrupo) {
+    const tot = ids.reduce((t, id) => t + prev[id], 0);
+    for (const id of ids) out[id] = { grupo: g.nombre, hermanas: [...ids].sort(), parte: tot > 0 ? prev[id] / tot : 1 / ids.length };
+  }
+  return out;
+}
+async function partesGrupo() {
+  if (_partesGrupo && Date.now() - _partesGrupoTs < 60e3) return _partesGrupo;
+  _partesGrupo = partesDeGrupo(await leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS));
+  _partesGrupoTs = Date.now();
+  return _partesGrupo;
+}
+const hermanasDe = (partes, obra_id) => partes?.[obra_id]?.hermanas || [obra_id];
+// registros de una obra: los suyos y, si es de un grupo, su parte de lo fichado en el grupo («13-15»)
+function registrosDeObra(registros, obra_id, partes) {
+  const pg = partes?.[obra_id];
+  if (!pg) return registros.filter((r) => r.obra_id === obra_id);
+  const OC = require("./lib/orden-cartera.cjs");
+  const out = [];
+  for (const r of registros) {
+    if (r.obra_id === obra_id) out.push(r);
+    else if (!pg.hermanas.includes(r.obra_id) && OC.grupoDe({ nombre: r.obra_id, obra_id: r.obra_id })?.nombre === pg.grupo) out.push({ ...r, horas: toNum(r.horas) * pg.parte, de_grupo: true });
+  }
+  return out;
+}
+function registrosDelTramo(registros, obra_id, desde, hasta, partes = null) {
+  return registrosDeObra(registros, obra_id, partes).filter((r) => {
     if (r.tipo !== "trabajo" && r.tipo !== "extra") return false;
     if (String(r.borrado).toUpperCase() === "TRUE") return false;
     const f = String(r.fecha || "").slice(0, 10);
@@ -692,10 +727,11 @@ function registrosDelTramo(registros, obra_id, desde, hasta) {
 
 // Devuelve {horas_totales, horas_imputadas, horas_pendientes, por_persona[]}
 // para una visita concreta.
-function calcularCuadreVisita(visita, visitas, registros, desgloses) {
+function calcularCuadreVisita(visita, visitas, registros, desgloses, partes = null) {
   const obra_id = visita.obra_id;
   const { desde, hasta } = rangoTramo(visitas, visita.visita_id);
-  const regs = registrosDelTramo(registros, obra_id, desde, hasta);
+  // (Orad: lo fichado en «Urbano Orad 13-15», repartido entre sus portales según su presupuesto)
+  const regs = registrosDelTramo(registros, obra_id, desde, hasta, partes);
 
   // Horas reales por persona en el tramo
   const realPorPersona = {};
@@ -752,7 +788,7 @@ async function cerrarVisitaSiCuadra(visita_id) {
   const visita = visitasAll[idx];
   if (String(visita.estado || "").toLowerCase() === "cerrada") return false;
 
-  const cuadre = calcularCuadreVisita(visita, visitasAll, registros, desgloses);
+  const cuadre = calcularCuadreVisita(visita, visitasAll, registros, desgloses, await partesGrupo());
   // Si pendientes son <= 0.01 (errores de redondeo), cuadrada
   if (cuadre.horas_pendientes <= 0.01) {
     const sheets = getSheetsClient();
@@ -1293,6 +1329,7 @@ module.exports = function (app) {
 
       const costeHora = await costeHoraConfig();
       const umbralVisita = (await configCertif()).horas_visita;
+      const partesG = partesDeGrupo(partidasRaw.filter((p) => !String(p.partida_id).startsWith(PARTIDA_TOTAL)));
       const obras = Object.values(porObra).map((o) => {
         const acum = acumPorObra[o.obra_id];
         const avance = acum && acum.sumPrev > 0
@@ -1301,7 +1338,11 @@ module.exports = function (app) {
         const ult = ultimaPorObra[o.obra_id];
         const regs = registrosPorObra[o.obra_id] || [];
         const umbral = umbralObra(o.obra_id, cfgObras, umbralVisita);
-        const alarma = alarmaVisita(regs, ult ? ult.fecha : null, umbral);
+        // Urbano Orad (08/10/2026): «toca visitar» una vez para la obra: todo lo fichado en el grupo desde
+        // la última visita de cualquiera de sus portales, contra su umbral (80 h)
+        const pg = partesG[o.obra_id];
+        const ultG = pg ? pg.hermanas.map((id) => ultimaPorObra[id]).filter(Boolean).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0] : ult;
+        const alarma = pg ? alarmaVisita(pg.hermanas.flatMap((id) => registrosPorObra[id] || []), ultG ? ultG.fecha : null, umbral) : alarmaVisita(regs, ult ? ult.fecha : null, umbral);
         const abierta = visitaAbiertaDe(visitasRaw, o.obra_id);
 
         // v0.12.1 — Cálculo de retraso por obra (KPI principal):
@@ -1360,6 +1401,8 @@ module.exports = function (app) {
           ultima_visita_fecha: ult ? ult.fecha : null,
           avance_pct: avance,
           alarma_visita: alarma,
+          // obra de varias fichas (Orad 13 y 15): se visitan juntas; el aviso sale en la primera
+          grupo: pg && pg.hermanas.length > 1 ? { nombre: pg.grupo, obras: pg.hermanas, principal: pg.hermanas[0] === o.obra_id } : null,
           visita_abierta_id: abierta ? abierta.visita_id : null,
           visita_abierta_fecha: abierta ? abierta.fecha : null,
           // v0.12.1: Retraso y color para la tarjeta
@@ -1594,6 +1637,8 @@ module.exports = function (app) {
         // N que se cuentan una vez por obra («columnas») y si alguna partida los necesita y faltan
         // (antes «totales»: chocaba con los totales calculados de la obra de más abajo y la ficha los preguntaba)
         cantidades_obra: cfgObraFicha?.totales || {},
+        // Urbano Orad (08/10/2026): sus fichas hermanas, que se visitan a la vez («Portal 13» / «Portal 15»)
+        grupo_certif: (() => { const pg = partesDeGrupo(partidasRaw)[obra_id]; return pg && pg.hermanas.length > 1 ? { nombre: pg.grupo, obras: pg.hermanas } : null; })(),
         // las unidades que se cuentan una vez por obra (columnas): las que piden sus partidas «X de N»
         cantidades_unidades: [...new Set(bloqueOrden.flatMap((n) => bloques[n].partidas).filter((p) => p.medicion?.tipo === "conteo" && p.medicion.total_de).map((p) => p.medicion.total_de))],
         faltan_totales: [...new Set(bloqueOrden.flatMap((n) => bloques[n].partidas).filter((p) => p.medicion?.falta_total).map((p) => p.medicion.total_de))],
@@ -1704,7 +1749,7 @@ module.exports = function (app) {
         return res.status(404).json({ ok: false, error: "No hay visita abierta", obra_id });
       }
 
-      const cuadre = calcularCuadreVisita(abierta, visitas, registros, desgloses);
+      const cuadre = calcularCuadreVisita(abierta, visitas, registros, desgloses, await partesGrupo());
       cuadre.por_persona = cuadre.por_persona.map((p) => ({
         ...p,
         nombre: personasMap[p.persona_id] || p.persona_id,
@@ -2306,7 +2351,7 @@ module.exports = function (app) {
       const obra_id = visita.obra_id;
       const visitasObra = visitas.filter(v => v.obra_id === obra_id);
       const { desde, hasta } = rangoTramo(visitasObra, visita_id);
-      const regsTramo = registrosDelTramo(registros, obra_id, desde, hasta);
+      const regsTramo = registrosDelTramo(registros, obra_id, desde, hasta, partesDeGrupo(partidas));
       const partidasObra = partidas.filter(p => p.obra_id === obra_id);
       const partidasMap = Object.fromEntries(partidasObra.map(p => [p.partida_id, p]));
 
@@ -2417,56 +2462,61 @@ module.exports = function (app) {
       if (!Array.isArray(estados)) return res.status(400).json({ ok: false, error: "estados debe ser array" });
       const tipo = tipo_visita && TIPOS_VISITA.has(tipo_visita) ? tipo_visita : "SEGUIMIENTO";
 
-      // Comprobar que no haya visita abierta
+      // Urbano Orad (08/10/2026): una visita para los dos portales; se guarda una en cada ficha (misma fecha)
+      const partes = await partesGrupo();
+      const obrasVisita = hermanasDe(partes, obra_id);
       const visitas = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
-      const abierta = visitaAbiertaDe(visitas, obra_id);
-      if (abierta) {
-        return res.status(409).json({
-          ok: false,
-          error: "Ya hay una visita abierta para esta obra",
-          visita_abierta_id: abierta.visita_id,
-          fecha_abierta: abierta.fecha,
-        });
-      }
-      // Tampoco se permite crear otra del mismo día (incluso cerrada)
-      const mismaFecha = visitas.find((v) =>
-        v.obra_id === obra_id && String(v.fecha).slice(0, 10) === String(fecha).slice(0, 10)
-      );
-      if (mismaFecha) {
-        return res.status(409).json({
-          ok: false,
-          error: `Ya existe una visita del ${fecha} para esta obra. Usa /visita-iniciar para reabrirla.`,
-          visita_existe_id: mismaFecha.visita_id,
-          estado: mismaFecha.estado,
-        });
+      for (const ob of obrasVisita) {
+        // Comprobar que no haya visita abierta
+        const abierta = visitaAbiertaDe(visitas, ob);
+        if (abierta) {
+          return res.status(409).json({
+            ok: false,
+            error: `Ya hay una visita abierta${ob !== obra_id ? ` en ${ob}` : " para esta obra"}`,
+            visita_abierta_id: abierta.visita_id,
+            fecha_abierta: abierta.fecha,
+          });
+        }
+        // Tampoco se permite crear otra del mismo día (incluso cerrada)
+        const mismaFecha = visitas.find((v) => v.obra_id === ob && String(v.fecha).slice(0, 10) === String(fecha).slice(0, 10));
+        if (mismaFecha) {
+          return res.status(409).json({
+            ok: false,
+            error: `Ya existe una visita del ${fecha} ${ob !== obra_id ? `en ${ob}` : "para esta obra"}. Usa /visita-iniciar para reabrirla.`,
+            visita_existe_id: mismaFecha.visita_id,
+            estado: mismaFecha.estado,
+          });
+        }
       }
 
-      const visita_id = nuevoId("visita");
       const nowIso = new Date().toISOString();
-
-      await appendTabla(HOJA_VISITAS, VISITAS_HEADERS, [{
-        visita_id, obra_id, fecha, autor, notas_generales,
+      const idDe = Object.fromEntries(obrasVisita.map((ob) => [ob, nuevoId("visita")]));
+      const visita_id = idDe[obra_id];
+      await appendTabla(HOJA_VISITAS, VISITAS_HEADERS, obrasVisita.map((ob) => ({
+        visita_id: idDe[ob], obra_id: ob, fecha, autor, notas_generales,
         estado: "abierta", tipo_visita: tipo, created_at: nowIso,
-      }]);
+      })));
 
       if (estados.length > 0) {
-        // «X de N» (07/10/2026): con cantidad, el % sale de X ÷ N en el servidor (8 de 21 viviendas → 38 %)
-        const conCant = estados.some((e) => e.cantidad !== undefined && e.cantidad !== null && e.cantidad !== "");
-        const [partidasC, cfgC] = conCant ? await Promise.all([leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS), leerConfigObras()]) : [[], {}];
+        // cada partida, a la visita de su ficha; «X de N» (07/10/2026): con cantidad, el % sale de X ÷ N
+        const [partidasC, cfgC] = await Promise.all([leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS), leerConfigObras()]);
+        const obraDePartida = Object.fromEntries(partidasC.map((x) => [x.partida_id, x.obra_id]));
         const filas = [];
         for (const e of estados) {
+          const vId = idDe[obraDePartida[e.partida_id]] || visita_id;
           let pct = Number(e.progreso_pct || 0), cant = "";
           if (e.cantidad !== undefined && e.cantidad !== null && e.cantidad !== "") {
             const pa = partidasC.find((x) => x.partida_id === e.partida_id);
             const m = pa ? partidasOrad.leerMedicion(pa.medicion, cfgC[pa.obra_id]?.totales) : null;
             if (m?.tipo === "conteo" && m.total) { cant = Math.max(0, Math.min(m.total, toNum(e.cantidad))); pct = partidasOrad.pctDeConteo(cant, m.total); }
           }
-          filas.push({ estado_id: nuevoId("est"), visita_id, partida_id: e.partida_id, progreso_pct: pct, motivo_retraso: e.motivo_retraso || "", created_at: nowIso, cantidad: cant });
+          filas.push({ estado_id: nuevoId("est"), visita_id: vId, partida_id: e.partida_id, progreso_pct: pct, motivo_retraso: e.motivo_retraso || "", created_at: nowIso, cantidad: cant });
         }
         await appendTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS, filas);
       }
 
-      res.json({ ok: true, visita_id, estado: "abierta", tipo_visita: tipo, estados_registrados: estados.length });
+      res.json({ ok: true, visita_id, estado: "abierta", tipo_visita: tipo, estados_registrados: estados.length,
+        visitas: obrasVisita.map((ob) => ({ obra_id: ob, visita_id: idDe[ob] })) });
     } catch (e) {
       console.error("[certif/visita]", e);
       res.status(500).json({ ok: false, error: e.message });
@@ -2961,7 +3011,7 @@ module.exports = function (app) {
           leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
         ]);
         const estadosVisita = estados.filter((e) => e.visita_id === abierta.visita_id);
-        const cuadre = calcularCuadreVisita(abierta, visitas, registros, desgloses);
+        const cuadre = calcularCuadreVisita(abierta, visitas, registros, desgloses, await partesGrupo());
         return res.json({
           ok: true,
           visita_id: abierta.visita_id,
@@ -3012,7 +3062,7 @@ module.exports = function (app) {
           leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
         ]);
         const estadosVisita = estados.filter((e) => e.visita_id === visitaCerrada.visita_id);
-        const cuadre = calcularCuadreVisita(reabierta, visitasAct, registros, desgloses);
+        const cuadre = calcularCuadreVisita(reabierta, visitasAct, registros, desgloses, await partesGrupo());
         return res.json({
           ok: true,
           visita_id: visitaCerrada.visita_id,
@@ -3034,10 +3084,13 @@ module.exports = function (app) {
       // No hay abierta ni cerrada del día: crear visita nueva
       const visita_id = nuevoId("visita");
       const nowIso = new Date().toISOString();
+      // Urbano Orad (08/10/2026): también la del otro portal, con la misma fecha (si no tiene una abierta o del día)
+      const otras = hermanasDe(await partesGrupo(), obra_id).filter((ob) => ob !== obra_id && !visitaAbiertaDe(visitas, ob)
+        && !visitas.some((v) => v.obra_id === ob && String(v.fecha).slice(0, 10) === fechaFinal));
       await appendTabla(HOJA_VISITAS, VISITAS_HEADERS, [{
         visita_id, obra_id, fecha: fechaFinal, autor,
         notas_generales: "", estado: "abierta", created_at: nowIso,
-      }]);
+      }, ...otras.map((ob) => ({ visita_id: nuevoId("visita"), obra_id: ob, fecha: fechaFinal, autor, notas_generales: "", estado: "abierta", created_at: nowIso }))]);
       // Calcular cuadre inicial (todo pendiente)
       const [registros, desgloses] = await Promise.all([
         leerTabla("registros_tiempo", RT_HEADERS),
@@ -3048,7 +3101,8 @@ module.exports = function (app) {
         { visita_id, obra_id, fecha: fechaFinal },
         visitasConNueva,
         registros,
-        desgloses
+        desgloses,
+        await partesGrupo()
       );
       res.json({
         ok: true,
@@ -3170,19 +3224,24 @@ module.exports = function (app) {
         return res.json({ ok: true, visita_id, estado: "cerrada", noop: true });
       }
 
+      // Urbano Orad (08/10/2026): un solo «Cerrar visita» cierra también la del otro portal (abierta, misma fecha)
+      const hermanas = hermanasDe(await partesGrupo(), visita.obra_id);
+      const aCerrar = visitas.map((v, i) => ({ v, i })).filter(({ v }) => v.visita_id === visita_id
+        || (v.obra_id !== visita.obra_id && hermanas.includes(v.obra_id) && String(v.estado || "").toLowerCase() === "abierta" && String(v.fecha).slice(0, 10) === String(visita.fecha).slice(0, 10)));
       const sheets = getSheetsClient();
       const lastCol = colLetterFromIdx(VISITAS_HEADERS.length - 1);
-      const filaSheet = 2 + idx;
-      const actualizada = { ...visita, estado: "cerrada" };
-      const valores = VISITAS_HEADERS.map((h) => actualizada[h] !== undefined ? actualizada[h] : "");
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: `${HOJA_VISITAS}!A${filaSheet}:${lastCol}${filaSheet}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [valores] },
-      });
-      console.log(`[certif] Visita ${visita_id} cerrada manualmente`);
-      res.json({ ok: true, visita_id, estado: "cerrada" });
+      for (const { v, i } of aCerrar) {
+        const actualizada = { ...v, estado: "cerrada" };
+        const valores = VISITAS_HEADERS.map((h) => actualizada[h] !== undefined ? actualizada[h] : "");
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_VISITAS}!A${2 + i}:${lastCol}${2 + i}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [valores] },
+        });
+      }
+      console.log(`[certif] Visita ${aCerrar.map(({ v }) => v.visita_id).join(" + ")} cerrada manualmente`);
+      res.json({ ok: true, visita_id, estado: "cerrada", cerradas: aCerrar.map(({ v }) => ({ obra_id: v.obra_id, visita_id: v.visita_id })) });
     } catch (e) {
       console.error("[certif/cerrar]", e);
       res.status(500).json({ ok: false, error: e.message });
