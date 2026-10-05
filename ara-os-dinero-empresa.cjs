@@ -570,7 +570,9 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.cashflow.festivos = festivosLib.leerFestivos(cfgTxt("festivos"));
   // avance de Certificaciones (sin euros: Planificación la ve JM)
   data.cashflow.certificaciones = fuentes.certif?.ok ? (fuentes.certif.data.obras || []).map((c) => ({ obra_id: c.obra_id, avance_pct: c.avance_pct, ultima_visita_fecha: c.ultima_visita_fecha,
-    horas_fichadas_visita: c.horas_fichadas_visita, horas_fichadas: c.horas_fichadas, previsto_horas: c.previsto_horas, total_visitas: c.total_visitas })) : null;
+    horas_fichadas_visita: c.horas_fichadas_visita, horas_fichadas: c.horas_fichadas, previsto_horas: c.previsto_horas, total_visitas: c.total_visitas,
+    // sus visitas para el calendario, sin euros
+    visitas: (c.visitas || []).map(({ desvio_eur, ...v }) => v) })) : null;
   // quién va en cada cuadrilla (Planificación también con la última carga completa, que no lleva _base)
   data.cashflow.cuadrillas_personas = cfgTxt("cuadrilla_personas") || cfgTxt("cuadrillas_personas");
   // Jornada del convenio (7,7 h) y vacaciones (21 días, por defecto en agosto): Planificación y cash flow

@@ -1108,6 +1108,12 @@ module.exports = function (app) {
           obra_id: o.obra_id,
           horas_fichadas: Math.round(horasFichadas * 10) / 10,
           horas_fichadas_visita: Math.round(horasVisita * 10) / 10,
+          // todas sus visitas (calendario de Planificación: ◆ el día de cada una)
+          visitas: avanceCert.visitasDeObra({
+            visitas: visitasRaw.filter((v) => v.obra_id === o.obra_id),
+            estados: estadosRaw.filter((e) => partidaObraMap[e.partida_id] === o.obra_id),
+            prevPorPartida: Object.fromEntries(partidasRaw.filter((p) => p.obra_id === o.obra_id).map((p) => [p.partida_id, toNum(p.tiempo_previsto_horas)])),
+            registros: regs, coste_hora: costeHora }),
           ultima_visita_estado: ult ? String(ult.estado || "") : null,
           ...cuentas, coste_hora_eur: costeHora,
           // visita abierta hace más de 30 días (Chiva 7, abierta desde el 11/06): cerrarla
