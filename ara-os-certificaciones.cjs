@@ -217,6 +217,14 @@ const HOJA_PARTIDAS = "certif_partidas";
 const HOJA_VISITAS = "certif_visitas";
 const HOJA_VISITA_ESTADO = "certif_visita_estado";
 const HOJA_DESGLOSE = "certif_desglose";
+// Configuración por obra (07/10/2026): cada cuántas horas toca visita (vacío = config_dinero «horas_visita») y,
+// para obras sin presupuesto por partidas (privadas: Urbano Orad), sus «partes» con sus horas
+// ([{ id, nombre, horas }]: Orad 13 y Orad 15, 320 h cada una). Una visita «de avance total» guarda un % por
+// parte (certif_visita_estado con partida_id «__TOTAL__:<id>») y cuenta igual que las partidas.
+const HOJA_OBRAS = "certif_obras";
+const OBRAS_HEADERS = ["obra_id", "horas_visita", "partes_json", "updated_at", "updated_by"];
+const PARTIDA_TOTAL = "__TOTAL__:";
+const leerPartes = (txt) => { try { const xs = JSON.parse(String(txt || "[]")); return Array.isArray(xs) ? xs.filter((x) => x && x.id).map((x) => ({ id: String(x.id), nombre: String(x.nombre || x.id), horas: toNum(x.horas) })) : []; } catch { return []; } };
 
 const PARTIDAS_HEADERS = [
   "partida_id", "obra_id", "bloque", "nombre",
@@ -485,7 +493,33 @@ async function asegurarPestanas() {
   await asegurar(HOJA_VISITAS, VISITAS_HEADERS);
   await asegurar(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS);
   await asegurar(HOJA_DESGLOSE, DESGLOSE_HEADERS);
+  await asegurar(HOJA_OBRAS, OBRAS_HEADERS);
   _pestanasOK = true;
+}
+
+// Configuración de cada obra (certif_obras): { obra_id → { horas_visita, partes } }
+async function leerConfigObras() {
+  const filas = await leerTabla(HOJA_OBRAS, OBRAS_HEADERS).catch(() => []);
+  const out = {};
+  for (const f of filas) if (f.obra_id) out[f.obra_id] = { horas_visita: toNum(f.horas_visita) > 0 ? toNum(f.horas_visita) : null, partes: leerPartes(f.partes_json), updated_at: f.updated_at || "", updated_by: f.updated_by || "" };
+  return out;
+}
+// guarda (o actualiza) la fila de una obra
+async function guardarConfigObra(obra_id, cambios, usuario) {
+  await asegurarPestanas();
+  const filas = await leerHojaSafe(`${HOJA_OBRAS}!A2:${colLetterFromIdx(OBRAS_HEADERS.length - 1)}`);
+  const i = filas.findIndex((f) => String(f[0] || "") === obra_id);
+  const prev = i >= 0 ? filasAObjetos([filas[i]], OBRAS_HEADERS)[0] : { obra_id };
+  const fila = { ...prev, ...cambios, obra_id, updated_at: new Date().toISOString(), updated_by: usuario || "" };
+  const values = [OBRAS_HEADERS.map((h) => (fila[h] !== undefined && fila[h] !== null ? fila[h] : ""))];
+  if (i >= 0) {
+    await getSheetsClient().spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${HOJA_OBRAS}!A${i + 2}:${colLetterFromIdx(OBRAS_HEADERS.length - 1)}${i + 2}`, valueInputOption: "RAW", requestBody: { values } });
+  } else await appendTabla(HOJA_OBRAS, OBRAS_HEADERS, [fila]);
+  return fila;
+}
+// umbral de visita de una obra: el suyo (certif_obras), el de su grupo de OO (Orad, 80 h) o config_dinero
+function umbralObra(obra_id, cfgObras, global) {
+  return cfgObras?.[obra_id]?.horas_visita || require("./lib/orden-cartera.cjs").grupoDe({ nombre: obra_id })?.horas_visita || global;
 }
 
 // ============================================================
@@ -987,6 +1021,70 @@ module.exports = function (app) {
   // GET /api/certificaciones/obras
   // Lista de obras que tienen presupuesto importado, con KPIs ligeros.
   // ----------------------------------------------------------
+  // ----------------------------------------------------------
+  // Configuración de una obra (07/10/2026): cada cuántas horas toca visita (vacío = config_dinero) y sus partes
+  // GET → { horas_visita (la suya o null), horas_visita_efectiva, partes }
+  // POST { horas_visita, usuario } → guarda (vacío = volver al de config_dinero)
+  // ----------------------------------------------------------
+  app.get("/api/certificaciones/obra/:obra_id/config", async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const obra_id = String(req.params.obra_id);
+      const cfgObras = await leerConfigObras();
+      const global = (await configCertif()).horas_visita;
+      res.json({ ok: true, obra_id, horas_visita: cfgObras[obra_id]?.horas_visita || null, horas_visita_efectiva: umbralObra(obra_id, cfgObras, global), horas_visita_global: global, partes: cfgObras[obra_id]?.partes || [] });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  app.post("/api/certificaciones/obra/:obra_id/config", express.json(), async (req, res) => {
+    try {
+      const obra_id = String(req.params.obra_id);
+      const b = req.body || {};
+      const h = b.horas_visita === "" || b.horas_visita == null ? "" : toNum(b.horas_visita);
+      if (h !== "" && !(h > 0 && h <= 1000)) return res.status(400).json({ ok: false, error: "horas_visita debe ser un número de horas (1-1000) o vacío" });
+      const fila = await guardarConfigObra(obra_id, { horas_visita: h }, String(b.usuario || "").trim());
+      res.json({ ok: true, fila });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  // ----------------------------------------------------------
+  // POST /api/certificaciones/obra/:obra_id/visita-total (07/10/2026)
+  // Obras sin presupuesto por partidas (privadas): una visita con un % de avance por parte (o uno solo).
+  // body { fecha, autor, notas, partes: [{ id, nombre, horas, pct }] }  (una sola parte: { pct, horas })
+  // Guarda las partes con sus horas (certif_obras) y la visita, cerrada, con un % por parte.
+  // ----------------------------------------------------------
+  app.post("/api/certificaciones/obra/:obra_id/visita-total", express.json(), async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const obra_id = String(req.params.obra_id);
+      const b = req.body || {};
+      const autor = String(b.autor || "").trim();
+      const fecha = String(b.fecha || "").slice(0, 10);
+      if (!autor) return res.status(400).json({ ok: false, error: "Falta autor" });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ ok: false, error: "fecha debe ser AAAA-MM-DD" });
+      const partes = (Array.isArray(b.partes) && b.partes.length ? b.partes : [{ id: "TOTAL", nombre: obra_id, horas: b.horas, pct: b.pct }])
+        .map((x) => ({ id: String(x.id || "").trim(), nombre: String(x.nombre || x.id || "").trim(), horas: toNum(x.horas), pct: toNum(x.pct) }));
+      if (partes.some((x) => !x.id)) return res.status(400).json({ ok: false, error: "cada parte necesita id" });
+      // las horas pesan el % y dan el desvío: sin horas no se puede
+      if (partes.some((x) => !(x.horas > 0))) return res.status(400).json({ ok: false, error: "cada parte necesita sus horas presupuestadas" });
+      if (partes.some((x) => x.pct < 0 || x.pct > 100)) return res.status(400).json({ ok: false, error: "el % de avance va de 0 a 100" });
+      const [partidas, visitas] = await Promise.all([leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS), leerTabla(HOJA_VISITAS, VISITAS_HEADERS)]);
+      if (partidas.some((p) => p.obra_id === obra_id)) return res.status(409).json({ ok: false, error: "Esta obra tiene presupuesto por partidas: visítala por partidas" });
+      if (visitaAbiertaDe(visitas, obra_id)) return res.status(409).json({ ok: false, error: "Hay una visita abierta en esta obra: ciérrala antes" });
+      // partes con sus horas (sin el %): las de la última visita mandan
+      await guardarConfigObra(obra_id, { partes_json: JSON.stringify(partes.map(({ id, nombre, horas }) => ({ id, nombre, horas }))) }, autor);
+      const ahora = new Date().toISOString();
+      const visita_id = nuevoId("vis");
+      await appendTabla(HOJA_VISITAS, VISITAS_HEADERS, [{ visita_id, obra_id, fecha, autor, notas_generales: String(b.notas || ""), estado: "cerrada", tipo_visita: "SEGUIMIENTO", created_at: ahora }]);
+      await appendTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS, partes.map((x) => ({ estado_id: nuevoId("est"), visita_id, partida_id: PARTIDA_TOTAL + x.id, progreso_pct: x.pct, motivo_retraso: "", created_at: ahora })));
+      const prev = partes.reduce((t, x) => t + x.horas, 0);
+      const avance = prev > 0 ? partes.reduce((t, x) => t + x.horas * x.pct, 0) / prev : (partes.reduce((t, x) => t + x.pct, 0) / partes.length);
+      res.json({ ok: true, visita_id, fecha, avance_pct: Math.round(avance * 10) / 10, partes });
+    } catch (e) {
+      console.error("[certif/visita-total]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   app.get("/api/certificaciones/obras", async (_req, res) => {
     try {
       await asegurarPestanas();
@@ -998,6 +1096,17 @@ module.exports = function (app) {
         leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
       ]);
 
+      // obras sin presupuesto por partidas con «partes» (certif_obras): cada parte cuenta como una partida
+      // (Orad 13 y Orad 15, 320 h cada una; Planificación las junta ponderando por horas)
+      const cfgObras = await leerConfigObras();
+      const conPartidas = new Set(partidasRaw.map((p) => p.obra_id));
+      const modoTotal = new Set();
+      for (const [obraId, c] of Object.entries(cfgObras)) {
+        if (conPartidas.has(obraId) || !c.partes.length) continue;
+        modoTotal.add(obraId);
+        for (const pt of c.partes) partidasRaw.push({ partida_id: PARTIDA_TOTAL + pt.id, obra_id: obraId, bloque: "", nombre: pt.nombre, tiempo_previsto_horas: pt.horas, tiempo_previsto_dias: "", orden: "", created_at: "" });
+      }
+
       // Filtrar solo trabajo+extra, no borrados — agrupar por obra
       const registrosPorObra = {};
       for (const r of registrosRaw) {
@@ -1005,6 +1114,15 @@ module.exports = function (app) {
         if (String(r.borrado).toUpperCase() === "TRUE") continue;
         if (!registrosPorObra[r.obra_id]) registrosPorObra[r.obra_id] = [];
         registrosPorObra[r.obra_id].push(r);
+      }
+
+      // obras de varias OO (Orad): también las horas fichadas con el nombre de cada OO
+      const OC = require("./lib/orden-cartera.cjs");
+      for (const obraId of modoTotal) {
+        const g = OC.grupoDe({ nombre: obraId });
+        if (!g) continue;
+        const suyas = registrosRaw.filter((r) => (r.tipo === "trabajo" || r.tipo === "extra") && String(r.borrado).toUpperCase() !== "TRUE" && r.obra_id !== obraId && OC.grupoDe({ nombre: r.obra_id, obra_id: r.obra_id }) === g);
+        registrosPorObra[obraId] = [...(registrosPorObra[obraId] || []), ...suyas];
       }
 
       // Agrupar partidas por obra_id
@@ -1072,7 +1190,8 @@ module.exports = function (app) {
           : 0;
         const ult = ultimaPorObra[o.obra_id];
         const regs = registrosPorObra[o.obra_id] || [];
-        const alarma = alarmaVisita(regs, ult ? ult.fecha : null, umbralVisita);
+        const umbral = umbralObra(o.obra_id, cfgObras, umbralVisita);
+        const alarma = alarmaVisita(regs, ult ? ult.fecha : null, umbral);
         const abierta = visitaAbiertaDe(visitasRaw, o.obra_id);
 
         // v0.12.1 — Cálculo de retraso por obra (KPI principal):
@@ -1109,6 +1228,9 @@ module.exports = function (app) {
         return {
           obra_id: o.obra_id,
           horas_fichadas: Math.round(horasFichadas * 10) / 10,
+          // cada cuántas horas toca visita (la suya, la de su grupo o config_dinero) y si se visita por % total
+          horas_visita: umbral, horas_visita_propia: cfgObras[o.obra_id]?.horas_visita || null,
+          modo_total: modoTotal.has(o.obra_id), partes: modoTotal.has(o.obra_id) ? cfgObras[o.obra_id].partes : null,
           horas_fichadas_visita: Math.round(horasVisita * 10) / 10,
           // todas sus visitas (calendario de Planificación: ◆ el día de cada una)
           visitas: avanceCert.visitasDeObra({

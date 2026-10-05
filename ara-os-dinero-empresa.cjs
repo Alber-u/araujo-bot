@@ -574,6 +574,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.cashflow.certificaciones = fuentes.certif?.ok ? (fuentes.certif.data.obras || []).map((c) => ({ obra_id: c.obra_id, avance_pct: c.avance_pct, ultima_visita_fecha: c.ultima_visita_fecha,
     horas_fichadas_visita: c.horas_fichadas_visita, horas_fichadas: c.horas_fichadas, previsto_horas: c.previsto_horas, total_visitas: c.total_visitas,
     visita_abierta_fecha: c.visita_abierta_fecha || null, partidas_activas: c.partidas_activas ?? null, desvio_horas: c.desvio_horas ?? null,
+    horas_visita_propia: c.horas_visita_propia ?? null, modo_total: !!c.modo_total,
     // sus visitas para el calendario, sin euros
     visitas: (c.visitas || []).map(({ desvio_eur, ...v }) => v) })) : null;
   // quién va en cada cuadrilla (Planificación también con la última carga completa, que no lleva _base)
