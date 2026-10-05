@@ -1401,6 +1401,8 @@ module.exports = function (app) {
           ultima_visita_fecha: ult ? ult.fecha : null,
           avance_pct: avance,
           alarma_visita: alarma,
+          // las N que hay que contar en obra y aún no están (columnas): Mi día de JM, «Contar columnas…»
+          faltan_totales: [...new Set(partidasRaw.filter((p) => p.obra_id === o.obra_id).map((p) => partidasOrad.leerMedicion(p.medicion, cfgObras[o.obra_id]?.totales)).filter((m) => m?.falta_total).map((m) => m.total_de))],
           // obra de varias fichas (Orad 13 y 15): se visitan juntas; el aviso sale en la primera
           grupo: pg && pg.hermanas.length > 1 ? { nombre: pg.grupo, obras: pg.hermanas, principal: pg.hermanas[0] === o.obra_id } : null,
           visita_abierta_id: abierta ? abierta.visita_id : null,

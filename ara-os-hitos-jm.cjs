@@ -912,6 +912,12 @@ module.exports = function setupHitosJM(app) {
           // ya empezada o terminada: sin «Lista / No lista»
           lista_para_empezar: listaObraFin && !yaEmpezada(fase) ? !!listaObraFin.lista : null,
           que_falta:        listaObraFin && !yaEmpezada(fase) && !listaObraFin.lista ? (listaObraFin.estado.faltas || []) : [],
+          // qué tiene que hacer JM para que esté lista (08/10/2026): reclamar contratos, reclamar pagos a los
+          // vecinos o el abono de Sabadell; con sus textos y los pisos
+          faltas_tipo:      listaObraFin && !yaEmpezada(fase) && !listaObraFin.lista ? {
+            contratos: listaObraFin.contrato || [], pagos: listaObraFin.vecino || [], sabadell: listaObraFin.sabadell || [],
+            pisos_contratos: listaObraFin.vecinosC || [], pisos_pagos: listaObraFin.vecinosVecino || [], pisos_sabadell: listaObraFin.vecinosSabadell || [],
+          } : null,
           estado_plan_texto: efPlan?.texto || "",
           tiene_custodia:   tieneCustodia,
           custodia_eur:     custodiaEur,
@@ -1054,6 +1060,8 @@ module.exports = function setupHitosJM(app) {
         catalogo: CATALOGO_HITOS,
         umbrales: umbralesCombinados,
         obras: obras,
+        // a quién llamar por los abonos de Sabadell (config_dinero «sabadell_contacto»; vacío si no está)
+        sabadell_contacto: await (async () => { try { const CD = require("./lib/config-dinero.cjs"); const f = CD.valorConfig((await CD.leerConfigDinero()).filas, "sabadell_contacto"); return f ? String(f.valor || "").trim() || null : null; } catch { return null; } })(),
       };
       if (debug) respuesta.debug = stats;
 
