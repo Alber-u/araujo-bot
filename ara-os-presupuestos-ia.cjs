@@ -597,3 +597,5 @@ module.exports = function(app) {
 
   console.log("[ara-os-presupuestos-ia v1.0.0] montado · 3 endpoints · modelo por defecto haiku-4-5");
 };
+// el mismo modelo para «Preparar certificación» (partidas de control internas, ara-os-certificaciones.cjs)
+module.exports.MODELOS = MODELOS;

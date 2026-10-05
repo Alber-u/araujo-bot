@@ -37,7 +37,8 @@ async function configPresupuesto() {
   try {
     const { leerPestana } = require("./lib/sheets-tabla.cjs");
     const r = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
-    const v = (k) => { const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase() === k); const n = f ? Number(String(f.valor).replace(",", ".")) : NaN; return Number.isFinite(n) && String(f?.valor ?? "").trim() !== "" ? n : null; };
+    // el número de la celda aunque lleve unidades o espacios («30», «30 €», «30,00 €/h», « 30 »): 07/10/2026
+    const v = (k) => { const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase().replace(/\s+/g, "_") === k); const m = f ? String(f.valor ?? "").replace(/\s/g, "").match(/-?\d+(?:[.,]\d+)?/) : null; const n = m ? Number(m[0].replace(",", ".")) : NaN; return Number.isFinite(n) && n > 0 ? n : null; };
     if (v("coste_hora_eur") != null) out.coste_hora_eur = v("coste_hora_eur");
     if (v("margen_minimo_privadas") != null) out.margen_minimo_privadas = v("margen_minimo_privadas");
     out.fuente = "config_dinero";

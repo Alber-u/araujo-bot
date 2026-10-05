@@ -198,7 +198,8 @@ async function configCertif() {
   try {
     const { leerPestana } = require("./lib/sheets-tabla.cjs");
     const r = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
-    const v = (k) => { const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase() === k); const n = f ? Number(String(f.valor).replace(",", ".")) : NaN; return Number.isFinite(n) && n > 0 ? n : null; };
+    // el número de la celda aunque lleve unidades o espacios («30», «30 €», «30,00 €/h», « 30 »): 07/10/2026
+    const v = (k) => { const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase().replace(/\s+/g, "_") === k); const m = f ? String(f.valor ?? "").replace(/\s/g, "").match(/-?\d+(?:[.,]\d+)?/) : null; const n = m ? Number(m[0].replace(",", ".")) : NaN; return Number.isFinite(n) && n > 0 ? n : null; };
     if (v("coste_hora_eur") != null) out.coste_hora = v("coste_hora_eur");
     if (v("horas_visita") != null) out.horas_visita = v("horas_visita");
   } catch (e) { console.warn("[certif] config_dinero:", e.message); return out; }
@@ -222,7 +223,11 @@ const HOJA_DESGLOSE = "certif_desglose";
 // ([{ id, nombre, horas }]: Orad 13 y Orad 15, 320 h cada una). Una visita «de avance total» guarda un % por
 // parte (certif_visita_estado con partida_id «__TOTAL__:<id>») y cuenta igual que las partidas.
 const HOJA_OBRAS = "certif_obras";
-const OBRAS_HEADERS = ["obra_id", "horas_visita", "partes_json", "updated_at", "updated_by"];
+// totales_json: los N de la obra que se cuentan una vez («columnas»: las pone JM el primer día)
+// presupuesto_id / preparada_por / preparada_at: «Preparar certificación» (obras privadas aceptadas), una por OO
+const OBRAS_HEADERS = ["obra_id", "horas_visita", "partes_json", "updated_at", "updated_by", "totales_json", "presupuesto_id", "preparada_por", "preparada_at"];
+const partidasOrad = require("./lib/partidas-orad.cjs");
+const leerTotales = (txt) => { try { const o = JSON.parse(String(txt || "{}")); return o && typeof o === "object" ? o : {}; } catch { return {}; } };
 const PARTIDA_TOTAL = "__TOTAL__:";
 const leerPartes = (txt) => { try { const xs = JSON.parse(String(txt || "[]")); return Array.isArray(xs) ? xs.filter((x) => x && x.id).map((x) => ({ id: String(x.id), nombre: String(x.nombre || x.id), horas: toNum(x.horas) })) : []; } catch { return []; } };
 
@@ -230,6 +235,8 @@ const PARTIDAS_HEADERS = [
   "partida_id", "obra_id", "bloque", "nombre",
   "tiempo_previsto_dias", "tiempo_previsto_horas", "orden",
   "created_at",
+  // cómo se mide (07/10/2026, partidas de control de Orad): JSON { tipo: hecho | hecho_pct | conteo, unidad, total | total_de }
+  "medicion",
 ];
 const VISITAS_HEADERS = [
   "visita_id", "obra_id", "fecha", "autor",
@@ -244,6 +251,8 @@ const TIPOS_VISITA = new Set(["INICIO", "SEGUIMIENTO", "FINAL"]);
 const VISITA_ESTADO_HEADERS = [
   "estado_id", "visita_id", "partida_id",
   "progreso_pct", "motivo_retraso", "created_at",
+  // «X de N» (07/10/2026): lo contado (X); el % sale de X ÷ N
+  "cantidad",
 ];
 const DESGLOSE_HEADERS = [
   "desglose_id", "visita_id", "obra_id", "partida_id", "persona_id",
@@ -501,7 +510,7 @@ async function asegurarPestanas() {
 async function leerConfigObras() {
   const filas = await leerTabla(HOJA_OBRAS, OBRAS_HEADERS).catch(() => []);
   const out = {};
-  for (const f of filas) if (f.obra_id) out[f.obra_id] = { horas_visita: toNum(f.horas_visita) > 0 ? toNum(f.horas_visita) : null, partes: leerPartes(f.partes_json), updated_at: f.updated_at || "", updated_by: f.updated_by || "" };
+  for (const f of filas) if (f.obra_id) out[f.obra_id] = { horas_visita: toNum(f.horas_visita) > 0 ? toNum(f.horas_visita) : null, partes: leerPartes(f.partes_json), totales: leerTotales(f.totales_json), presupuesto_id: f.presupuesto_id || "", preparada_por: f.preparada_por || "", preparada_at: f.preparada_at || "", updated_at: f.updated_at || "", updated_by: f.updated_by || "" };
   return out;
 }
 // guarda (o actualiza) la fila de una obra
@@ -1026,22 +1035,102 @@ module.exports = function (app) {
   // GET → { horas_visita (la suya o null), horas_visita_efectiva, partes }
   // POST { horas_visita, usuario } → guarda (vacío = volver al de config_dinero)
   // ----------------------------------------------------------
+  // ── «Preparar certificación» (07/10/2026): obras privadas aceptadas → partidas de control internas ──────
+  // El cliente no ve nada: el precio, sus partidas y el texto del presupuesto no cambian.
+  const PREP = require("./lib/preparar-certificacion.cjs");
+  const ooAceptadas = async () => {
+    const OO = require("./ara-os-obras-otras.cjs");
+    return (await OO.leerObras()).filter((o) => ["INICIO_OBRA", "EN_EJECUCION"].includes(o.fase) && String(o.borrado || "").toUpperCase() !== "TRUE");
+  };
+  // estado de cada OO aceptada: preparada (con sus partidas en Certificaciones) o no
+  async function estadoPreparacion() {
+    await asegurarPestanas();
+    const [oos, partidas, cfgObras] = await Promise.all([ooAceptadas(), leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS), leerConfigObras()]);
+    const out = {};
+    for (const o of oos) {
+      const cfgDe = Object.entries(cfgObras).find(([, c]) => c.presupuesto_id === o.obra_id);
+      const obra_cert = cfgDe ? cfgDe[0] : PREP.certObraDe(o);
+      const suyas = partidas.filter((p) => p.obra_id === obra_cert);
+      const c = cfgObras[obra_cert] || {};
+      out[o.obra_id] = { presupuesto_id: o.obra_id, codigo_ot: o.codigo_ot || "", nombre: o.nombre, obra_cert, preparada: suyas.length > 0, partidas: suyas.length,
+        horas: Math.round(suyas.reduce((t, p) => t + toNum(p.tiempo_previsto_horas), 0) * 100) / 100, horas_previstas: toNum(o.horas_previstas) || null,
+        preparada_por: c.preparada_por || "", preparada_at: c.preparada_at || "" };
+    }
+    return out;
+  }
+  app.get("/api/certificaciones/preparacion", async (req, res) => {
+    try { res.json({ ok: true, por_presupuesto: await estadoPreparacion() }); } catch (e) { console.error("[certif/preparacion]", e); res.status(500).json({ ok: false, error: e.message }); }
+  });
+  // propuesta para revisar: Urbano Orad → sus 7 partidas; el resto, la IA con la descripción del presupuesto
+  app.post("/api/certificaciones/preparar/propuesta", express.json(), async (req, res) => {
+    try {
+      const id = String(req.body?.presupuesto_id || "");
+      const est = (await estadoPreparacion())[id];
+      if (!est) return res.status(404).json({ ok: false, error: "Solo para obras privadas aceptadas (Aceptado → OT)" });
+      if (est.preparada) return res.status(409).json({ ok: false, error: `Ya está preparada: ${est.partidas} partidas en Certificaciones (${est.obra_cert})`, estado: est });
+      if (!(est.horas_previstas > 0)) return res.status(400).json({ ok: false, error: "El presupuesto no tiene horas previstas: ponlas antes en el presupuesto" });
+      const oo = (await ooAceptadas()).find((o) => o.obra_id === id);
+      const orad = PREP.propuestaOrad(id);
+      const partidas = orad ? PREP.normalizarPropuesta(orad.partidas, est.horas_previstas)
+        : await PREP.proponerConIA({ descripcion: oo.factura_descripcion, horas: est.horas_previstas, nombre: oo.nombre, modelo: require("./ara-os-presupuestos-ia.cjs").MODELOS.haiku });
+      const global = (await configCertif()).horas_visita;
+      res.json({ ok: true, presupuesto_id: id, obra_cert: est.obra_cert, horas_total: est.horas_previstas, origen: orad ? "orad" : "ia",
+        horas_visita: umbralObra(est.obra_cert, await leerConfigObras(), global) || 32, partidas });
+    } catch (e) { console.error("[certif/preparar/propuesta]", e); res.status(500).json({ ok: false, error: e.message }); }
+  });
+  // guardar y cargar en Certificaciones: solo si las horas suman las del presupuesto; una vez por OO
+  app.post("/api/certificaciones/preparar/guardar", express.json(), async (req, res) => {
+    try {
+      const b = req.body || {};
+      const id = String(b.presupuesto_id || "");
+      const usuario = String(b.usuario || "").trim();
+      if (!usuario) return res.status(400).json({ ok: false, error: "Falta quién prepara" });
+      const est = (await estadoPreparacion())[id];
+      if (!est) return res.status(404).json({ ok: false, error: "Solo para obras privadas aceptadas (Aceptado → OT)" });
+      if (est.preparada) return res.status(409).json({ ok: false, error: `Ya está preparada: ${est.partidas} partidas en Certificaciones (${est.obra_cert})`, estado: est });
+      const v = PREP.validar(b.partidas, est.horas_previstas);
+      if (v.error) return res.status(400).json({ ok: false, error: v.error });
+      const hv = b.horas_visita === "" || b.horas_visita == null ? 32 : toNum(b.horas_visita);
+      if (!(hv > 0 && hv <= 1000)) return res.status(400).json({ ok: false, error: "Visita cada: un número de horas (1-1000)" });
+      const ahora = new Date().toISOString();
+      // las que ya estén (por id) no se repiten
+      const hay = new Set((await leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS)).map((p) => p.partida_id));
+      const filas = PREP.filasPartidas({ obra_id: est.obra_cert, presupuesto_id: id, partidas: v.partidas, ahora }).filter((f) => !hay.has(f.partida_id));
+      if (filas.length) await appendTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS, filas);
+      await guardarConfigObra(est.obra_cert, { horas_visita: hv, presupuesto_id: id, preparada_por: usuario, preparada_at: ahora }, usuario);
+      console.log(`[certif] preparada ${id} → ${est.obra_cert}: ${filas.length} partidas, ${v.suma} h, visita cada ${hv} h (${usuario})`);
+      res.json({ ok: true, presupuesto_id: id, obra_cert: est.obra_cert, partidas: filas.length, horas: v.suma, horas_visita: hv, preparada_por: usuario, preparada_at: ahora });
+    } catch (e) { console.error("[certif/preparar/guardar]", e); res.status(500).json({ ok: false, error: e.message }); }
+  });
+
   app.get("/api/certificaciones/obra/:obra_id/config", async (req, res) => {
     try {
       await asegurarPestanas();
       const obra_id = String(req.params.obra_id);
       const cfgObras = await leerConfigObras();
       const global = (await configCertif()).horas_visita;
-      res.json({ ok: true, obra_id, horas_visita: cfgObras[obra_id]?.horas_visita || null, horas_visita_efectiva: umbralObra(obra_id, cfgObras, global), horas_visita_global: global, partes: cfgObras[obra_id]?.partes || [] });
+      res.json({ ok: true, obra_id, horas_visita: cfgObras[obra_id]?.horas_visita || null, horas_visita_efectiva: umbralObra(obra_id, cfgObras, global), horas_visita_global: global, partes: cfgObras[obra_id]?.partes || [], totales: cfgObras[obra_id]?.totales || {} });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   app.post("/api/certificaciones/obra/:obra_id/config", express.json(), async (req, res) => {
     try {
       const obra_id = String(req.params.obra_id);
       const b = req.body || {};
-      const h = b.horas_visita === "" || b.horas_visita == null ? "" : toNum(b.horas_visita);
-      if (h !== "" && !(h > 0 && h <= 1000)) return res.status(400).json({ ok: false, error: "horas_visita debe ser un número de horas (1-1000) o vacío" });
-      const fila = await guardarConfigObra(obra_id, { horas_visita: h }, String(b.usuario || "").trim());
+      const cambios = {};
+      // horas_visita: solo si viene (vacío = volver al de config_dinero)
+      if ("horas_visita" in b) {
+        const h = b.horas_visita === "" || b.horas_visita == null ? "" : toNum(b.horas_visita);
+        if (h !== "" && !(h > 0 && h <= 1000)) return res.status(400).json({ ok: false, error: "horas_visita debe ser un número de horas (1-1000) o vacío" });
+        cambios.horas_visita = h;
+      }
+      // totales de la obra («columnas»: N de las partidas 3, 4 y 6 de Orad), una vez por portal
+      if (b.totales && typeof b.totales === "object") {
+        const prev = (await leerConfigObras())[obra_id]?.totales || {};
+        const t = { ...prev };
+        for (const [k, v] of Object.entries(b.totales)) { const n = toNum(v); if (!(n > 0 && n <= 1000 && Number.isInteger(n))) return res.status(400).json({ ok: false, error: `${k}: un número entero de 1 a 1000` }); t[k] = n; }
+        cambios.totales_json = JSON.stringify(t);
+      }
+      const fila = await guardarConfigObra(obra_id, cambios, String(b.usuario || "").trim());
       res.json({ ok: true, fila });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
@@ -1069,6 +1158,9 @@ module.exports = function (app) {
       if (partes.some((x) => x.pct < 0 || x.pct > 100)) return res.status(400).json({ ok: false, error: "el % de avance va de 0 a 100" });
       const [partidas, visitas] = await Promise.all([leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS), leerTabla(HOJA_VISITAS, VISITAS_HEADERS)]);
       if (partidas.some((p) => p.obra_id === obra_id)) return res.status(409).json({ ok: false, error: "Esta obra tiene presupuesto por partidas: visítala por partidas" });
+      const g = require("./lib/orden-cartera.cjs").grupoDe({ nombre: obra_id });
+      const conPartidasGrupo = g ? [...new Set(partidas.filter((p) => require("./lib/orden-cartera.cjs").grupoDe({ nombre: p.obra_id }) === g).map((p) => p.obra_id))] : [];
+      if (conPartidasGrupo.length) return res.status(409).json({ ok: false, error: `Esta obra se visita por partidas: ${conPartidasGrupo.join(" y ")}` });
       if (visitaAbiertaDe(visitas, obra_id)) return res.status(409).json({ ok: false, error: "Hay una visita abierta en esta obra: ciérrala antes" });
       // partes con sus horas (sin el %): las de la última visita mandan
       await guardarConfigObra(obra_id, { partes_json: JSON.stringify(partes.map(({ id, nombre, horas }) => ({ id, nombre, horas }))) }, autor);
@@ -1099,10 +1191,14 @@ module.exports = function (app) {
       // obras sin presupuesto por partidas con «partes» (certif_obras): cada parte cuenta como una partida
       // (Orad 13 y Orad 15, 320 h cada una; Planificación las junta ponderando por horas)
       const cfgObras = await leerConfigObras();
+      const OCg = require("./lib/orden-cartera.cjs");
       const conPartidas = new Set(partidasRaw.map((p) => p.obra_id));
+      // grupos de OO con presupuesto por partidas (Orad 13 y 15): ya no se visitan con un % global
+      const gruposConPartidas = new Set([...conPartidas].map((id) => OCg.grupoDe({ nombre: id })).filter(Boolean));
       const modoTotal = new Set();
       for (const [obraId, c] of Object.entries(cfgObras)) {
         if (conPartidas.has(obraId) || !c.partes.length) continue;
+        if (gruposConPartidas.has(OCg.grupoDe({ nombre: obraId }))) continue;
         modoTotal.add(obraId);
         for (const pt of c.partes) partidasRaw.push({ partida_id: PARTIDA_TOTAL + pt.id, obra_id: obraId, bloque: "", nombre: pt.nombre, tiempo_previsto_horas: pt.horas, tiempo_previsto_dias: "", orden: "", created_at: "" });
       }
@@ -1116,13 +1212,21 @@ module.exports = function (app) {
         registrosPorObra[r.obra_id].push(r);
       }
 
-      // obras de varias OO (Orad): también las horas fichadas con el nombre de cada OO
-      const OC = require("./lib/orden-cartera.cjs");
-      for (const obraId of modoTotal) {
-        const g = OC.grupoDe({ nombre: obraId });
-        if (!g) continue;
-        const suyas = registrosRaw.filter((r) => (r.tipo === "trabajo" || r.tipo === "extra") && String(r.borrado).toUpperCase() !== "TRUE" && r.obra_id !== obraId && OC.grupoDe({ nombre: r.obra_id, obra_id: r.obra_id }) === g);
-        registrosPorObra[obraId] = [...(registrosPorObra[obraId] || []), ...suyas];
+      // obras de varias OO (Orad): las horas se fichan en «Urbano Orad 13-15» o con el nombre de cada OO; se
+      // reparten entre sus fichas de Certificaciones (Orad 13 y Orad 15) según sus horas presupuestadas
+      {
+        const prevDe = {};
+        for (const p of partidasRaw) prevDe[p.obra_id] = (prevDe[p.obra_id] || 0) + toNum(p.tiempo_previsto_horas);
+        const miembros = new Map();
+        for (const id of Object.keys(prevDe)) { const g = OCg.grupoDe({ nombre: id }); if (g) miembros.set(g, [...(miembros.get(g) || []), id]); }
+        for (const [g, ids] of miembros) {
+          const suyas = registrosRaw.filter((r) => (r.tipo === "trabajo" || r.tipo === "extra") && String(r.borrado).toUpperCase() !== "TRUE" && OCg.grupoDe({ nombre: r.obra_id, obra_id: r.obra_id }) === g);
+          const tot = ids.reduce((t, id) => t + prevDe[id], 0);
+          for (const id of ids) {
+            const parte = tot > 0 ? prevDe[id] / tot : 1 / ids.length;
+            registrosPorObra[id] = suyas.map((r) => ({ ...r, horas: toNum(r.horas) * parte }));
+          }
+        }
       }
 
       // Agrupar partidas por obra_id
@@ -1288,6 +1392,9 @@ module.exports = function (app) {
           getPersonasMap(),
         ]);
 
+      // configuración de la obra: los N que se cuentan una vez («columnas» de Orad) y el umbral de visita
+      const cfgObraFicha = (await leerConfigObras())[obra_id] || null;
+
       const partidas = partidasRaw
         .filter((p) => p.obra_id === obra_id)
         .sort((a, b) => toNum(a.orden) - toNum(b.orden));
@@ -1354,6 +1461,9 @@ module.exports = function (app) {
         bloques[p.bloque].partidas.push({
           partida_id: p.partida_id,
           nombre: p.nombre,
+          // cómo se mide (hecho / «X de N» / %) con su N resuelto; y lo contado en la última visita
+          medicion: partidasOrad.leerMedicion(p.medicion, cfgObraFicha?.totales),
+          cantidad: estado && estado.cantidad !== "" && estado.cantidad != null ? toNum(estado.cantidad) : null,
           orden: toNum(p.orden),
           tiempo_previsto_dias: previstoD,
           tiempo_previsto_horas: previstoH,
@@ -1475,6 +1585,9 @@ module.exports = function (app) {
         ok: true,
         obra_id,
         bloques: bloqueOrden.map((n) => bloques[n]),
+        // N que se cuentan una vez por obra («columnas») y si alguna partida los necesita y faltan
+        totales: cfgObraFicha?.totales || {},
+        faltan_totales: [...new Set(bloqueOrden.flatMap((n) => bloques[n].partidas).filter((p) => p.medicion?.falta_total).map((p) => p.medicion.total_de))],
         ultima_visita: ultimaVisita,
         total_visitas: visitas.length,
         operarios_reales: operariosReales,
@@ -2953,10 +3066,22 @@ module.exports = function (app) {
     try {
       await asegurarPestanas();
       const visita_id = decodeURIComponent(req.params.visita_id);
-      const { partida_id, progreso_pct, motivo_retraso } = req.body || {};
+      const { partida_id, progreso_pct, motivo_retraso, cantidad } = req.body || {};
       if (!partida_id) return res.status(400).json({ ok: false, error: "Falta partida_id" });
 
-      const pct = toNum(progreso_pct);
+      let pct = toNum(progreso_pct);
+      // «X de N» (07/10/2026): con la cantidad contada, el % sale de X ÷ N (8 de 21 viviendas → 38 %)
+      let cant = "";
+      if (cantidad !== undefined && cantidad !== null && cantidad !== "") {
+        const [partidas, cfgObras] = await Promise.all([leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS), leerConfigObras()]);
+        const pa = partidas.find((x) => x.partida_id === partida_id);
+        const m = pa ? partidasOrad.leerMedicion(pa.medicion, cfgObras[pa.obra_id]?.totales) : null;
+        if (!m || m.tipo !== "conteo") return res.status(400).json({ ok: false, error: "Esta partida no se mide por cantidad" });
+        if (!m.total) return res.status(400).json({ ok: false, error: `Falta cuántas ${m.unidad} tiene la obra: ponlo primero` });
+        cant = toNum(cantidad);
+        if (cant < 0 || cant > m.total) return res.status(400).json({ ok: false, error: `La cantidad va de 0 a ${m.total} ${m.unidad}` });
+        pct = partidasOrad.pctDeConteo(cant, m.total);
+      }
       if (pct < 0 || pct > 100) {
         return res.status(400).json({ ok: false, error: "progreso_pct debe estar entre 0 y 100" });
       }
@@ -2975,6 +3100,7 @@ module.exports = function (app) {
           progreso_pct: pct,
           motivo_retraso: motivo_retraso || "",
           created_at: nowIso, // re-uso como last_update
+          cantidad: cant,
         };
         const sheets = getSheetsClient();
         const lastCol = colLetterFromIdx(VISITA_ESTADO_HEADERS.length - 1);
@@ -2986,7 +3112,7 @@ module.exports = function (app) {
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [valores] },
         });
-        return res.json({ ok: true, accion: "update", estado_id: fila.estado_id });
+        return res.json({ ok: true, accion: "update", estado_id: fila.estado_id, progreso_pct: pct, cantidad: cant });
       }
 
       // INSERT
@@ -2998,8 +3124,9 @@ module.exports = function (app) {
         progreso_pct: pct,
         motivo_retraso: motivo_retraso || "",
         created_at: nowIso,
+        cantidad: cant,
       }]);
-      res.json({ ok: true, accion: "insert", estado_id });
+      res.json({ ok: true, accion: "insert", estado_id, progreso_pct: pct, cantidad: cant });
     } catch (e) {
       console.error("[certif/estado-partida]", e);
       res.status(500).json({ ok: false, error: e.message });
