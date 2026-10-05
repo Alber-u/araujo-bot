@@ -422,6 +422,9 @@ async function construirFuentes(token, force) {
     cacheFuente("expedientes", { ttl: 10 * 60e3, espera: TIMEOUT_MS }, () => local("/api/ara-os/expediente-estado", token, {}, LECTURA_MAX_MS)),
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
+  // OT por su fase de la HOJA, sin las tarjetas que pone Planificación: si no, lo que Planificación
+  // enseña volvía como dato (La Paz 29 «empezada el 05/10», Montemayor «OT finalizada»)
+  if (fuentes.ot?.ok) fuentes.ot = { ...fuentes.ot, data: ordenCartera.otSegunHoja(fuentes.ot.data) };
   // Comunidades duplicadas (config_dinero «ccpp_alias»): custodias, etiquetas y OT
   // con el id bueno antes de cualquier cálculo; nunca por nombre
   {
@@ -880,7 +883,8 @@ module.exports = function (app) {
       const cf = c.data.cashflow;
       const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador: json("borrador"), conf: json("conf"), tam, alternativas: String(req.query.alternativas || "") === "1",
         modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, jornada: cf.jornada || null, registros, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
-      res.json({ ...r, generado: c.data.generado, de_cache: c.data.de_cache || null, cache: { edad_s: Math.round((Date.now() - c.ts) / 1000) } });
+      // commit desplegado (Render): para comprobar qué versión calcula
+      res.json({ ...r, generado: c.data.generado, de_cache: c.data.de_cache || null, cache: { edad_s: Math.round((Date.now() - c.ts) / 1000) }, commit: (process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null });
     } catch (e) {
       if (e.status === 400) return res.status(400).json({ ok: false, error: e.message });
       console.error("[planificacion-obras/calendario]", e);

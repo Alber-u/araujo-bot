@@ -168,6 +168,7 @@ module.exports = function setupAraOS(app) {
       ok: true,
       modulo: "ara-os",
       version: "0.2.2",
+      commit: (process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null,   // el desplegado en Render
       sheets_id_presente:   !!process.env.GOOGLE_SHEETS_ID,
       google_auth_presente: !!(process.env.GOOGLE_CLIENT_ID &&
                                process.env.GOOGLE_CLIENT_SECRET &&
