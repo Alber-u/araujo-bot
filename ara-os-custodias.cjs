@@ -392,6 +392,20 @@ module.exports = function setupAraOsCustodias(app) {
   // Ojo: esto NO es dinero cobrado. Es lo que se espera cobrar.
   // Se lee de la misma hoja que ya usa custodia-resumen.
   // -------------------------------------------------------------
+  // Nombre y dirección de cada comunidad (comunidades!A2:B, solo lectura): para dar obra a las 5610
+  async function nombresComunidades() {
+    try {
+      const { google } = require("googleapis");
+      const auth = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET);
+      auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+      const r = await google.sheets({ version: "v4", auth }).spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "comunidades!A2:B" });
+      return r.data.values || [];
+    } catch (e) {
+      console.warn("[custodias] sin nombres de comunidades:", e.message);
+      return [];
+    }
+  }
+
   async function previstoPorComunidad() {
     try {
       const { google } = require("googleapis");
@@ -581,9 +595,10 @@ module.exports = function setupAraOsCustodias(app) {
       const listaAnticipos = desc.ok ? desc.anticipos : ANTICIPOS;
       const listaSenales   = desc.ok ? desc.senales   : SENALES;
 
-      const [hold, prev] = await Promise.all([
+      const [hold, prev, filasCom] = await Promise.all([
         saldosDesdeDiario(req.query.desde, req.query.hasta, listaCustodias, listaAnticipos, listaSenales),
         previstoPorComunidad(),
+        nombresComunidades(),
       ]);
 
       if (!hold.ok) {
@@ -597,7 +612,9 @@ module.exports = function setupAraOsCustodias(app) {
         });
       }
 
-      const comunidades = listaCustodias.map(c => {
+      // obra de cada 5610 sin ccpp_id: por el nombre en la hoja de comunidades, sin tildes ni mayúsculas
+      const conObra = require("./lib/custodia-holded.cjs").asignarObras(listaCustodias, filasCom, require("./lib/orden-cartera.cjs").ccppId);
+      const comunidades = conObra.map(c => {
         const s = hold.saldos[c.cuenta] || { debe: 0, haber: 0, reparto: 0 };
         // Las 5610 son cuentas de PASIVO: el dinero que entra del
         // vecino va al HABER (aumenta lo que le debes) y lo que se
@@ -616,6 +633,7 @@ module.exports = function setupAraOsCustodias(app) {
           cuenta: c.cuenta,
           comunidad: c.comunidad,
           ccpp_id: c.ccpp_id,
+          ...(c.ccpp_id_por_nombre ? { ccpp_id_por_nombre: true } : {}),
           cobrado, cobrado_fmt: eur(cobrado),
           reparto_a_otras: reparto, reparto_a_otras_fmt: eur(reparto),
           entregado_emasesa: entregado, entregado_emasesa_fmt: eur(entregado),

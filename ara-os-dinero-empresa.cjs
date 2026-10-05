@@ -425,6 +425,11 @@ async function construirFuentes(token, force) {
   // OT por su fase de la HOJA, sin las tarjetas que pone Planificación: si no, lo que Planificación
   // enseña volvía como dato (La Paz 29 «empezada el 05/10», Montemayor «OT finalizada»)
   if (fuentes.ot?.ok) fuentes.ot = { ...fuentes.ot, data: ordenCartera.otSegunHoja(fuentes.ot.data) };
+  // 5610 sin obra (p. ej. una caché de /custodias de antes): por el nombre, sin tildes ni mayúsculas
+  if (fuentes.custodias?.ok && fuentes.comunidades_doc?.ok && Array.isArray(fuentes.custodias.data?.comunidades)) {
+    fuentes.custodias = { ...fuentes.custodias, data: { ...fuentes.custodias.data,
+      comunidades: require("./lib/custodia-holded.cjs").asignarObras(fuentes.custodias.data.comunidades, fuentes.comunidades_doc.data, ordenCartera.ccppId) } };
+  }
   // Comunidades duplicadas (config_dinero «ccpp_alias»): custodias, etiquetas y OT
   // con el id bueno antes de cualquier cálculo; nunca por nombre
   {
