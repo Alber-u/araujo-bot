@@ -176,6 +176,7 @@ const FASES_VALIDAS = [
   "FACTURADA",
   "COBRADA",
   "INCIDENCIAS",
+  "PERDIDO",      // 05/10/2026 · presupuesto no aceptado (más de 60 días): sale de la lista, no se borra
 ];
 
 const TIPOS_VALIDOS = [
@@ -1258,7 +1259,8 @@ function registrar(app) {
     responderCORS(res);
     res.json({
       ok: true,
-      fases: FASES_VALIDAS.map(f => ({
+      // PERDIDO no es una columna del tablero (ni el paso siguiente de ninguna)
+      fases: FASES_VALIDAS.filter((f) => f !== "PERDIDO").map(f => ({
         fase: f,
         etiqueta: {
           PRESUPUESTO: "Presupuesto",
@@ -1268,6 +1270,7 @@ function registrar(app) {
           FACTURADA: "Facturada",
           COBRADA: "Cobrada",
           INCIDENCIAS: "Incidencias",
+          PERDIDO: "Perdido",
         }[f],
         orden: FASES_VALIDAS.indexOf(f),
         color: {
@@ -1278,6 +1281,7 @@ function registrar(app) {
           FACTURADA: "#bfdbfe",
           COBRADA: "#dcfce7",
           INCIDENCIAS: "#fee2e2",
+          PERDIDO: "#e5e7eb",
         }[f],
       })),
     });
@@ -1298,6 +1302,19 @@ function registrar(app) {
       // registros de tiempo: queremos poder imputar también a obras
       // ya facturadas (regularizaciones, reasignaciones puntuales).
       if (registrables === "true") obras = obras.filter(o => [...FASES_ACTIVAS, "FACTURADA"].includes(o.fase));
+
+      // 05/10/2026 · último día con horas registradas (por id, código de OT o nombre): una obra
+      // «en ejecución» sin horas en 30 días sale con «¿Terminada? Ciérrala» en Otras órdenes
+      try {
+        const rt = getRegistrosTiempoMod && getRegistrosTiempoMod();
+        if (rt && typeof rt.getUltimaFechaHorasMap === "function") {
+          const ult = await rt.getUltimaFechaHorasMap();
+          obras = obras.map((o) => {
+            const ks = [o.obra_id, o.codigo_ot, o.nombre].map((k) => String(k || "").trim()).filter(Boolean);
+            return { ...o, ultima_hora: ks.map((k) => ult[k]).filter(Boolean).map((f) => String(f).slice(0, 10)).sort().pop() || null };
+          });
+        }
+      } catch (e) { console.warn("[obras-otras] último registro de horas:", e.message); }
 
       // v0.6.2 — Cruzar estado de cobro de la factura VINCULADA de cada OO.
       // Una sola llamada a obtenerInvoices() (con caché) y mapeamos por id.
