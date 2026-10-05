@@ -4248,7 +4248,7 @@ module.exports = function (app) {
     const fLim = fFinal; // ya normalizada a 00:00
 
     if (hoy < fLim) {
-      return { estado: "en_plazo", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0, fase, diasEnvio: _diasEnvio04, reactivado: _react04, proxIso: info.fechaProxIso || null };   // v19.87: proxIso = siguiente envio del cron (o la fecha pactada)
+      return { estado: "en_plazo", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0, fase, diasEnvio: _diasEnvio04, reactivado: _react04, proxIso: info.fechaProxIso || null, c04: info.c04 || null };   // v19.87: proxIso = siguiente envio del cron (o la fecha pactada)
     }
     // hoy >= fLim → 🔴 Retrasado con N días desde fLim
     const diasRetraso = Math.round((hoy - fLim) / 86400000);
@@ -4258,7 +4258,7 @@ module.exports = function (app) {
     // (fecha_envio_pto), no desde que se agotaron los recordatorios (fLim). Se
     // adjuntan aqui los dos datos y el texto lo elige renderBadgePlazo, que es
     // comun a la ficha y a la pantalla HOY: asi las dos dicen lo mismo.
-    return { estado: "retrasado", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso, fase, diasEnvio: _diasEnvio04, reactivado: _react04, proxIso: info.fechaProxIso || null };
+    return { estado: "retrasado", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso, fase, diasEnvio: _diasEnvio04, reactivado: _react04, proxIso: info.fechaProxIso || null, c04: info.c04 || null };
   }
 
   // Helper: devuelve {estado:"retrasado", diasRetraso:N} desde F1 hasta hoy.
@@ -4305,10 +4305,19 @@ module.exports = function (app) {
       //   del cron (dd/mm): el proximo reenvio automatico o, si esta reactivado, la fecha pactada.
       const _mP = String(estadoPlazo.proxIso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
       const _prox = _mP ? ` (${_mP[3]}/${_mP[2]})` : "";
-      if (estadoPlazo.reactivado) {
-        return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Hay una fecha pactada: el cron volvera a escribir ese dia${_mP ? " (" + _mP[3] + "/" + _mP[2] + "/" + _mP[1] + ")" : ""}">👍 ${txt} - Cron reactivado${_prox}</span>`;
+      // v19.96 (criterio de Guille) -- el badge dice tambien el ciclo del cron: "1er Cron 1+1/3",
+      //   "2º Cron 1/4"; reactivado a mano = el ciclo siguiente a 0 ("2º Cron 0/4"). Sin datos, como antes.
+      const _cc = estadoPlazo.c04;
+      const _ordC = (n) => (n === 1 || n === 3) ? n + "er" : n + "º";
+      let _labC = "";
+      if (_cc && _cc.mx > 0) {
+        if (estadoPlazo.reactivado && _cc.pos >= _cc.mx) _labC = _ordC(_cc.cic + 1) + " Cron 0/" + _cc.mx;
+        else _labC = _ordC(_cc.cic) + " Cron " + (_cc.cic === 1 ? _cc.man + "+" : "") + _cc.pos + "/" + _cc.mx;
       }
-      return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="El cron sigue mandando recordatorios automáticos${_mP ? "; el siguiente, el " + _mP[3] + "/" + _mP[2] + "/" + _mP[1] : ""}">👍 ${txt} - Cron activo${_prox}</span>`;
+      if (estadoPlazo.reactivado) {
+        return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Hay una fecha pactada: el cron volvera a escribir ese dia${_mP ? " (" + _mP[3] + "/" + _mP[2] + "/" + _mP[1] + ")" : ""}">👍 ${txt} - ${_labC || "Cron reactivado"}${_prox}</span>`;
+      }
+      return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="El cron sigue mandando recordatorios automáticos${_mP ? "; el siguiente, el " + _mP[3] + "/" + _mP[2] + "/" + _mP[1] : ""}">👍 ${txt} - ${_labC || "Cron activo"}${_prox}</span>`;
     }
     if (estadoPlazo.estado === "en_plazo") {
       return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="En plazo">👍 En plazo</span>`;
@@ -5171,10 +5180,11 @@ module.exports = function (app) {
     //   1er ciclo: "📧 1er ciclo · 1+3/4 · próximo dd/mm" (el envio manual va delante);
     //   siguientes: "📧 2º ciclo · 1/4 · próximo dd/mm". El badge de dias no cambia.
     const _c04 = (fase === "04_ACEPTACION_PTO" && mx > 0);
-    let _lab04 = "";
+    let _lab04 = "", _c04n = null;
     if (_c04) {
       const _cic = numAutomaticos > 0 ? Math.floor((numAutomaticos - 1) / mx) + 1 : 1;
       const _pos = numAutomaticos > 0 ? numAutomaticos - (_cic - 1) * mx : 0;
+      _c04n = { cic: _cic, pos: _pos, mx: mx, man: numManuales };   // v19.96: para el badge de HOY/ficha
       const _ord = (_cic === 1 || _cic === 3) ? _cic + "er" : _cic + "º";
       _lab04 = _ord + " ciclo · " + (_cic === 1 ? numManuales + "+" : "") + _pos + "/" + mx;
     }
@@ -5199,7 +5209,7 @@ module.exports = function (app) {
     if (cicloAgotado && !hayFechaManualNueva) {
       return {
         texto: _c04 ? `📧 ${_lab04} · completado` : `📧 ${xy} - reenvío completado`,
-        estado: "completado",
+        estado: "completado", c04: _c04n,
         completado: true,
       };
     }
@@ -5231,7 +5241,7 @@ module.exports = function (app) {
     const fechaProxFmt = fechaProx ? formatearFechaDDMMYYYY(fechaProx) : "pendiente";
     return {
       texto: _c04 ? `📧 ${_lab04} · próximo ${_ddmm(fechaProx)}` : `📧 ${xy} - próximo reenvío ${fechaProxFmt}`,
-      estado: "en_curso",
+      estado: "en_curso", c04: _c04n,
       completado: false,
       fechaProxIso: fechaProx || null,
     };
