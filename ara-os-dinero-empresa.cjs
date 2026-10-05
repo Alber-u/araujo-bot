@@ -572,12 +572,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   // cada cuántas horas toca visita de Certificaciones (config_dinero «horas_visita»; Planificación, 32 por defecto)
   data.cashflow.horas_visita = cfgTxt("horas_visita");
   // avance de Certificaciones (sin euros: Planificación la ve JM)
-  data.cashflow.certificaciones = fuentes.certif?.ok ? (fuentes.certif.data.obras || []).map((c) => ({ obra_id: c.obra_id, avance_pct: c.avance_pct, ultima_visita_fecha: c.ultima_visita_fecha,
-    horas_fichadas_visita: c.horas_fichadas_visita, horas_fichadas: c.horas_fichadas, previsto_horas: c.previsto_horas, total_visitas: c.total_visitas,
-    visita_abierta_fecha: c.visita_abierta_fecha || null, partidas_activas: c.partidas_activas ?? null, desvio_horas: c.desvio_horas ?? null,
-    horas_visita_propia: c.horas_visita_propia ?? null, modo_total: !!c.modo_total,
-    // sus visitas para el calendario, sin euros
-    visitas: (c.visitas || []).map(({ desvio_eur, ...v }) => v) })) : null;
+  data.cashflow.certificaciones = fuentes.certif?.ok ? certifParaPlan(fuentes.certif.data.obras) : null;
   // quién va en cada cuadrilla (Planificación también con la última carga completa, que no lleva _base)
   data.cashflow.cuadrillas_personas = cfgTxt("cuadrilla_personas") || cfgTxt("cuadrillas_personas");
   // Jornada del convenio (7,7 h) y vacaciones (21 días, por defecto en agosto): Planificación y cash flow
@@ -780,6 +775,28 @@ function responder(data, opciones) {
   return componer(_base, opciones);
 }
 
+// Certificaciones para Planificación (sin euros): de /api/certificaciones/obras
+function certifParaPlan(obras) {
+  return (obras || []).map((c) => ({ obra_id: c.obra_id, avance_pct: c.avance_pct, ultima_visita_fecha: c.ultima_visita_fecha,
+    horas_fichadas_visita: c.horas_fichadas_visita, horas_fichadas: c.horas_fichadas, previsto_horas: c.previsto_horas, total_visitas: c.total_visitas,
+    visita_abierta_fecha: c.visita_abierta_fecha || null, partidas_activas: c.partidas_activas ?? null, desvio_horas: c.desvio_horas ?? null,
+    horas_visita_propia: c.horas_visita_propia ?? null, modo_total: !!c.modo_total,
+    // sus visitas para el calendario, sin euros
+    visitas: (c.visitas || []).map(({ desvio_eur, ...v }) => v) }));
+}
+// «Preparar certificación», una visita…: Certificaciones avisa al guardar y Planificación la relee en la
+// siguiente petición (antes esperaba hasta 10 min la caché «certif»: Orad seguía «sin preparar») · 08/10/2026
+let _certifSucio = false, _certifFresca = null;   // { ts, lista }
+function certificacionesCambiadas() { _certifSucio = true; delete _fuente.certif; }
+async function certificacionesFrescas(token) {
+  if (!_certifSucio) return _certifFresca;
+  _certifSucio = false;
+  const r = await local("/api/certificaciones/obras", token, {}, LECTURA_MAX_MS);
+  if (r.ok) { _fuente.certif = { ts: Date.now(), r }; _certifFresca = { ts: Date.now(), r, lista: certifParaPlan(r.data.obras) }; }
+  else _certifSucio = true;
+  return _certifFresca;
+}
+
 module.exports = function (app) {
   const cors = (res) => {
     res.set("Access-Control-Allow-Origin", "*");
@@ -905,7 +922,13 @@ module.exports = function (app) {
       const [c, registros] = await Promise.all([datosServibles(process.env.ADMIN_TOKEN || String(req.query.token)), leerRegistrosTrabajo()]);
       const json = (k) => { if (!req.query[k]) return null; try { return JSON.parse(String(req.query[k])); } catch { throw Object.assign(new Error(`${k} no es JSON`), { status: 400 }); } };
       const tam = req.query.tam ? String(req.query.tam).split(",").map(Number).filter((n) => n > 0) : null;
-      const cf = c.data.cashflow;
+      let cf = c.data.cashflow;
+      // Certificaciones cambiadas desde el último cálculo (preparar, visitas): las de ahora
+      const fresca = await certificacionesFrescas(process.env.ADMIN_TOKEN || String(req.query.token));
+      if (fresca && fresca.ts > c.ts) {
+        cf = { ...cf, certificaciones: fresca.lista };
+        if (_cache?.data?._base?.fuentes && _cache.ts < fresca.ts) recomponer((base) => { base.fuentes.certif = fresca.r; });
+      }
       const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador: json("borrador"), conf: json("conf"), tam, alternativas: String(req.query.alternativas || "") === "1",
         modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, jornada: cf.jornada || null, registros, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
       // commit desplegado (Render): para comprobar qué versión calcula
@@ -1178,8 +1201,9 @@ module.exports = function (app) {
 };
 
 module.exports.construir = construir;
+module.exports.certificacionesCambiadas = certificacionesCambiadas;
 module.exports.componer = componer;
 module.exports.validarFoto = validarFoto;
 module.exports.cuadreCuenta = cuadreCuenta;
-module.exports._prueba = { cacheFuente, lecturasEnVuelo, aServir, deUltimo, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };
+module.exports._prueba = { cacheFuente, certificacionesFrescas, certifParaPlan, lecturasEnVuelo, aServir, deUltimo, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };
 module.exports.sabadellCustodia = sabadellCustodia;

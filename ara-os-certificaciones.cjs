@@ -901,6 +901,12 @@ module.exports = function (app) {
     }
     next();
   });
+  // cualquier cambio guardado en Certificaciones (preparar, visitas, config): Planificación lo relee en su
+  // siguiente petición, sin esperar a su caché (08/10/2026)
+  app.use("/api/certificaciones", (req, res, next) => {
+    if (req.method === "POST" || req.method === "PATCH" || req.method === "DELETE") res.on("finish", () => { if (res.statusCode < 300) { try { require("./ara-os-dinero-empresa.cjs").certificacionesCambiadas?.(); } catch (e) { console.warn("[certif] avisar a Planificación:", e.message); } } });
+    next();
+  });
 
   // ----------------------------------------------------------
   // GET /api/certificaciones/init
