@@ -2441,14 +2441,19 @@ module.exports = function (app) {
       }]);
 
       if (estados.length > 0) {
-        const filas = estados.map((e) => ({
-          estado_id: nuevoId("est"),
-          visita_id,
-          partida_id: e.partida_id,
-          progreso_pct: Number(e.progreso_pct || 0),
-          motivo_retraso: e.motivo_retraso || "",
-          created_at: nowIso,
-        }));
+        // «X de N» (07/10/2026): con cantidad, el % sale de X ÷ N en el servidor (8 de 21 viviendas → 38 %)
+        const conCant = estados.some((e) => e.cantidad !== undefined && e.cantidad !== null && e.cantidad !== "");
+        const [partidasC, cfgC] = conCant ? await Promise.all([leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS), leerConfigObras()]) : [[], {}];
+        const filas = [];
+        for (const e of estados) {
+          let pct = Number(e.progreso_pct || 0), cant = "";
+          if (e.cantidad !== undefined && e.cantidad !== null && e.cantidad !== "") {
+            const pa = partidasC.find((x) => x.partida_id === e.partida_id);
+            const m = pa ? partidasOrad.leerMedicion(pa.medicion, cfgC[pa.obra_id]?.totales) : null;
+            if (m?.tipo === "conteo" && m.total) { cant = Math.max(0, Math.min(m.total, toNum(e.cantidad))); pct = partidasOrad.pctDeConteo(cant, m.total); }
+          }
+          filas.push({ estado_id: nuevoId("est"), visita_id, partida_id: e.partida_id, progreso_pct: pct, motivo_retraso: e.motivo_retraso || "", created_at: nowIso, cantidad: cant });
+        }
         await appendTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS, filas);
       }
 
