@@ -497,6 +497,17 @@ function extraCashflow(fuentes, hoy) {
   return { is2026: cashflow.is2026(cfgf, beneficio), gastosFijosMes, finObras };
 }
 
+// Horas de trabajo fichadas (registros de tiempo), para Planificación y el cash flow: lo pasado
+// manda (05/10/2026). Caché corta; si falla, null (se usan las horas que ya traía la cartera).
+let _regs = null;   // { ts, data }
+async function leerRegistrosTrabajo(maxEdadMs = 60 * 1000) {
+  if (_regs && Date.now() - _regs.ts < maxEdadMs) return _regs.data;
+  try { _regs = { ts: Date.now(), data: await require("./ara-os-registros-tiempo.cjs").getRegistrosTrabajo() }; }
+  catch (e) { console.warn("[dinero-empresa] registros de tiempo:", e.message); }
+  return _regs?.data || null;
+}
+const registrosYa = () => _regs?.data || null;
+
 function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   const data = calc.calcularEscalera(fuentes, hoy, generado, opciones);
   const extra = extraCashflow(fuentes, hoy);
@@ -599,10 +610,14 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     data.cashflow.simulador.historico.personas_base = cal.mandos.personas;
     data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
     // fechas de inicio de Planificación (la misma cola, en jornadas y sin desvío): ahí se entregan las custodias
-    data.cashflow.fechas_inicio_plan = planCalendario.fechasInicioPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
-      nombresCuadrillas: planCalendario.personasPorCuadrilla(data.cashflow.cuadrillas_personas) });
+    // y su último día (con los tramos de «Cambiar personas» y lo fichado): desde ahí se cobran esas obras
+    const fp = planCalendario.fechasPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
+      nombresCuadrillas: planCalendario.personasPorCuadrilla(data.cashflow.cuadrillas_personas), registros: registrosYa() });
+    data.cashflow.fechas_inicio_plan = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, v.inicio]));
+    // solo las obras con «Cambiar personas»: las demás siguen con su duración del cash flow (con desvío)
+    data.cashflow.fechas_fin_plan = Object.fromEntries(Object.entries(fp).filter(([, v]) => v.con_tramos).map(([k, v]) => [k, v.fin]));
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
-      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, abonosSabadell: data.cashflow.sabadell?.abonos_futuros || [] });
+      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, fechasFin: data.cashflow.fechas_fin_plan, abonosSabadell: data.cashflow.sabadell?.abonos_futuros || [] });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
@@ -825,14 +840,16 @@ module.exports = function (app) {
     const fila = { obra_id: String(b.obra_id).trim(), posicion: b.posicion ?? "", fecha_inicio_fija: b.fecha_inicio_fija || "", cuadrilla: b.cuadrilla ?? "",
                    nota: String(b.nota).trim(), usuario: String(b.usuario).trim(), fecha: new Date().toISOString(),
                    // «Programar obra»: quién la hace, uno a uno
-                   operarios: ordenCartera.leerOperarios(b.operarios).join(", ") };
+                   operarios: ordenCartera.leerOperarios(b.operarios).join(", "),
+                   // «Cambiar personas desde» (obra ya en obra): un tramo, no se toca la OT
+                   desde: b.desde ? String(b.desde).slice(0, 10) : "" };
     try {
       await guardarFilasPlan([fila]);
       // La OT recibe lo de Planificación: con personas y fecha se crea o actualiza; sin nada
       // (Quitar programación) se deshace si seguía en «12_PROGRAMADA». Si falla, lo guardado se queda.
       const ops = ordenCartera.leerOperarios(b.operarios);
-      const programa = ops.length && fila.fecha_inicio_fija;
-      const quita = !fila.fecha_inicio_fija && !ops.length && (fila.posicion === "" || fila.posicion == null) && (fila.cuadrilla === "" || fila.cuadrilla == null);
+      const programa = ops.length && fila.fecha_inicio_fija && !fila.desde;
+      const quita = !fila.desde && !fila.fecha_inicio_fija && !ops.length && (fila.posicion === "" || fila.posicion == null) && (fila.cuadrilla === "" || fila.cuadrilla == null);
       let ot = null;
       if ((programa || quita) && typeof app.locals?.otDesdePlanificacion === "function") {
         try { ot = await app.locals.otDesdePlanificacion({ ccpp_id: fila.obra_id, fecha_inicio: programa ? fila.fecha_inicio_fija : null, operarios: ops, usuario: fila.usuario }); }
@@ -855,12 +872,12 @@ module.exports = function (app) {
     cors(res);
     if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
     try {
-      const c = await datosServibles(process.env.ADMIN_TOKEN || String(req.query.token));
+      const [c, registros] = await Promise.all([datosServibles(process.env.ADMIN_TOKEN || String(req.query.token)), leerRegistrosTrabajo()]);
       const json = (k) => { if (!req.query[k]) return null; try { return JSON.parse(String(req.query[k])); } catch { throw Object.assign(new Error(`${k} no es JSON`), { status: 400 }); } };
       const tam = req.query.tam ? String(req.query.tam).split(",").map(Number).filter((n) => n > 0) : null;
       const cf = c.data.cashflow;
       const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador: json("borrador"), conf: json("conf"), tam, alternativas: String(req.query.alternativas || "") === "1",
-        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, jornada: cf.jornada || null, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
+        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, jornada: cf.jornada || null, registros, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
       res.json({ ...r, generado: c.data.generado, de_cache: c.data.de_cache || null, cache: { edad_s: Math.round((Date.now() - c.ts) / 1000) } });
     } catch (e) {
       if (e.status === 400) return res.status(400).json({ ok: false, error: e.message });
@@ -918,7 +935,7 @@ module.exports = function (app) {
     await asegurarCabeceraPlan();
     await getSheetsClient().spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: `${ordenCartera.HOJA_PLAN}!A:H`,
+      range: `${ordenCartera.HOJA_PLAN}!A:I`,
       valueInputOption: "RAW",
       requestBody: { values: filas.map((f) => ordenCartera.PLAN_HEADERS.map((h) => f[h] ?? "")) },
     });
@@ -929,17 +946,18 @@ module.exports = function (app) {
       _cache = { ts: _cache.ts, data: { ...componer(base), _base: base } };
     }
   }
-  // planificacion_obras ya existía con 7 columnas: añade «operarios» (H1) si falta
+  // planificacion_obras ya existía con 7 columnas: añade «operarios» (H1) y «desde» (I1) si faltan
   let _cabeceraPlanOk = false;
   async function asegurarCabeceraPlan() {
     if (_cabeceraPlanOk) return;
     await asegurarPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS);
     const sheets = getSheetsClient();
-    const r = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${ordenCartera.HOJA_PLAN}!A1:H1` });
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${ordenCartera.HOJA_PLAN}!A1:I1` });
     const cab = (r.data.values?.[0] || []).map((h) => String(h || "").trim().toLowerCase());
     const falta = ordenCartera.PLAN_HEADERS.map((h, i) => [h, i]).filter(([h, i]) => cab[i] !== h);
-    if (falta.some(([h]) => h !== "operarios")) throw new Error(`cabecera de ${ordenCartera.HOJA_PLAN} distinta de la esperada: ${cab.join(", ")}`);
-    if (falta.length) await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${ordenCartera.HOJA_PLAN}!H1`, valueInputOption: "RAW", requestBody: { values: [["operarios"]] } });
+    // columnas añadidas después: «operarios» (H) y «desde» (I); el resto tiene que estar igual
+    if (falta.some(([h]) => !["operarios", "desde"].includes(h))) throw new Error(`cabecera de ${ordenCartera.HOJA_PLAN} distinta de la esperada: ${cab.join(", ")}`);
+    if (falta.length) await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${ordenCartera.HOJA_PLAN}!H1:I1`, valueInputOption: "RAW", requestBody: { values: [["operarios", "desde"]] } });
     _cabeceraPlanOk = true;
   }
   // Escribe (o añade) claves en config_dinero
@@ -960,7 +978,8 @@ module.exports = function (app) {
   function refrescar(token, force = false) {
     if (!_enCurso) {
       _ultimoConstruir = Date.now();
-      _enCurso = construir(token, force)
+      // las horas fichadas, antes de componer (Planificación y el cash flow cuentan con ellas)
+      _enCurso = leerRegistrosTrabajo().catch(() => null).then(() => construir(token, force))
         .then((data) => {
           _cache = { ts: Date.now(), data };
           if (!fuenteCaida(data)) guardarUltimoCompleto(_cache.ts, data);
@@ -1069,7 +1088,8 @@ module.exports = function (app) {
     const cf = c?.data?.cashflow;
     if (!cf?.simulador?.ok) return null;
     const hoyReal = new Date().toISOString().slice(0, 10);
-    const r = planCalendario.calendarioPlan({ cf, hoy: hoyReal > cf.hoy ? hoyReal : cf.hoy, festivos: cf.festivos || null, jornada: cf.jornada || null,
+    leerRegistrosTrabajo().catch(() => {});   // por detrás: la próxima vez, más fresco
+    const r = planCalendario.calendarioPlan({ cf, hoy: hoyReal > cf.hoy ? hoyReal : cf.hoy, festivos: cf.festivos || null, jornada: cf.jornada || null, registros: registrosYa(),
       nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
     if (!r.ok) return null;
     // importe de cada obra (sin IVA, el del panel de Guillermo): para las tarjetas de OT sin fila propia

@@ -1490,8 +1490,24 @@ async function getUltimaFechaHorasMap() {
   return out;
 }
 
+// Horas de trabajo fichadas, una por persona, día y obra (05/10/2026): Planificación cuenta con
+// ellas lo pasado (quién fue de verdad cada día) y las horas que quedan de cada obra
+async function getRegistrosTrabajo() {
+  const registros = await leerRegistros();
+  const out = [];
+  for (const r of registros) {
+    if (r.borrado === "TRUE") continue;
+    if (r.tipo && r.tipo !== "trabajo" && r.tipo !== "extra") continue;
+    const obra = (r.obra_id || "").trim(), fecha = String(r.fecha || "").slice(0, 10), h = parseFloat(r.horas) || 0;
+    if (!obra || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !(h > 0)) continue;
+    out.push({ fecha, persona: String(r.persona_id || "").trim(), obra, horas: h });
+  }
+  return out;
+}
+
 module.exports = registrar;
 module.exports.getUltimaFechaHorasMap = getUltimaFechaHorasMap;
+module.exports.getRegistrosTrabajo = getRegistrosTrabajo;
 module.exports.getHorasAcumuladasPorObra = getHorasAcumuladasPorObra;
 module.exports.getHorasAcumuladasMap = getHorasAcumuladasMap;
 module.exports.getHorasAcumuladasMapHasta = getHorasAcumuladasMapHasta;
