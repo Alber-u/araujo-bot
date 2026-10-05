@@ -30,8 +30,9 @@ const presuPriv = require("./lib/presupuesto-privado.cjs");
 
 // config_dinero: coste_hora_eur y margen_minimo_privadas (caché 5 min)
 let _cfgPresu = null, _cfgPresuTs = 0;
+// (07/10/2026) se relee cada minuto: un cambio en config_dinero se ve enseguida; sin «coste_hora_eur», aviso
 async function configPresupuesto() {
-  if (_cfgPresu && Date.now() - _cfgPresuTs < 5 * 60 * 1000) return _cfgPresu;
+  if (_cfgPresu && Date.now() - _cfgPresuTs < 60 * 1000) return _cfgPresu;
   const out = { coste_hora_eur: presuPriv.COSTE_HORA_DEF, margen_minimo_privadas: presuPriv.MARGEN_MIN_DEF, fuente: "por defecto" };
   try {
     const { leerPestana } = require("./lib/sheets-tabla.cjs");
@@ -40,7 +41,13 @@ async function configPresupuesto() {
     if (v("coste_hora_eur") != null) out.coste_hora_eur = v("coste_hora_eur");
     if (v("margen_minimo_privadas") != null) out.margen_minimo_privadas = v("margen_minimo_privadas");
     out.fuente = "config_dinero";
-  } catch (e) { console.warn("[obras-otras] config_dinero:", e.message); }
+    if (out.coste_hora_eur == null) out.aviso = "Falta «coste_hora_eur» en config_dinero: sin coste por hora no se calcula el margen.";
+  } catch (e) {
+    // sin leer config_dinero no hay coste por hora: aviso (y se reintenta en la siguiente petición)
+    console.warn("[obras-otras] config_dinero:", e.message);
+    out.aviso = `No se ha podido leer config_dinero (${e.message}): sin coste por hora no se calcula el margen.`;
+    return out;
+  }
   _cfgPresu = out; _cfgPresuTs = Date.now();
   return out;
 }
@@ -95,7 +102,7 @@ const OB_HEADERS = [
   "personas",                    // AJ  2 o 3
   "material_previsto_eur",       // AK  sin IVA
   "material_lista",              // AL  opcional, para el pedido
-  "coste_hora_eur",              // AM  por defecto config_dinero (16,8 €/h)
+  "coste_hora_eur",              // AM  ya no se usa: manda config_dinero «coste_hora_eur»
   "prevision_por",               // AN  quién rellenó/cambió horas, material o margen
   "prevision_at",                // AO  cuándo
   "margen_aceptado_por",         // AP  CEO que aceptó un margen por debajo del mínimo

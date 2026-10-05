@@ -193,7 +193,7 @@ const avanceCert = require("./lib/avance-certificaciones.cjs");
 // y cada cuántas horas toca visita (config_dinero «horas_visita», 32 por defecto)
 let _cfgCertif = null, _cfgCertifTs = 0;
 async function configCertif() {
-  if (_cfgCertif && Date.now() - _cfgCertifTs < 5 * 60 * 1000) return _cfgCertif;
+  if (_cfgCertif && Date.now() - _cfgCertifTs < 60 * 1000) return _cfgCertif;
   const out = { coste_hora: require("./lib/presupuesto-privado.cjs").COSTE_HORA_DEF, horas_visita: avanceCert.HORAS_VISITA_DEF };
   try {
     const { leerPestana } = require("./lib/sheets-tabla.cjs");
@@ -201,7 +201,7 @@ async function configCertif() {
     const v = (k) => { const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase() === k); const n = f ? Number(String(f.valor).replace(",", ".")) : NaN; return Number.isFinite(n) && n > 0 ? n : null; };
     if (v("coste_hora_eur") != null) out.coste_hora = v("coste_hora_eur");
     if (v("horas_visita") != null) out.horas_visita = v("horas_visita");
-  } catch (e) { console.warn("[certif] config_dinero:", e.message); }
+  } catch (e) { console.warn("[certif] config_dinero:", e.message); return out; }
   _cfgCertif = out; _cfgCertifTs = Date.now();
   return out;
 }
@@ -1261,7 +1261,8 @@ module.exports = function (app) {
         };
       }).sort((a, b) => String(a.obra_id).localeCompare(String(b.obra_id)));
 
-      res.json({ ok: true, obras });
+      // sin «coste_hora_eur» en config_dinero no hay desvío en €: se dice (no se usa un número escondido)
+      res.json({ ok: true, obras, coste_hora_eur: costeHora || null, aviso: costeHora ? null : "Falta «coste_hora_eur» en config_dinero: el desvío en € no se calcula." });
     } catch (e) {
       console.error("[certif/obras]", e);
       res.status(500).json({ ok: false, error: e.message });
