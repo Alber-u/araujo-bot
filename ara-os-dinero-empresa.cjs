@@ -365,7 +365,7 @@ async function construirFuentes(token, force) {
   const f = {};
 
   // Primera tanda, todo en paralelo
-  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes", "pnr_ref", "res_anual", "previsiones", "comunidades_doc", "planificacion", "expedientes"];
+  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes", "pnr_ref", "res_anual", "previsiones", "comunidades_doc", "planificacion", "expedientes", "certif"];
   const [ya, ma] = hoy.split("-").map(Number);
   const ref = ma === 1 ? { año: ya - 1, mes: 12 } : { año: ya, mes: ma - 1 };   // último mes cerrado
   const res = await Promise.allSettled([
@@ -420,6 +420,8 @@ async function construirFuentes(token, force) {
     conTimeout(leerPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS), TIMEOUT_MS, `hoja ${ordenCartera.HOJA_PLAN}`).then((r) => ({ ok: true, data: r.filas || [] })),
     // Contratos y pagos de cada piso (expediente de Guillermo, solo lectura): «Lista para empezar»
     cacheFuente("expedientes", { ttl: 10 * 60e3, espera: TIMEOUT_MS }, () => local("/api/ara-os/expediente-estado", token, {}, LECTURA_MAX_MS)),
+    // Certificaciones (06/10/2026): última visita y % ejecutado de cada obra → fin estimado y «toca visitar»
+    cacheFuente("certif", { ttl: 10 * 60e3, espera: TIMEOUT_MS }, () => local("/api/certificaciones/obras", token, {}, LECTURA_MAX_MS)),
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
   // OT por su fase de la HOJA, sin las tarjetas que pone Planificación: si no, lo que Planificación
@@ -563,6 +565,9 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     cobrado: c.cobrado ?? null, previsto: c.previsto ?? null, entregado_emasesa: c.entregado_emasesa ?? null, vecinos_censo: c.vecinos_censo ?? null,
     vecinos_faltan: Array.isArray(c.vecinos) && c.vecinos_censo != null ? c.vecinos.filter((v) => v.tipo !== "entrega_emasesa" && !v.en_holded).length : null })) : [];
   data.cashflow.festivos = festivosLib.leerFestivos(cfgTxt("festivos"));
+  // avance de Certificaciones (sin euros: Planificación la ve JM)
+  data.cashflow.certificaciones = fuentes.certif?.ok ? (fuentes.certif.data.obras || []).map((c) => ({ obra_id: c.obra_id, avance_pct: c.avance_pct, ultima_visita_fecha: c.ultima_visita_fecha,
+    horas_fichadas_visita: c.horas_fichadas_visita, horas_fichadas: c.horas_fichadas, previsto_horas: c.previsto_horas, total_visitas: c.total_visitas })) : null;
   // quién va en cada cuadrilla (Planificación también con la última carga completa, que no lleva _base)
   data.cashflow.cuadrillas_personas = cfgTxt("cuadrilla_personas") || cfgTxt("cuadrillas_personas");
   // Jornada del convenio (7,7 h) y vacaciones (21 días, por defecto en agosto): Planificación y cash flow
@@ -619,7 +624,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
     // fechas de inicio de Planificación (la misma cola, en jornadas y sin desvío): ahí se entregan las custodias
     // y su último día (con los tramos de «Cambiar personas» y lo fichado): desde ahí se cobran esas obras
-    const fp = planCalendario.fechasPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
+    const fp = planCalendario.fechasPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos }, certificaciones: data.cashflow.certificaciones }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
       nombresCuadrillas: planCalendario.personasPorCuadrilla(data.cashflow.cuadrillas_personas), registros: registrosYa() });
     data.cashflow.fechas_inicio_plan = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, v.inicio]));
     // solo las obras con «Cambiar personas» o movidas por el ritmo real (la lenta y las de detrás): las

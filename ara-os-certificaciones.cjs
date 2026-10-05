@@ -188,6 +188,22 @@ async function actualizarFaseObra(obra_id, nueva_fase) {
 // CONSTANTES
 // ============================================================
 const DIA_CUADRILLA_HORAS = 16; // 1 día/cuadrilla = 2 personas × 8h (solo display)
+const avanceCert = require("./lib/avance-certificaciones.cjs");
+// coste por hora (config_dinero «coste_hora_eur»; si no, el de los presupuestos privados): desvío en €
+let _costeHora = null, _costeHoraTs = 0;
+async function costeHoraConfig() {
+  if (_costeHora != null && Date.now() - _costeHoraTs < 5 * 60 * 1000) return _costeHora;
+  let v = require("./lib/presupuesto-privado.cjs").COSTE_HORA_DEF;
+  try {
+    const { leerPestana } = require("./lib/sheets-tabla.cjs");
+    const r = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
+    const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase() === "coste_hora_eur");
+    const n = f ? Number(String(f.valor).replace(",", ".")) : NaN;
+    if (Number.isFinite(n) && n > 0) v = n;
+  } catch (e) { console.warn("[certif] coste_hora_eur:", e.message); }
+  _costeHora = v; _costeHoraTs = Date.now();
+  return v;
+}
 
 // Umbral para alarma "toca visitar": horas reales fichadas desde la última visita.
 // Configurable en el futuro por obra (TODO: campo en certif_partidas o tabla aparte).
@@ -1046,6 +1062,7 @@ module.exports = function (app) {
         acumPorObra[obraId].sumPrev += prevH;
       }
 
+      const costeHora = await costeHoraConfig();
       const obras = Object.values(porObra).map((o) => {
         const acum = acumPorObra[o.obra_id];
         const avance = acum && acum.sumPrev > 0
@@ -1079,8 +1096,22 @@ module.exports = function (app) {
           else estadoColor = 'azul';
         }
 
+        // Avance real (06/10/2026): horas al cierre = fichadas hasta la última visita ÷ % ejecutado;
+        // desvío en horas y en € (coste por hora de config_dinero). El tramo de una visita acaba la víspera.
+        const fVis = ult ? String(ult.fecha).slice(0, 10) : null;
+        const horasFichadas = regs.reduce((s, r) => s + toNum(r.horas), 0);
+        const horasVisita = fVis ? regs.filter((r) => String(r.fecha || "").slice(0, 10) < fVis).reduce((s, r) => s + toNum(r.horas), 0) : 0;
+        const cuentas = avanceCert.cuentasAvance({ pct: avance, horas_fichadas_visita: horasVisita, previsto_horas: o.previsto_horas, coste_hora: costeHora });
+        const diasAbierta = abierta ? Math.round((Date.now() - Date.parse(String(abierta.fecha).slice(0, 10))) / 86400000) : null;
+
         return {
           obra_id: o.obra_id,
+          horas_fichadas: Math.round(horasFichadas * 10) / 10,
+          horas_fichadas_visita: Math.round(horasVisita * 10) / 10,
+          ultima_visita_estado: ult ? String(ult.estado || "") : null,
+          ...cuentas, coste_hora_eur: costeHora,
+          // visita abierta hace más de 30 días (Chiva 7, abierta desde el 11/06): cerrarla
+          visita_abierta_dias: diasAbierta, visita_abierta_vieja: diasAbierta != null && diasAbierta > 30,
           partidas_total: o.partidas_total,
           partidas_activas: o.partidas_activas,
           previsto_horas: Math.round(o.previsto_horas * 100) / 100,
