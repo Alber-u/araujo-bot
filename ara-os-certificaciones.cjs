@@ -1592,7 +1592,10 @@ module.exports = function (app) {
         obra_id,
         bloques: bloqueOrden.map((n) => bloques[n]),
         // N que se cuentan una vez por obra («columnas») y si alguna partida los necesita y faltan
-        totales: cfgObraFicha?.totales || {},
+        // (antes «totales»: chocaba con los totales calculados de la obra de más abajo y la ficha los preguntaba)
+        cantidades_obra: cfgObraFicha?.totales || {},
+        // las unidades que se cuentan una vez por obra (columnas): las que piden sus partidas «X de N»
+        cantidades_unidades: [...new Set(bloqueOrden.flatMap((n) => bloques[n].partidas).filter((p) => p.medicion?.tipo === "conteo" && p.medicion.total_de).map((p) => p.medicion.total_de))],
         faltan_totales: [...new Set(bloqueOrden.flatMap((n) => bloques[n].partidas).filter((p) => p.medicion?.falta_total).map((p) => p.medicion.total_de))],
         ultima_visita: ultimaVisita,
         total_visitas: visitas.length,
