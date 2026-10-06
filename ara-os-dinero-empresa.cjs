@@ -77,6 +77,11 @@ const FOTO_HEADERS = ["generado", "recibido", "cuenta", "last_sync_at", "n_movim
 const NOMINAS_MES_HEADERS = ["periodo", "importe", "updated_at", "updated_by", "indirectos_eur", "detalle_json"];
 const DIAS_465 = 120;                   // apuntes de la 465 para las nóminas pendientes por persona
 let _foto = null;                       // última foto leída/guardada (caché)
+// Última sincronización del banco (lastSyncAt de /internal/banking/accounts, ES81). La API pública de Holded no la
+// da: la sube la rutina de Cowork (con la sesión de Holded) por POST /banco-sync, sin tener que subir otra foto.
+const HOJA_SYNC = "banco_sync";
+const SYNC_HEADERS = ["recibido", "cuenta", "last_sync_at", "saldo"];
+let _bancoSync = null;
 // Fuentes lentas del cash flow (recorren posicion-neta-real): 30 min de caché
 // y, si fallan, el último dato bueno.
 const LENTO_MS = 30 * 60 * 1000, TIMEOUT_LENTO_MS = 150 * 1000;
@@ -135,6 +140,16 @@ async function leerUltimaFoto() {
   _foto = { generado: String(ult.generado), recibido: String(ult.recibido || ""), cuenta: String(ult.cuenta || "") || null,
             last_sync_at: String(ult.last_sync_at || "") || null, movimientos };
   return { ok: true, data: _foto };
+}
+
+async function leerBancoSync() {
+  if (_bancoSync) return { ok: true, data: _bancoSync };
+  const r = await leerPestana(HOJA_SYNC, SYNC_HEADERS, { crear: false });
+  if (r.no_existe || !r.filas.length) return { ok: true, data: null };
+  const ult = r.filas.filter((x) => x.last_sync_at && !isNaN(Date.parse(x.last_sync_at))).sort((a, b) => Date.parse(a.last_sync_at) - Date.parse(b.last_sync_at)).pop();
+  if (!ult) return { ok: true, data: null };
+  _bancoSync = { last_sync_at: new Date(ult.last_sync_at).toISOString(), cuenta: String(ult.cuenta || "") || null, saldo: ult.saldo === "" || ult.saldo == null ? null : Number(ult.saldo), recibido: String(ult.recibido || "") };
+  return { ok: true, data: _bancoSync };
 }
 
 // Valida y normaliza el cuerpo del POST. Devuelve { foto } o { error }.
@@ -466,6 +481,7 @@ async function construirFuentes(token, force) {
   // CONTABLE de la misma cuenta 572 en el libro (suma de todos sus apuntes).
   // La diferencia son los movimientos del banco aún sin conciliar (propuesta
   // de Alberto, 30/09: los endpoints de movimientos de Holded son internos).
+  fuentes.banco_sync = await conTimeout(leerBancoSync(), TIMEOUT_MS, `hoja ${HOJA_SYNC}`).catch((e) => ({ ok: false, error: e.message }));
   fuentes.cuadre = await cuadreCuenta(fuentes.tesoreria, calc.CUENTA_BANCO, manana, false);
 
   let tiposBanco = null;
@@ -869,6 +885,46 @@ module.exports = function (app) {
       res.json({ ok: true, guardada: { generado: f.generado, n_movimientos: f.movimientos.length, total } });
     } catch (e) {
       console.error("[movimientos-sin-conciliar]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ── Última sincronización del banco (06/10/2026) ─────────────
+  // POST { last_sync_at, cuenta?, saldo? }: la rutina lee lastSyncAt de /internal/banking/accounts (ES81) y lo
+  // sube aquí. Se guarda en la hoja banco_sync (una fila por envío) y la cabecera de Mi panel lo enseña.
+  const RUTA_SYNC = "/api/ara-os/holded/banco-sync";
+  app.options(RUTA_SYNC, (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.status(204).end();
+  });
+  app.get(RUTA_SYNC, async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    try { res.json(await leerBancoSync()); } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  app.post(RUTA_SYNC, require("express").json({ limit: "8kb" }), async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    const b = req.body || {};
+    const v = b.last_sync_at ?? b.lastSyncAt;
+    const n = Number(v);
+    const d = v == null || v === "" ? null : Number.isFinite(n) ? new Date(n < 1e12 ? n * 1000 : n) : new Date(String(v));
+    if (!d || isNaN(d)) return res.status(400).json({ ok: false, error: "last_sync_at: fecha obligatoria (ISO o Unix)" });
+    const saldo = b.saldo == null || b.saldo === "" ? null : Number(b.saldo);
+    const reg = { last_sync_at: d.toISOString(), cuenta: b.cuenta ? String(b.cuenta).slice(0, 64) : null, saldo: Number.isFinite(saldo) ? saldo : null, recibido: new Date().toISOString() };
+    try {
+      await asegurarPestana(HOJA_SYNC, SYNC_HEADERS);
+      await getSheetsClient().spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${HOJA_SYNC}!A:D`, valueInputOption: "RAW",
+        requestBody: { values: [[reg.recibido, reg.cuenta || "", reg.last_sync_at, reg.saldo == null ? "" : reg.saldo]] },
+      });
+      if (!_bancoSync || reg.last_sync_at >= _bancoSync.last_sync_at) _bancoSync = reg;
+      recomponer((base) => { base.fuentes.banco_sync = { ok: true, data: _bancoSync }; });
+      res.json({ ok: true, guardada: reg });
+    } catch (e) {
+      console.error("[banco-sync]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });

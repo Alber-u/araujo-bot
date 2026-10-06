@@ -576,6 +576,17 @@ async function presupuestosProvisionales() {
 
 // v0.4.0: lee `comunidades` y devuelve el presupuesto previsto + nombre comunidad por ccpp_id.
 // Para obras_otras devuelve importe.
+// coste_hora_eur de config_dinero (1 min de caché): coste previsto de mano de obra de las obras privadas
+let _costeHora = { v: null, ts: 0 };
+async function costeHoraConfig() {
+  if (_costeHora.ts && Date.now() - _costeHora.ts < 60 * 1000) return _costeHora.v;
+  try {
+    const CD = require("./lib/config-dinero.cjs");
+    _costeHora = { v: CD.numConfig((await CD.leerConfigDinero()).filas, "coste_hora_eur"), ts: Date.now() };
+  } catch (e) { console.warn("[rentabilidad-obra] config_dinero:", e.message); return _costeHora.v; }
+  return _costeHora.v;
+}
+
 async function leerEconomicoObra(obra_id, obrasPlan5, obrasOtras) {
   const esPlan5 = !obra_id.startsWith("OO-");
   if (esPlan5) {
@@ -620,23 +631,27 @@ async function leerEconomicoObra(obra_id, obrasPlan5, obrasOtras) {
     }
     return { nombre_comunidad: plan5.nombre, pto_total: 0, mano_obra_previsto: 0, material_previsto: 0, beneficio_previsto: 0 };
   } else {
-    // obras_otras: importe (col G)
+    // obras_otras (06/10/2026): presupuesto SIN IVA (subtotal_eur; si no, total ÷ 1,21) y coste previsto del
+    // presupuesto: horas_previstas × coste_hora_eur (config_dinero) + material_previsto_eur. Antes: el importe con
+    // IVA y coste previsto 0 (Urbano Orad salía en D11 sin coste y con un «beneficio» mayor que su presupuesto).
     const otra = obrasOtras.find(o => o.obra_id === obra_id);
     if (!otra) return null;
-    const filas = await leerHojaSafe("obras_otras!A2:T");
-    for (const r of filas) {
+    const filas = await leerHojaSafe("obras_otras!A1:AQ");
+    const cab = (filas[0] || []).map((h) => String(h || "").trim());
+    for (const r of filas.slice(1)) {
       if (r[0] !== obra_id) continue;
-      let s = String(r[6] || "").trim();
-      if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", ".");
-      else if (s.indexOf(",") >= 0) s = s.replace(",", ".");
-      const n = Number(s);
-      const pto = isFinite(n) ? n : 0;
+      const o = Object.fromEntries(cab.map((h, i) => [h, r[i] == null ? "" : String(r[i])]));
+      const PP = require("./lib/presupuesto-privado.cjs");
+      const num = (v) => { let t = String(v ?? "").trim(); if (t.indexOf(",") >= 0 && t.indexOf(".") >= 0) t = t.replace(/\./g, "").replace(",", "."); else t = t.replace(",", "."); const n = Number(t); return isFinite(n) ? n : 0; };
+      const pv = PP.calcularPrevision({ ...o, total_eur: o.total_eur || o.importe }, { coste_hora_eur: await costeHoraConfig() });
+      const pto = pv.subtotal || 0;
+      const mo = pv.coste_mano_obra || 0, mat = num(o.material_previsto_eur);
       return {
         nombre_comunidad: otra.nombre,
-        pto_total: pto,
-        mano_obra_previsto: 0,
-        material_previsto: 0,
-        beneficio_previsto: 0,
+        pto_total: Math.round(pto * 100) / 100,
+        mano_obra_previsto: mo,
+        material_previsto: mat,
+        beneficio_previsto: mo || mat ? Math.round((pto - mo - mat) * 100) / 100 : 0,
       };
     }
     return { nombre_comunidad: otra.nombre, pto_total: 0, mano_obra_previsto: 0, material_previsto: 0, beneficio_previsto: 0 };
