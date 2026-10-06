@@ -691,6 +691,8 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
       ...(v.lista === false ? { pasos_lista: v.pasos_lista, lista_desde: v.lista_desde, lista_motivo: v.lista_motivo } : {}) }]));
     data.cashflow.huecos_plan = pc.huecos;
     data.cashflow.horas_disponibles = pc.disponibles || null;   // por cuadrilla y mes (festivos y vacaciones de config)
+    // «Por vender» de Mi panel: horas libres × €/h (config_dinero «eur_hora_venta», 75 por defecto)
+    data.cashflow.eur_hora_venta = require("./lib/config-dinero.cjs").numConfig(fuentes.config?.ok ? fuentes.config.data : [], "eur_hora_venta") ?? 75;
     // desvío real de mano de obra (Certificaciones, obras terminadas): al coste, no a las fechas (06/10/2026);
     // sin datos, el de la calibración, y se dice
     const dc = require("./lib/desvio-mo.cjs").desvioCertificaciones(fuentes.certif?.ok ? fuentes.certif.data.obras : []);
