@@ -687,10 +687,11 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
       calendarioMetal: require("./lib/config-dinero.cjs").valorConfig(fuentes.config?.ok ? fuentes.config.data : [], "calendario_metal")?.valor ?? null });
     const fp = pc.obras;
     // (07/10/2026) con «lista desde» y su motivo: sin ellos Mi panel daba las no listas por listas hoy («lista ≈ 06/10»)
-    data.cashflow.plan_obras = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, { inicio: v.inicio, fin: v.fin, equipo: v.equipo, lista: v.lista,
+    data.cashflow.plan_obras = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, { inicio: v.inicio, fin: v.fin, equipo: v.equipo, lista: v.lista, ...(v.extra ? { extra: v.extra } : {}),
       ...(v.lista === false ? { pasos_lista: v.pasos_lista, lista_desde: v.lista_desde, lista_motivo: v.lista_motivo } : {}) }]));
     data.cashflow.huecos_plan = pc.huecos;
     data.cashflow.horas_disponibles = pc.disponibles || null;   // por cuadrilla y mes (festivos y vacaciones de config)
+    data.cashflow.capacidad_dias = pc.capacidad || null;        // por cuadrilla y día laborable: el reparto de horas de Mi panel
     // «Por vender» de Mi panel: horas libres × €/h (config_dinero «eur_hora_venta», 75 por defecto)
     data.cashflow.eur_hora_venta = require("./lib/config-dinero.cjs").numConfig(fuentes.config?.ok ? fuentes.config.data : [], "eur_hora_venta") ?? 75;
     // desvío real de mano de obra (Certificaciones, obras terminadas): al coste, no a las fechas (06/10/2026);
@@ -704,7 +705,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     data.cashflow.fechas_fin_plan = Object.fromEntries(Object.entries(fp).filter(([, v]) => v.con_tramos || v.movida).map(([k, v]) => [k, v.fin]));
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
       custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, fechasFin: data.cashflow.fechas_fin_plan, abonosSabadell: data.cashflow.sabadell?.abonos_futuros || [],
-      planObras: data.cashflow.plan_obras, enValor: obrasEnValor(data), desvioMO: data.cashflow.desvio_mo ? data.cashflow.desvio_mo.pct / 100 : null, moEnValor: data.cashflow.mo_en_valor });
+      planObras: data.cashflow.plan_obras, capacidad: data.cashflow.capacidad_dias, enValor: obrasEnValor(data), desvioMO: data.cashflow.desvio_mo ? data.cashflow.desvio_mo.pct / 100 : null, moEnValor: data.cashflow.mo_en_valor });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
