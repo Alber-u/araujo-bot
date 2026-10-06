@@ -684,7 +684,9 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
         expedientes: data.cashflow.expedientes || null, sabadell: data.cashflow.sabadell || null }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
       nombresCuadrillas: planCalendario.personasPorCuadrilla(data.cashflow.cuadrillas_personas), registros: registrosYa() });
     const fp = pc.obras;
-    data.cashflow.plan_obras = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, { inicio: v.inicio, fin: v.fin, equipo: v.equipo, lista: v.lista }]));
+    // (07/10/2026) con «lista desde» y su motivo: sin ellos Mi panel daba las no listas por listas hoy («lista ≈ 06/10»)
+    data.cashflow.plan_obras = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, { inicio: v.inicio, fin: v.fin, equipo: v.equipo, lista: v.lista,
+      ...(v.lista === false ? { pasos_lista: v.pasos_lista, lista_desde: v.lista_desde, lista_motivo: v.lista_motivo } : {}) }]));
     data.cashflow.huecos_plan = pc.huecos;
     // desvío real de mano de obra (Certificaciones, obras terminadas): al coste, no a las fechas (06/10/2026);
     // sin datos, el de la calibración, y se dice
