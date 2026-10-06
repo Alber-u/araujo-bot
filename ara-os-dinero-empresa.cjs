@@ -80,7 +80,7 @@ let _foto = null;                       // última foto leída/guardada (caché)
 // Última sincronización del banco (lastSyncAt de /internal/banking/accounts, ES81). La API pública de Holded no la
 // da: la sube la rutina de Cowork (con la sesión de Holded) por POST /banco-sync, sin tener que subir otra foto.
 const HOJA_SYNC = "banco_sync";
-const SYNC_HEADERS = ["recibido", "cuenta", "last_sync_at", "saldo"];
+const SYNC_HEADERS = ["recibido", "cuenta", "last_sync_at", "saldo", "saldo_extracto", "ultimo_movimiento"];
 let _bancoSync = null;
 // Fuentes lentas del cash flow (recorren posicion-neta-real): 30 min de caché
 // y, si fallan, el último dato bueno.
@@ -148,7 +148,9 @@ async function leerBancoSync() {
   if (r.no_existe || !r.filas.length) return { ok: true, data: null };
   const ult = r.filas.filter((x) => x.last_sync_at && !isNaN(Date.parse(x.last_sync_at))).sort((a, b) => Date.parse(a.last_sync_at) - Date.parse(b.last_sync_at)).pop();
   if (!ult) return { ok: true, data: null };
-  _bancoSync = { last_sync_at: new Date(ult.last_sync_at).toISOString(), cuenta: String(ult.cuenta || "") || null, saldo: ult.saldo === "" || ult.saldo == null ? null : Number(ult.saldo), recibido: String(ult.recibido || "") };
+  const n = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+  _bancoSync = { last_sync_at: new Date(ult.last_sync_at).toISOString(), cuenta: String(ult.cuenta || "") || null, saldo: n(ult.saldo), recibido: String(ult.recibido || ""),
+                 saldo_extracto: n(ult.saldo_extracto), ultimo_movimiento: /^\d{4}-\d{2}-\d{2}/.test(String(ult.ultimo_movimiento || "")) ? String(ult.ultimo_movimiento).slice(0, 10) : null };
   return { ok: true, data: _bancoSync };
 }
 
@@ -890,7 +892,7 @@ module.exports = function (app) {
   });
 
   // ── Última sincronización del banco (06/10/2026) ─────────────
-  // POST { last_sync_at, cuenta?, saldo? }: la rutina lee lastSyncAt de /internal/banking/accounts (ES81) y lo
+  // POST { last_sync_at, cuenta?, saldo?, saldo_extracto?, ultimo_movimiento? }: la rutina lee lastSyncAt de /internal/banking/accounts (ES81) y lo
   // sube aquí. Se guarda en la hoja banco_sync (una fila por envío) y la cabecera de Mi panel lo enseña.
   const RUTA_SYNC = "/api/ara-os/holded/banco-sync";
   app.options(RUTA_SYNC, (req, res) => {
@@ -913,12 +915,18 @@ module.exports = function (app) {
     const d = v == null || v === "" ? null : Number.isFinite(n) ? new Date(n < 1e12 ? n * 1000 : n) : new Date(String(v));
     if (!d || isNaN(d)) return res.status(400).json({ ok: false, error: "last_sync_at: fecha obligatoria (ISO o Unix)" });
     const saldo = b.saldo == null || b.saldo === "" ? null : Number(b.saldo);
-    const reg = { last_sync_at: d.toISOString(), cuenta: b.cuenta ? String(b.cuenta).slice(0, 64) : null, saldo: Number.isFinite(saldo) ? saldo : null, recibido: new Date().toISOString() };
+    // saldo_extracto: balance de la última transacción importada (lo que Holded tiene en movimientos); ultimo_movimiento: su fecha
+    const ext = b.saldo_extracto == null || b.saldo_extracto === "" ? null : Number(b.saldo_extracto);
+    const um = /^\d{4}-\d{2}-\d{2}/.test(String(b.ultimo_movimiento || "")) ? String(b.ultimo_movimiento).slice(0, 10) : null;
+    const reg = { last_sync_at: d.toISOString(), cuenta: b.cuenta ? String(b.cuenta).slice(0, 64) : null, saldo: Number.isFinite(saldo) ? saldo : null, recibido: new Date().toISOString(),
+                  saldo_extracto: Number.isFinite(ext) ? ext : null, ultimo_movimiento: um };
     try {
       await asegurarPestana(HOJA_SYNC, SYNC_HEADERS);
+      // la hoja de antes tenía 4 columnas: cabecera completa (saldo_extracto y ultimo_movimiento se leen por nombre)
+      await getSheetsClient().spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${HOJA_SYNC}!A1:F1`, valueInputOption: "RAW", requestBody: { values: [SYNC_HEADERS] } });
       await getSheetsClient().spreadsheets.values.append({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${HOJA_SYNC}!A:D`, valueInputOption: "RAW",
-        requestBody: { values: [[reg.recibido, reg.cuenta || "", reg.last_sync_at, reg.saldo == null ? "" : reg.saldo]] },
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${HOJA_SYNC}!A:F`, valueInputOption: "RAW",
+        requestBody: { values: [[reg.recibido, reg.cuenta || "", reg.last_sync_at, reg.saldo == null ? "" : reg.saldo, reg.saldo_extracto == null ? "" : reg.saldo_extracto, reg.ultimo_movimiento || ""]] },
       });
       if (!_bancoSync || reg.last_sync_at >= _bancoSync.last_sync_at) _bancoSync = reg;
       recomponer((base) => { base.fuentes.banco_sync = { ok: true, data: _bancoSync }; });
