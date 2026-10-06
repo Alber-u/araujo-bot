@@ -563,7 +563,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   const extra = extraCashflow(fuentes, hoy);
   // Sección 9 (tarjetas de Mi panel › Empresa): previsión semanal, alerta
   // patrimonial y umbral del semáforo de «mío hoy».
-  data.panel = panel.calcularPanel(fuentes, data, hoy, { extra });
+  data.panel = panel.calcularPanel(fuentes, data, hoy, { extra, concCaja: data.ajuste_conciliacion || null });
   if (data.panel.aviso_cierre) data.avisos.push(data.panel.aviso_cierre);   // 10.1.4: del 1/11 al 31/12
   // Vista real (todo conciliado): las mismas tarjetas con el ajuste aplicado
   if (data.real) data.real.panel = panel.calcularPanel(fuentes, { ...data, ...data.real }, hoy, { conc: data.ajuste_conciliacion, extra });
@@ -578,7 +578,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   }
   // Cash flow de 13 semanas + puntuales hasta julio de 2027 (vista real si la hay)
   const vistaCf = data.real ? { ...data, ...data.real } : data;
-  data.cashflow = cashflow.calcularCashflow(fuentes, vistaCf, hoy, data.real ? data.ajuste_conciliacion : null, extra);
+  data.cashflow = cashflow.calcularCashflow(fuentes, vistaCf, hoy, data.ajuste_conciliacion || null, extra);
   data.cashflow.vista = data.real ? "real" : "contable";
   data.cashflow.simulador = cashflow.baseSimulador(fuentes.pnr_ref);
   // Obras cobradas enteras confirmadas a mano (además de las de la hoja)
