@@ -942,7 +942,9 @@ module.exports = function (app) {
         if (_cache?.data?._base?.fuentes && _cache.ts < fresca.ts) recomponer((base) => { base.fuentes.certif = fresca.r; });
       }
       const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador: json("borrador"), conf: json("conf"), tam, alternativas: String(req.query.alternativas || "") === "1",
-        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, jornada: cf.jornada || null, registros, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
+        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null,
+        // «Listas para empezar primero» (por defecto sí): las no listas, sin fecha y al final
+        listasPrimero: String(req.query.listas_primero ?? "1") !== "0", jornada: cf.jornada || null, registros, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
       // commit desplegado (Render): para comprobar qué versión calcula
       res.json({ ...r, generado: c.data.generado, de_cache: c.data.de_cache || null, cache: { edad_s: Math.round((Date.now() - c.ts) / 1000) }, commit: (process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null });
     } catch (e) {
