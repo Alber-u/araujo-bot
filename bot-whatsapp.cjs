@@ -1158,7 +1158,8 @@ function plazoFinanciacion(texto) {
   return "";
 }
 // v0.28: guarda el plazo elegido en la pestaña MAESTRA 'pisos', columna AM, en la fila
-// del piso cuyo telefono (col A) coincide. Es la UNICA celda que el bot escribe en pisos.
+// del piso cuyo telefono (col A) coincide. En la fase 05 es la UNICA celda que el bot escribe en pisos
+// (v19.98: en la fase 08 escribe ademas AR contrato y AS pago, a REVISAR, ver bloque FASE 08).
 async function guardarFinanciacionEnPiso(telefono, valor) {
   try {
     const sheets = getSheetsClient();
@@ -2456,6 +2457,7 @@ function buildCtx(req, res, telefono, msgOriginal, msg, numMedia, datosVecino, e
 // Dispatcher principal: llama subfunciones en orden hasta que una maneje la request
 async function manejarMensajeWhatsApp(req, res) {
   try {
+    if (req._modoBot === "08") return await manejarFase08(req, res);   // v19.98: contratos en fase 08
     const msgOriginal = (req.body.Body || "").trim();
     const msg = msgOriginal.toLowerCase();
     const numMedia = parseInt(req.body.NumMedia || "0", 10);
@@ -3615,6 +3617,7 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
 // Igual que manejarMensajeWhatsApp pero sin res — devuelve el texto de respuesta.
 // Se llama después de que Twilio ya recibió respuesta inmediata.
 async function manejarMensajeWhatsAppBackground(req) {
+  if (req._modoBot === "08") return await manejarFase08(req, null);   // v19.98: contratos en fase 08
   const msgOriginal = (req.body.Body || "").trim();
   const msg = msgOriginal.toLowerCase();
   const numMedia = parseInt(req.body.NumMedia || "0", 10);
@@ -3737,7 +3740,7 @@ app.get("/enviar-presentacion", async (req, res) => {
 
       try {
         await enviarWhatsAppPlantilla(telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
-          "1": nombre || "vecino",
+          "1": limpiarNombreVecino(nombre),   // v19.98: nombre sin anotaciones
         });
         // Crear la ficha del vecino en bot_whatsapp: marca implícita de "presentado"
         // y arranque del expediente. Evita reenvíos en próximas tandas.
@@ -3796,9 +3799,13 @@ app.post("/whatsapp", async (req, res) => {
 
   // FILTRO BOT: solo atender a vecinos cuyo piso esté activado para el bot
   // (bot_piso_activo=BOT_WHATSAPP) y cuya comunidad esté en fase 05 (v19.93).
+  // v19.98: o en fase 08 si el bot le mandó el contrato (modoBotTelefono = "08").
   // Si no, el bot guarda silencio (no responde nada).
+  let _modoBot = null;
   try {
-    if (!(await pisoActivoParaBot(telefonoKey))) {
+    _modoBot = await modoBotTelefono(telefonoKey);
+    req._modoBot = _modoBot;
+    if (!_modoBot) {
       console.log("Filtro bot: piso no activo, ignorado:", telefonoKey);
       marcarProcesado(messageSid);
       const twimlOff = new twilio.twiml.MessagingResponse();
@@ -3837,7 +3844,7 @@ app.post("/whatsapp", async (req, res) => {
   res.type("text/xml").send(twiml.toString());
 
   // Capturar req.body ahora para evitar que Express lo limpie antes del background
-  const reqData = { body: { ...req.body } };
+  const reqData = { body: { ...req.body }, _modoBot };
 
   setImmediate(() => {
     withLock(telefonoKey, async () => {
@@ -3881,6 +3888,520 @@ setInterval(() => {
   }
   if (eliminados > 0) console.log("Dedup limpieza:", eliminados, "entradas eliminadas");
 }, 5 * 60 * 1000);
+
+
+// ============================================================================
+// v19.98 (criterio de Guille, 06/10/2026) -- FASE 08: CONTRATOS POR EL BOT
+// ----------------------------------------------------------------------------
+// Copia el mecanismo de la presentacion de la fase 05, cambiando los archivos:
+//  1. ENVIO (enviarContratoPiso, lo llama documentacion.cjs desde el boton W de
+//     cada piso en fase 08): busca en la carpeta de Drive del expediente el PDF
+//     "CONTRATO ... (<piso>).pdf" y el "CARTA DE PAGO ... (<piso>).pdf", los une
+//     en un solo PDF (si la comunidad es FFCC, solo el contrato) y lo manda con
+//     la plantilla Twilio "contrato_cycp" (cabecera de documento). El PDF se sirve
+//     por /media-contrato/<clave>/<nombre>.pdf (en memoria, 48 h: Twilio lo baja
+//     al enviar). Variables: {{1}} tipo de via + comunidad, {{2}} piso,
+//     {{3}} fecha limite, {{4}} <clave>/<nombre>.pdf (la ruta del documento).
+//  2. FICHA: usa la de la fase 05 (por telefono). Si el vecino no tenia (iba en
+//     M en la 05), se crea una con paso "fase08" y SIN fecha de primer contacto
+//     (col J vacia), para no mover nada de los plazos de la fase 05.
+//     Columnas propias en bot_expedientes: AG contrato_bot_enviado (fecha del
+//     PRIMER envio; es la que pinta el globo del boton W), AH contrato_bot_hojas
+//     (hojas del contrato recibidas y aun sin juntar, "idDrive:paginas,..."),
+//     AI contrato_bot_ultimo (fecha del ultimo envio, por si se reenvia).
+//  3. RECOGIDA (manejarFase08): el webhook deja pasar la fase 08 SOLO a pisos en W
+//     con contrato enviado por el bot (AG relleno). Pide lo que falte segun las
+//     pastillas del piso: contrato firmado (pisos!AR) y justificante de pago
+//     (pisos!AS, solo si esta en F y la comunidad no es FFCC). El contrato llega
+//     en un PDF de 4 paginas o en fotos/PDF sueltos: al llegar a 4 hojas, o al
+//     escribir LISTO, se juntan en un PDF. Cada documento recibido pone su pastilla
+//     en REVISAR (Guille la pasa a OK) y se apunta en bot_documentos
+//     (contrato_firmado, justificante_pago, adicional).
+//  El job de seguimiento NO trabaja en 08 (sigue con pisoActivoParaBot = solo 05):
+//  los plazos de la 08 los lleva Guille con M3/M4.
+// ============================================================================
+const _crypto08 = require("crypto");
+const _HOJAS_CONTRATO = 4;
+function _n08(s) { return String(s == null ? "" : s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase(); }
+function _up08(s) { return String(s == null ? "" : s).trim().toUpperCase(); }
+
+// Nombre para el saludo de las plantillas de Twilio (presentacion y recordatorio).
+// La columna nombre de pisos lleva anotaciones de Guille: "(T) ", "(U) ", "(?) ",
+// lo que va detras de " / " y un parentesis al final ("(HIJO DE ...)"). Se quitan.
+// Si no queda nada, "vecino". No cambia lo que hay guardado, solo lo que se envia.
+function limpiarNombreVecino(n) {
+  let s = String(n == null ? "" : n);
+  s = s.split(/\s+\/\s*|\s*\/\s+/)[0];
+  s = s.replace(/^\s*(\([^)]*\)\s*)+/, "");
+  for (let i = 0; i < 3; i++) s = s.replace(/\s*\([^)]*\)\s*$/, "");
+  s = s.replace(/\s+/g, " ").trim();
+  return s || "vecino";
+}
+
+// ----- Datos del piso y de la comunidad (lectura directa, siempre fresca) -----
+async function _datosPiso08(comunidad, vivienda) {
+  const r = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AV" });
+  const rows = r.data.values || [];
+  const kc = _n08(comunidad), kv = _n08(vivienda);
+  for (let i = 1; i < rows.length; i++) {
+    const p = rows[i] || [];
+    if (_n08(p[1]) === kc && _n08(p[2]) === kv) {
+      return { fila: i + 1, telefono: p[0] || "", comunidad: p[1] || "", vivienda: p[2] || "", nombre: p[4] || "",
+        disidente: _up08(p[42]), contrato: _up08(p[43]), pago: _up08(p[44]), botActivo: _up08(p[47]) };
+    }
+  }
+  return null;
+}
+async function _datosComunidad08(direccion) {
+  const r = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "comunidades!A:AZ" });
+  const rows = r.data.values || [];
+  const k = _n08(direccion);
+  for (let i = 1; i < rows.length; i++) {
+    const c = rows[i] || [];
+    if (_n08(c[1]) === k) return { direccion: c[1] || "", tipoVia: String(c[10] || "").trim(), fase: _faseNormBot(c[15]), ccppPago: _up08(c[50]), envio: String(c[51] || "").trim() };
+  }
+  return null;
+}
+async function _escribirCeldaPiso08(fila, col, valor) {
+  await getSheetsClient().spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!" + col + fila, valueInputOption: "RAW", requestBody: { values: [[valor]] } });
+}
+
+// ----- Ficha del bot (bot_expedientes) en fase 08 -----
+async function _asegurarColsBotExp(minCols) {
+  try {
+    const sheets = getSheetsClient();
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
+    const sh = (meta.data.sheets || []).find(s => s.properties && s.properties.title === "bot_expedientes");
+    const cc = (sh && sh.properties.gridProperties && sh.properties.gridProperties.columnCount) || 0;
+    if (sh && cc > 0 && cc < minCols) {
+      await sheets.spreadsheets.batchUpdate({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, requestBody: { requests: [{ appendDimension: { sheetId: sh.properties.sheetId, dimension: "COLUMNS", length: minCols - cc } }] } });
+    }
+  } catch (e) { console.error("[bot-whatsapp] ampliar columnas de bot_expedientes:", e.message); }
+}
+function _parseHojas08(txt) {
+  return String(txt || "").split(",").map(x => x.trim()).filter(Boolean).map(x => {
+    const m = x.split(":"); return { id: m[0], n: Math.max(1, parseInt(m[1] || "1", 10) || 1) };
+  });
+}
+function _txtHojas08(arr) { return (arr || []).map(h => h.id + ":" + h.n).join(","); }
+async function _leerFicha08(telefono) {
+  const r = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:AI" });
+  const rows = r.data.values || [];
+  const t = normalizarTelefono(telefono);
+  for (let i = 1; i < rows.length; i++) {
+    const f = rows[i] || [];
+    if (normalizarTelefono(f[0] || "") === t) {
+      return { rowIndex: i + 1, telefono: f[0] || "", comunidad: f[1] || "", vivienda: f[2] || "", nombre: f[3] || "",
+        enviado: String(f[32] || "").trim(), hojas: _parseHojas08(f[33]), ultimo: String(f[34] || "").trim() };
+    }
+  }
+  return null;
+}
+async function _escribirFicha08(rowIndex, enviado, hojas, ultimo) {
+  await _asegurarColsBotExp(35);
+  await getSheetsClient().spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AG" + rowIndex + ":AI" + rowIndex, valueInputOption: "RAW",
+    requestBody: { values: [[enviado || "", _txtHojas08(hojas), ultimo || ""]] } });
+}
+async function _crearFicha08(telefono, piso) {
+  const ahora = ahoraISO();
+  await getSheetsClient().spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:Z", valueInputOption: "RAW",
+    requestBody: { values: [[
+      telefono, piso.comunidad || "", piso.vivienda || "", piso.nombre || "", "", "fase08", "", "fase08",
+      ahora, "", ahora, "", "", "NO", "", "", "", "", "", "", "", "", "", "no", "", "",
+    ]] },
+  });
+}
+// ¿Ya se ha mandado algun contrato por el bot en esta comunidad? (el plazo de 10 dias
+// cuenta desde el primero, criterio de Guille). Devuelve tambien la fecha por piso.
+async function contratosBotComunidad(direccion) {
+  const r = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:AI" });
+  const rows = r.data.values || [];
+  const k = _n08(direccion);
+  const porPiso = {}; let primera = "";
+  for (let i = 1; i < rows.length; i++) {
+    const f = rows[i] || [];
+    if (_n08(f[1]) !== k) continue;
+    const ag = String(f[32] || "").trim();
+    if (!ag) continue;
+    porPiso[_n08(f[2])] = ag;
+    if (!primera || ag < primera) primera = ag;
+  }
+  return { primero: !primera, primera, porPiso };
+}
+
+// ----- Webhook: ¿en que modo atiende el bot a este telefono? -----
+// "05" = flujo de documentacion de siempre; "08" = contratos; null = silencio.
+async function modoBotTelefono(telefono) {
+  if (await pisoActivoParaBot(telefono)) return "05";
+  const telNorm = normalizarTelefono(telefono);
+  const pisos = await _leerBotCompartido("pisos!A:AV");
+  let comunidadPiso = null, botActivo = "";
+  for (let i = 1; i < pisos.length; i++) {
+    const row = pisos[i] || [];
+    if (normalizarTelefono(row[0] || "") === telNorm) { comunidadPiso = row[1] || ""; botActivo = _up08(row[47]); break; }
+  }
+  if (comunidadPiso === null || botActivo !== "BOT_WHATSAPP") return null;
+  const comus = await _leerBotCompartido("comunidades!A:P");
+  let fase = "";
+  for (let i = 1; i < comus.length; i++) {
+    const row = comus[i] || [];
+    if (_n08(row[1]) === _n08(comunidadPiso)) { fase = _faseNormBot(row[15]); break; }
+  }
+  if (fase !== "08_CYCP") return null;
+  const ficha = await _leerFicha08(telefono);
+  return (ficha && ficha.enviado) ? "08" : null;
+}
+
+// ----- Drive: PDFs de contrato y carta de pago del expediente -----
+const _cacheListado08 = new Map();
+async function _listarPdfsExpediente(direccion) {
+  const rootId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES || process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const tipoVia = await getTipoViaPorDireccion(direccion);
+  const nombreExp = (tipoVia + " " + String(direccion || "").trim()).trim();
+  const carpetaExp = await buscarCarpeta(nombreExp, rootId);
+  if (!carpetaExp) return { error: "No encuentro la carpeta de Drive del expediente (" + nombreExp + ")" };
+  const c = _cacheListado08.get(carpetaExp.id);
+  if (c && Date.now() - c.ts < 60000) return { carpetaId: carpetaExp.id, files: c.files };
+  const drive = getDriveClient();
+  const files = [];
+  const cola = [{ id: carpetaExp.id, nivel: 0 }];
+  while (cola.length) {
+    const act = cola.shift();
+    let pageToken = null;
+    do {
+      const resp = await drive.files.list({
+        q: "'" + act.id + "' in parents and trashed=false",
+        fields: "nextPageToken, files(id, name, mimeType, modifiedTime)",
+        pageSize: 1000, pageToken: pageToken || undefined,
+      });
+      for (const f of (resp.data.files || [])) {
+        if (f.mimeType === "application/vnd.google-apps.folder") {
+          // la carpeta del bot (documentos de los vecinos) no se mira: ahi no hay contratos de EMASESA
+          if (act.nivel < 2 && _n08(f.name) !== "01 documentacion bot") cola.push({ id: f.id, nivel: act.nivel + 1 });
+        } else if (f.mimeType === "application/pdf" || /\.pdf$/i.test(f.name || "")) {
+          files.push(f);
+        }
+      }
+      pageToken = resp.data.nextPageToken || null;
+    } while (pageToken);
+  }
+  _cacheListado08.set(carpetaExp.id, { ts: Date.now(), files });
+  return { carpetaId: carpetaExp.id, files };
+}
+function _pdfsDelPiso(files, vivienda) {
+  const marca = "(" + _n08(vivienda) + ")";
+  const delPiso = (files || []).filter(f => _n08(f.name).indexOf(marca) !== -1);
+  return {
+    contratos: delPiso.filter(f => /^contrato/.test(_n08(f.name))),
+    cartas: delPiso.filter(f => /^carta/.test(_n08(f.name))),
+  };
+}
+async function _bajarDrive(fileId) {
+  const r = await getDriveClient().files.get({ fileId, alt: "media" }, { responseType: "arraybuffer" });
+  return Buffer.from(r.data);
+}
+async function _paginasPdf(buf) {
+  try { const d = await PDFDocument.load(buf, { ignoreEncryption: true }); return d.getPageCount(); } catch (e) { return 0; }
+}
+async function _unirPdfs(buffers) {
+  const out = await PDFDocument.create();
+  for (const b of buffers) {
+    const src = await PDFDocument.load(b, { ignoreEncryption: true });
+    const pags = await out.copyPages(src, src.getPageIndices());
+    pags.forEach(p => out.addPage(p));
+  }
+  return Buffer.from(await out.save());
+}
+
+// ----- El PDF que se manda: en memoria, servido a Twilio por una ruta propia -----
+const _mediaContratos = new Map();
+const _MEDIA_CONTRATO_TTL = 48 * 60 * 60 * 1000;
+function _guardarMediaContrato(buf, nombre) {
+  const ahora = Date.now();
+  for (const [k, v] of _mediaContratos.entries()) if (ahora - v.ts > _MEDIA_CONTRATO_TTL) _mediaContratos.delete(k);
+  const clave = _crypto08.randomBytes(12).toString("hex");
+  _mediaContratos.set(clave, { buf, nombre, ts: ahora });
+  return clave;
+}
+app.get("/media-contrato/:clave/:nombre", (req, res) => {
+  const m = _mediaContratos.get(String(req.params.clave || ""));
+  if (!m) return res.status(404).send("No encontrado");
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", "inline; filename=\"" + m.nombre + "\"");
+  res.setHeader("Cache-Control", "private, max-age=3600");
+  return res.send(m.buf);
+});
+function _nombreArchivoSeguro(s) {
+  return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9\-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "documento";
+}
+
+// ----- ENVIO de contrato (+ carta de pago) a un piso -----
+// o = { comunidad (direccion), vivienda, tipoVia, fechaLimite "DD/MM/AAAA", soloContrato }
+async function enviarContratoPiso(o) {
+  try {
+    await cargarPlantillas(true);
+    const sid = sidPlant("contrato_cycp", null);
+    if (!sid) return { ok: false, estado: "sin_plantilla", error: "Falta la plantilla de Twilio para enviar contratos" };
+    const piso = await _datosPiso08(o.comunidad, o.vivienda);
+    if (!piso) return { ok: false, estado: "sin_piso", error: "No encuentro el piso " + o.vivienda };
+    const tel = normalizarTelefono(piso.telefono);
+    if (!tel) return { ok: false, estado: "sin_telefono", error: "El " + piso.vivienda + " no tiene tel\u00e9fono" };
+    if (piso.disidente === "OK") return { ok: false, estado: "disidente", error: "El " + piso.vivienda + " est\u00e1 marcado como disidente: no se le env\u00eda contrato" };
+    // Un telefono = un vecino para el bot: si ese telefono ya tiene ficha de OTRO piso, no se mezcla.
+    let ficha = await _leerFicha08(tel);
+    if (ficha && (_n08(ficha.comunidad) !== _n08(piso.comunidad) || _n08(ficha.vivienda) !== _n08(piso.vivienda))) {
+      return { ok: false, estado: "telefono_de_otro_piso", error: "Ese tel\u00e9fono ya lo lleva el bot en otra vivienda (" + ficha.comunidad + " " + ficha.vivienda + "). El bot solo lleva un piso por tel\u00e9fono: m\u00e1ndaselo a mano (M4)." };
+    }
+    // PDFs en Drive
+    let lst = await _listarPdfsExpediente(piso.comunidad);
+    if (lst.error) return { ok: false, estado: "sin_carpeta", error: lst.error };
+    let pp = _pdfsDelPiso(lst.files, piso.vivienda);
+    const falta = () => (!pp.contratos.length || (!o.soloContrato && !pp.cartas.length));
+    if (falta() || pp.contratos.length > 1 || (!o.soloContrato && pp.cartas.length > 1)) {
+      _cacheListado08.delete(lst.carpetaId);   // por si se acaba de subir: se vuelve a mirar
+      lst = await _listarPdfsExpediente(piso.comunidad);
+      if (lst.error) return { ok: false, estado: "sin_carpeta", error: lst.error };
+      pp = _pdfsDelPiso(lst.files, piso.vivienda);
+    }
+    if (!pp.contratos.length && !o.soloContrato && !pp.cartas.length) return { ok: false, estado: "falta_pdf", error: "No encuentro el contrato ni la carta de pago del " + piso.vivienda };
+    if (!pp.contratos.length) return { ok: false, estado: "falta_pdf", error: "No encuentro el contrato del " + piso.vivienda };
+    if (!o.soloContrato && !pp.cartas.length) return { ok: false, estado: "falta_pdf", error: "No encuentro la carta de pago del " + piso.vivienda };
+    if (pp.contratos.length > 1) return { ok: false, estado: "pdf_repetido", error: "Hay " + pp.contratos.length + " contratos del " + piso.vivienda + " en Drive: deja solo uno" };
+    if (!o.soloContrato && pp.cartas.length > 1) return { ok: false, estado: "pdf_repetido", error: "Hay " + pp.cartas.length + " cartas de pago del " + piso.vivienda + " en Drive: deja solo una" };
+    const bufC = await _bajarDrive(pp.contratos[0].id);
+    const bufs = [bufC];
+    if (!o.soloContrato) bufs.push(await _bajarDrive(pp.cartas[0].id));
+    let pdf;
+    try { pdf = await _unirPdfs(bufs); }
+    catch (eU) { return { ok: false, estado: "pdf_ilegible", error: "No se pueden juntar los PDF del " + piso.vivienda + " (" + eU.message + ")" }; }
+    const pagContrato = await _paginasPdf(bufC);
+    const pagTotal = await _paginasPdf(pdf);
+    const avisos = [];
+    if (pagContrato && pagContrato !== _HOJAS_CONTRATO) avisos.push("el contrato tiene " + pagContrato + " p\u00e1ginas (se esperaban " + _HOJAS_CONTRATO + ")");
+    const nombre = _nombreArchivoSeguro((o.soloContrato ? "CONTRATO " : "CONTRATO Y CARTA DE PAGO ") + piso.vivienda) + ".pdf";
+    const clave = _guardarMediaContrato(pdf, nombre);
+    const comuTxt = ((o.tipoVia ? o.tipoVia + " " : "") + piso.comunidad).trim();
+    await enviarWhatsAppPlantilla(tel, sid, { "1": comuTxt, "2": piso.vivienda, "3": o.fechaLimite || "", "4": clave + "/" + nombre });
+    // Ficha y marcas (si algo de esto falla, el mensaje ya ha salido: se avisa en el registro)
+    const ahora = ahoraISO();
+    let primeroDelPiso = true;
+    try {
+      if (!ficha) { await _crearFicha08(tel, piso); ficha = await _leerFicha08(tel); }
+      primeroDelPiso = !(ficha && ficha.enviado);
+      if (ficha) await _escribirFicha08(ficha.rowIndex, ficha.enviado || ahora, [], ahora);
+    } catch (eF) { console.error("enviarContratoPiso: ficha no actualizada:", tel, eF.message); avisos.push("no se pudo apuntar el env\u00edo en la ficha del bot"); }
+    try { await guardarAviso(tel, "contrato_cycp", "manual_boton"); } catch (e) {}
+    try { await guardarContacto(tel, "envio_contrato", "bot", (o.soloContrato ? "Contrato" : "Contrato y carta de pago") + " enviados (" + pagTotal + " p\u00e1g.)"); } catch (e) {}
+    return { ok: true, estado: "enviado", fecha: (ficha && ficha.enviado) || ahora, primeroDelPiso, paginas: pagTotal, avisos };
+  } catch (e) {
+    console.error("enviarContratoPiso error:", o && o.vivienda, e.message);
+    return { ok: false, estado: "error", error: e.message };
+  }
+}
+
+// ----- RECOGIDA en fase 08 -----
+function _estado08(piso, comu, ficha) {
+  const ffcc = !!(comu && comu.ccppPago === "FFCC");
+  const contratoPend = !piso || (piso.contrato !== "OK" && piso.contrato !== "REVISAR");
+  const pagoPend = !ffcc && !!piso && piso.pago === "F";
+  const hojas = (ficha && ficha.hojas) || [];
+  return { ffcc, contratoPend, pagoPend, hojas, nHojas: hojas.reduce((a, h) => a + h.n, 0) };
+}
+function _textoPendiente08(st) {
+  const l = [];
+  if (st.contratoPend) {
+    if (st.nHojas > 0) l.push("- El contrato firmado: llevamos " + st.nHojas + " de " + _HOJAS_CONTRATO + " hojas. Env\u00edenos las que falten y escriba LISTO cuando termine.");
+    else l.push("- El contrato firmado (LAS 4 HOJAS): un PDF o una foto de cada hoja. Si lo manda en fotos, escriba LISTO al terminar.");
+  }
+  if (st.pagoPend) l.push("- El justificante de abono de la Carta de pago.");
+  if (!l.length) return "";
+  return "*NECESITAMOS*\n" + l.join("\n");
+}
+function _textoTodoRecibido08() {
+  return "Hemos recibido toda la documentaci\u00f3n que le ped\u00edamos. La revisaremos y, si falta algo, se lo diremos por aqu\u00ed. Gracias.";
+}
+async function _clasificarDoc08(jpegBuf) {
+  if (!jpegBuf) return null;
+  const prompt = "Clasifica la imagen de un documento. Responde SOLO un JSON {\"tipo\":\"contrato\"|\"justificante\"|\"otro\",\"confianza\":0-1}. " +
+    "contrato = una hoja de un contrato de suministro de agua de EMASESA (texto contractual, condiciones, datos del abonado o firmas). " +
+    "justificante = un comprobante de pago: ticket de cajero, justificante de transferencia bancaria, recibo pagado o carta de pago con marca o sello de pagado. " +
+    "otro = cualquier otra cosa.";
+  const r = await llamarIAconImagen(prompt, jpegBuf.toString("base64"), IA_TIMEOUT_IMAGEN_MS);
+  const t = r && String(r.tipo || "").toLowerCase();
+  return ["contrato", "justificante", "otro"].includes(t) ? t : null;
+}
+async function _imagenAJpeg08(buf) {
+  return await sharp(buf).rotate().resize(1800, 1800, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
+}
+// Junta las hojas del contrato (fotos y/o PDF sueltos) en un PDF, lo sube y pone la pastilla en REVISAR.
+async function _finalizarContrato08(ctx) {
+  const { piso, comu, ficha, carpetaId, telefono } = ctx;
+  const hojas = ficha.hojas || [];
+  const drive = getDriveClient();
+  const out = await PDFDocument.create();
+  for (const h of hojas) {
+    const meta = await drive.files.get({ fileId: h.id, fields: "id, mimeType, name" });
+    const buf = await _bajarDrive(h.id);
+    if (String(meta.data.mimeType || "").includes("pdf")) {
+      const src = await PDFDocument.load(buf, { ignoreEncryption: true });
+      const pags = await out.copyPages(src, src.getPageIndices());
+      pags.forEach(p => out.addPage(p));
+    } else {
+      const img = await out.embedJpg(buf);
+      const A4W = 595.28, A4H = 841.89;
+      const esc = Math.min(A4W / img.width, A4H / img.height);
+      const w = img.width * esc, hh = img.height * esc;
+      const page = out.addPage([A4W, A4H]);
+      page.drawImage(img, { x: (A4W - w) / 2, y: (A4H - hh) / 2, width: w, height: hh });
+    }
+  }
+  const total = out.getPageCount();
+  const pdf = Buffer.from(await out.save());
+  const nombre = "08-CONTRATO FIRMADO " + ((comu && comu.tipoVia) ? comu.tipoVia + " " : "") + piso.comunidad + " (" + piso.vivienda + ").pdf";
+  const subido = await uploadToDrive(pdf, nombre, "application/pdf", carpetaId);
+  const motivo = total < _HOJAS_CONTRATO ? ("solo " + total + " hoja" + (total === 1 ? "" : "s") + " (el contrato tiene " + _HOJAS_CONTRATO + ")") : "contrato firmado recibido por el bot";
+  await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "contrato_firmado", nombre, subido.webViewLink || "", "bot_fase08", "REVISAR", motivo);
+  await _escribirCeldaPiso08(piso.fila, "AR", "REVISAR");
+  piso.contrato = "REVISAR";
+  await _escribirFicha08(ficha.rowIndex, ficha.enviado, [], ficha.ultimo);
+  ficha.hojas = [];
+  // las hojas sueltas ya estan dentro del PDF: a la papelera (recuperables)
+  for (const h of hojas) { try { await drive.files.update({ fileId: h.id, requestBody: { trashed: true } }); } catch (e) {} }
+  try { await notificarEquipo("revisar_documento", { nombre: piso.nombre, comunidad: piso.comunidad, vivienda: piso.vivienda, telefono, documento: "Contrato firmado", motivo }); } catch (e) {}
+  return { total };
+}
+// Un archivo recibido en fase 08. Devuelve la frase para el vecino.
+async function _procesarArchivo08(ctx, mediaUrl, mimeType) {
+  const { piso, comu, ficha, telefono } = ctx;
+  const resp = await axios.get(mediaUrl, { responseType: "arraybuffer", auth: { username: process.env.TWILIO_ACCOUNT_SID, password: process.env.TWILIO_AUTH_TOKEN } });
+  let buf = Buffer.from(resp.data);
+  if (buf.length > MAX_FILE_SIZE) return "El archivo es demasiado grande (m\u00e1ximo 10 MB). Env\u00edelo en varias partes o en fotos.";
+  const esPdf = String(mimeType || "").includes("pdf");
+  const esImg = String(mimeType || "").startsWith("image/");
+  let nPag = 1, jpegIA = null;
+  if (esPdf) { nPag = Math.max(1, await _paginasPdf(buf)); try { jpegIA = await renderizarPrimeraPaginaPDF(buf); } catch (e) {} }
+  else if (esImg) { buf = await _imagenAJpeg08(buf); jpegIA = buf; }
+  const st = _estado08(piso, comu, ficha);
+  // ¿Que es? Sin IA cuando no hay duda; con IA cuando puede ser cualquiera de los dos.
+  let tipo;
+  if (esPdf && nPag >= _HOJAS_CONTRATO) tipo = "contrato_completo";
+  else if (!esPdf && !esImg) tipo = "otro";
+  else {
+    const dudoso = (st.contratoPend && st.pagoPend) || (!st.contratoPend && !st.pagoPend) || (st.nHojas > 0 && st.pagoPend);
+    const ia = dudoso ? await _clasificarDoc08(jpegIA) : null;
+    if (ia === "justificante") tipo = "justificante";
+    else if (ia === "contrato") tipo = "hoja";
+    else if (ia === "otro" && !st.contratoPend && !st.pagoPend) tipo = "otro";
+    else if (st.nHojas > 0 || st.contratoPend) tipo = "hoja";
+    else if (st.pagoPend) tipo = "justificante";
+    else tipo = "otro";
+  }
+  const carpetaId = await getOrCreateCarpetaVivienda({ comunidad: piso.comunidad, vivienda: piso.vivienda, telefono });
+  ctx.carpetaId = carpetaId;
+  const ext = esPdf ? ".pdf" : ".jpg";
+  const mime = esPdf ? "application/pdf" : "image/jpeg";
+  const sello = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  if (tipo === "contrato_completo") {
+    // Un PDF con el contrato entero: se guarda tal cual (no se pasa a imagen) y sustituye a las hojas sueltas
+    const nombre = "08-CONTRATO FIRMADO " + (comu && comu.tipoVia ? comu.tipoVia + " " : "") + piso.comunidad + " (" + piso.vivienda + ").pdf";
+    const subido = await uploadToDrive(buf, nombre, "application/pdf", carpetaId);
+    await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "contrato_firmado", nombre, subido.webViewLink || "", "bot_fase08", "REVISAR", "contrato firmado recibido por el bot (" + nPag + " p\u00e1g.)");
+    await _escribirCeldaPiso08(piso.fila, "AR", "REVISAR");
+    piso.contrato = "REVISAR";
+    if (ficha.hojas.length) await _escribirFicha08(ficha.rowIndex, ficha.enviado, [], ficha.ultimo);
+    ficha.hojas = [];
+    try { await notificarEquipo("revisar_documento", { nombre: piso.nombre, comunidad: piso.comunidad, vivienda: piso.vivienda, telefono, documento: "Contrato firmado", motivo: "Recibido por el bot en fase 08" }); } catch (e) {}
+    return "\u2705 Hemos recibido el contrato firmado.";
+  }
+  if (tipo === "hoja") {
+    if (!st.contratoPend && st.nHojas === 0) {
+      // ya habia contrato: es una hoja de mas. Se guarda y se avisa para revisarlo.
+      const nombre = "08-contrato_firmado-hoja_extra_" + sello + ext;
+      const subido = await uploadToDrive(buf, nombre, mime, carpetaId);
+      await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "contrato_firmado_extra", nombre, subido.webViewLink || "", "bot_fase08", "REVISAR", "hoja recibida despu\u00e9s del contrato");
+      if (piso.contrato !== "REVISAR") { await _escribirCeldaPiso08(piso.fila, "AR", "REVISAR"); piso.contrato = "REVISAR"; }
+      return "Hemos a\u00f1adido esta hoja a su contrato para revisarla.";
+    }
+    const num = st.nHojas + 1;
+    const nombre = "08-contrato_firmado-hoja" + _dosDig(num) + ext;
+    const subido = await uploadToDrive(buf, nombre, mime, carpetaId);
+    ficha.hojas = (ficha.hojas || []).concat([{ id: subido.id, n: esPdf ? nPag : 1 }]);
+    const llevamos = st.nHojas + (esPdf ? nPag : 1);
+    if (llevamos >= _HOJAS_CONTRATO) {
+      const r = await _finalizarContrato08(ctx);
+      return "\u2705 Hemos recibido las " + r.total + " hojas del contrato firmado.";
+    }
+    await _escribirFicha08(ficha.rowIndex, ficha.enviado, ficha.hojas, ficha.ultimo);
+    return "Hoja recibida (" + llevamos + " de " + _HOJAS_CONTRATO + "). Env\u00edenos las que falten; si ya las ha mandado todas, escriba LISTO.";
+  }
+  if (tipo === "justificante") {
+    const nombre = "08-JUSTIFICANTE PAGO " + (comu && comu.tipoVia ? comu.tipoVia + " " : "") + piso.comunidad + " (" + piso.vivienda + ")_" + sello + ext;
+    const subido = await uploadToDrive(buf, nombre, mime, carpetaId);
+    const sePedia = st.pagoPend || piso.pago === "REVISAR" || piso.pago === "OK";
+    await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "justificante_pago", nombre, subido.webViewLink || "", "bot_fase08", "REVISAR", sePedia ? "justificante de pago recibido por el bot" : "justificante recibido sin ped\u00edrselo (forma de pago " + (piso.pago || "vac\u00eda") + ")");
+    if (sePedia && piso.pago !== "REVISAR") { await _escribirCeldaPiso08(piso.fila, "AS", "REVISAR"); piso.pago = "REVISAR"; }
+    try { await notificarEquipo("revisar_documento", { nombre: piso.nombre, comunidad: piso.comunidad, vivienda: piso.vivienda, telefono, documento: "Justificante de pago", motivo: "Recibido por el bot en fase 08" }); } catch (e) {}
+    return "\u2705 Hemos recibido el justificante de pago.";
+  }
+  const nombre = "08-adicional_" + sello + ext;
+  const subido = await uploadToDrive(buf, nombre, mime, carpetaId);
+  await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "adicional", nombre, subido.webViewLink || "", "fuera_flujo", "REVISAR", "archivo recibido en fase 08 que no es contrato ni justificante");
+  return "Hemos guardado el archivo en su expediente para revisarlo.";
+}
+async function manejarFase08(req, res) {
+  const msgOriginal = String(req.body.Body || "").trim();
+  const numMedia = parseInt(req.body.NumMedia || "0", 10);
+  const telefono = String(req.body.From || "").replace("whatsapp:", "");
+  const silencio = () => res ? res.type("text/xml").send(new twilio.twiml.MessagingResponse().toString()) : null;
+  const datosVecino = await buscarVecinoPorTelefono(telefono);
+  if (!datosVecino) return silencio();
+  const piso = await _datosPiso08(datosVecino.comunidad, datosVecino.vivienda);
+  const comu = await _datosComunidad08(datosVecino.comunidad);
+  const ficha = await _leerFicha08(telefono);
+  if (!piso || !ficha) return silencio();
+  const ctx = { piso, comu, ficha, telefono, carpetaId: null };
+  if (numMedia > 0) {
+    const frases = [];
+    for (let i = 0; i < numMedia; i++) {
+      const url = req.body["MediaUrl" + i];
+      if (!url) continue;
+      try { frases.push(await _procesarArchivo08(ctx, url, req.body["MediaContentType" + i] || "application/octet-stream")); }
+      catch (e) { console.error("[fase08] archivo:", telefono, e.message); frases.push("No hemos podido guardar uno de los archivos. Por favor, vuelva a enviarlo."); }
+    }
+    const st = _estado08(piso, comu, ficha);
+    // si el contrato va por hojas, la frase de la hoja ya dice cuantas lleva: no se repite abajo
+    const pend = _textoPendiente08(st.nHojas > 0 ? Object.assign({}, st, { contratoPend: false }) : st);
+    const enCurso = st.nHojas > 0 && st.contratoPend;
+    const resp = frases.join("\n") + (pend ? "\n\n" + pend : (enCurso ? "" : "\n\n" + _textoTodoRecibido08()));
+    return responderYLog(res, telefono, msgOriginal || "[archivo]", "archivo_fase08", resp.trim());
+  }
+  // Solo texto
+  if (/^\s*listo\b/i.test(msgOriginal)) {
+    if (ficha.hojas.length) {
+      ctx.carpetaId = await getOrCreateCarpetaVivienda({ comunidad: piso.comunidad, vivienda: piso.vivienda, telefono });
+      const r = await _finalizarContrato08(ctx);
+      const st = _estado08(piso, comu, ficha);
+      const aviso = r.total < _HOJAS_CONTRATO ? (" Nos ha enviado " + r.total + " hoja" + (r.total === 1 ? "" : "s") + " y el contrato tiene " + _HOJAS_CONTRATO + ": si le falta alguna, env\u00edela por aqu\u00ed.") : "";
+      return responderYLog(res, telefono, msgOriginal, "texto_fase08", ("\u2705 Hemos recibido el contrato firmado." + aviso + "\n\n" + (_textoPendiente08(st) || _textoTodoRecibido08())).trim());
+    }
+    const st = _estado08(piso, comu, ficha);
+    return responderYLog(res, telefono, msgOriginal, "texto_fase08", ("Todav\u00eda no hemos recibido ninguna hoja del contrato.\n\n" + (_textoPendiente08(st) || _textoTodoRecibido08())).trim());
+  }
+  const st = _estado08(piso, comu, ficha);
+  let extra = "";
+  try {
+    const det = await detectarNecesidadHumano(msgOriginal, { paso_actual: "fase 08: env\u00edo del contrato firmado y del justificante de pago" });
+    if (det && det.escalar) {
+      await marcarAtencionHumana(telefono, msgOriginal);
+      try { await notificarEquipo("atencion_humana", { nombre: piso.nombre, comunidad: piso.comunidad, vivienda: piso.vivienda, telefono, mensaje: msgOriginal, motivo: det.motivo || "" }); } catch (e) {}
+      extra = "Hemos pasado su mensaje al equipo y le responderemos lo antes posible.\n\n";
+    }
+  } catch (e) {}
+  const pend = _textoPendiente08(st);
+  const base = pend ? (pend + "\nPuede enviarlo respondiendo a este mensaje.") : _textoTodoRecibido08();
+  return responderYLog(res, telefono, msgOriginal, "texto_fase08", (extra + base).trim());
+}
 
 
 // ================= JOB PROACTIVO DE SEGUIMIENTO =================
@@ -3952,7 +4473,7 @@ async function ejecutarJobSeguimiento() {
         if (expediente.alerta_plazo === _nivelP) { omitidos++; continue; }
         if (_nivelP === "presentacion_1" && expediente.alerta_plazo === "presentacion_2") { omitidos++; continue; }
         try {
-          await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), { "1": expediente.nombre || "vecino" });
+          await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), { "1": limpiarNombreVecino(expediente.nombre) });   // v19.98: nombre sin anotaciones
           expediente.alerta_plazo = _nivelP;
           await actualizarExpediente(expediente.rowIndex, expediente);
           await guardarAviso(expediente.telefono, _nivelP, "job_presentacion");
@@ -3989,7 +4510,7 @@ async function ejecutarJobSeguimiento() {
         const pendientesArr = splitList(expediente.documentos_pendientes);
         const listaPendientes = pendientesArr.map(d => labelDocumento(d)).join(" \u00b7 ") || "documentos pendientes";   // v19.92: las variables de Twilio no admiten saltos de linea
         await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7"), {
-          "1": expediente.nombre || "vecino",
+          "1": limpiarNombreVecino(expediente.nombre),   // v19.98: nombre sin anotaciones
           "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
           "3": listaPendientes,
         });
@@ -4027,6 +4548,9 @@ setTimeout(() => {
   // programa via app.locals). No reenvia si el vecino ya tiene ficha.
   app.locals.botWhatsapp = {
     salud: _saludBot,   // v19.96: para el aviso de sistema de HOY
+    // v19.98 -- contratos por el bot en fase 08 (los usa documentacion.cjs, boton W)
+    enviarContratoPiso,
+    contratosBotComunidad,
     enviarPresentacionPiso: async (telefono, datos) => {
       const tel = normalizarTelefono(telefono);
       if (!tel) return { ok: false, estado: "sin_telefono" };
@@ -4034,7 +4558,7 @@ setTimeout(() => {
         const ficha = await buscarExpedientePorTelefono(tel);
         if (ficha) return { ok: true, estado: "ya_presentado" };
         await enviarWhatsAppPlantilla(tel, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
-          "1": (datos && datos.nombre) || "vecino",
+          "1": limpiarNombreVecino(datos && datos.nombre),   // v19.98: nombre sin anotaciones
         });
         await crearExpedienteInicial(tel, {
           comunidad: (datos && datos.comunidad) || "",

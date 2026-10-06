@@ -2366,6 +2366,16 @@ module.exports = function (app) {
         rowIndex = i + 1; fila = rows[i]; break;
       }
     }
+    // v19.98 -- La plantilla Twilio del contrato de la fase 08 es nueva: si su fila aun no existe,
+    //   se crea al guardar su codigo HX por primera vez (las demas claves siguen exigiendo fila).
+    const _CLAVES_NUEVAS = { contrato_cycp: ["contrato_cycp", "vecino", "twilio", "", "", "{{1}} via+comunidad, {{2}} piso, {{3}} fecha limite, {{4}} documento (clave/nombre.pdf)", "SI", "v19.98 - contrato y carta de pago por el bot (fase 08, boton W)"] };
+    if (rowIndex < 0 && _CLAVES_NUEVAS[clave]) {
+      const _fn = _CLAVES_NUEVAS[clave].slice();
+      if (String(datos.tipo || "").trim().toLowerCase() === "twilio") _fn[4] = String(datos.twilio_sid != null ? datos.twilio_sid : "");
+      _fn[6] = datos.activo ? "SI" : "NO";
+      await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: "bot_plantillas!A:H", valueInputOption: "RAW", requestBody: { values: [_fn] } });
+      return;
+    }
     if (rowIndex < 0) throw new Error("clave no encontrada: " + clave);
     const nueva = [];
     for (let c = 0; c < 8; c++) nueva[c] = (fila[c] != null ? fila[c] : "");
@@ -3452,7 +3462,9 @@ module.exports = function (app) {
         (!!String(p.piso_tipo || "").trim()) ||
         (!!tipoBot);
       totalFilas++;
-      if (acordeonBot) {
+      // v19.98 -- En 08/09/ZZ los pisos del acordeon nuevo cuentan contrato y pago, igual que
+      //   los del acordeon viejo (antes contaban los documentos de la 05 y el contrato no salia).
+      if (acordeonBot && !_FASES_MODO_07.has(String(fase || "").trim())) {
         const mapEst = {};
         for (let i = 0; i < docsPiso.length; i++) mapEst[docsPiso[i].codigo] = String((p.estados || [])[i] || "");
         const c = _botContarPiso({ pisoTipo: p.piso_tipo || "", tipoBot, botDocs: bd.docsByPiso[viv] || [], descartadosBot: bd.descByPiso[viv] || [], mapEst });
@@ -9594,7 +9606,7 @@ module.exports = function (app) {
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos",
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-w" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">W</span>A pisos (automáticos)`) +
-        presentcard() + sleepcard() + plazocard() + wakecard() +
+        presentcard() + twcard("contrato_cycp", "Twilio - contrato CyCP (fase 08, bot\u00f3n W)") + sleepcard() + plazocard() + wakecard() +
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">M</span>A pisos (manuales)`) +
         wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m3", "Aviso M3", 11) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
@@ -13337,7 +13349,9 @@ module.exports = function (app) {
         try {
           const _nd = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
           const _fmtD = (d) => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
-          const _pend = (e) => { e = String(e || "").trim(); return !_SET_IGNORA.has(e) && !_SET_HECHO.has(e); };
+          // v19.98 -- REVISAR (lo mando el vecino por el bot y falta darlo por bueno) cuenta como
+          //   recibido para el M3: ni sale la tarjeta por eso ni el texto dice "aun no hemos recibido".
+          const _pend = (e) => { e = String(e || "").trim(); if (e.toUpperCase() === "REVISAR") return false; return !_SET_IGNORA.has(e) && !_SET_HECHO.has(e); };
           const _comusM3 = await _comunidadesHoy();   // v19.89: lectura compartida (v19.26: aqui no existe "comus")
           for (const c of (_comusM3 || [])) {
             if (!c || normalizarFase(c.fase_presupuesto || "") !== "08_CYCP") continue;

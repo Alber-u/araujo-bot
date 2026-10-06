@@ -668,12 +668,21 @@ module.exports = function (app) {
       return isNaN(d.getTime()) ? "" :
         String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
     })() : "";
-    const _tituloSwitch = esBot
+    let _tituloSwitch = esBot
       ? (_fBotTxt ? ("Primer mensaje por bot: " + _fBotTxt) : "Bot WhatsApp activo")
       : (_fBotTxt ? ("Bot apagado y pasado a manual: " + _fBotTxt) : "Contacto no iniciado");
+    // v19.98 (criterio de Guille) -- En fase 08 el boton W manda el contrato por el bot.
+    //   El globo dice si ya se le mando y cuando (col AG de bot_expedientes).
+    const _fCtr = String(opciones.fechaContratoBot || "").trim();
+    const _fCtrTxt = _fCtr ? (() => { const d = new Date(_fCtr); return isNaN(d.getTime()) ? "" : String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear(); })() : "";
+    if (opciones.es08) {
+      _tituloSwitch = esBot
+        ? (_fCtrTxt ? ("Contrato enviado por bot: " + _fCtrTxt + " (pulsa para reenviarlo o pasar a M)") : "Contrato sin enviar por bot (pulsa W para enviarlo)")
+        : "Manual (pulsa para activar el bot y enviar el contrato)";
+    }
     const btnBotSwitchHtml = esCcpp
       ? `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-ccpp ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esBot ? 'Comunidad en modo BOT. Pulsa para volver a MANUAL.' : 'Comunidad en modo MANUAL. Pulsa para que la gestione el bot WhatsApp.'}">${esBot ? 'W' : 'M'}</button>`
-      : `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-piso ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esc(_tituloSwitch)}">${esBot ? 'W' : 'M'}</button>`;
+      : `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-piso ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" data-contrato-bot="${esc(_fCtrTxt)}" title="${esc(_tituloSwitch)}">${esBot ? 'W' : 'M'}</button>`;
     // Botón 📄 (acordeón) siempre visible.
     const btnAcordeonHtml =
       btnBotSwitchHtml +
@@ -937,6 +946,9 @@ module.exports = function (app) {
       if (i < 0) return false;
       const e = String((estados || [])[i] || "").trim();
       const _Pe = app.locals.presupuestos || {};
+      // v19.98 -- REVISAR (lo mando el vecino al bot y falta que Guille lo de por bueno) cuenta
+      //   como recibido para el texto del WhatsApp: no se le dice "aun no hemos recibido".
+      if (e.toUpperCase() === "REVISAR") return false;
       return !(_Pe._ESTADOS_IGNORA || ["OP", "NP", ""]).includes(e) && !(_Pe._ESTADOS_HECHO || ["OK"]).includes(e);
     };
     const filasPisosHtml = pisos.map(p => {
@@ -969,6 +981,9 @@ module.exports = function (app) {
         //   SIN el respaldo de la comunidad que usa _contactoDe: si este piso nunca
         //   pasó por el bot no debe salir fecha ninguna ("Contacto no iniciado").
         fechaBot: String(_cbp[String(p.vivienda || "").trim().toLowerCase()] || "").trim(),
+        // v19.98 -- fase 08: fecha del contrato enviado por el bot (globo del boton W)
+        es08: _es08,
+        fechaContratoBot: String(((botDatos && botDatos.contratoByPiso) || {})[String(p.vivienda || "").trim().toLowerCase()] || "").trim(),
         waMsg: _m3Txt ? _subVarsM3(_m3Txt, {
           nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
           // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
@@ -1236,6 +1251,10 @@ module.exports = function (app) {
           // tener la regla duplicada a pelo aquí.
           const ESTADOS_IGNORA = ${JSON.stringify(P._ESTADOS_IGNORA)};
           const MODO_FASE_08 = ${modoFase07 ? "true" : "false"};
+          // v19.98 -- fase 08 de verdad (no 09/ZZ): el boton W manda el contrato por el bot.
+          const ES_FASE_08 = ${_es08 ? "true" : "false"};
+          const SOLO_CONTRATO = ${String((comu && comu.est_ccpp_pago) || "").trim().toUpperCase() === "FFCC" ? "true" : "false"};
+          const URL_ENVIAR_CONTRATO = ${JSON.stringify(urlT(token, "/documentacion/piso/enviar-contrato"))};
           const ESTADOS_HECHO  = ${JSON.stringify(P._ESTADOS_HECHO)};
           const URL_BORRAR      = ${JSON.stringify(urlT(token, "/documentacion/piso/borrar"))};
           // v19.28 -- Boton de WhatsApp del vecino en fase 08: menu para elegir M4
@@ -1292,7 +1311,8 @@ module.exports = function (app) {
           // piso_meses_financiar:  6 / 12 / 18 / FFCC / IPREM / ·
           const ESTADOS_BASICOS    = ['OK', 'F', ''];
           const ESTADOS_CCPP_PAGO  = ['OK', 'F', 'FFCC', ''];
-          const ESTADOS_PISO_PAGO  = ['OK', 'F', '6', '12', '18', 'FFCC', 'IPREM', ''];
+          const ESTADOS_PISO_PAGO  = ['OK', 'REVISAR', 'F', '6', '12', '18', 'FFCC', 'IPREM', ''];   // v19.98: REVISAR (justificante recibido por el bot)
+          const ESTADOS_PISO_CONTRATO = ['OK', 'REVISAR', 'F', ''];   // v19.98: REVISAR (contrato firmado recibido por el bot)
           const ESTADOS_MESES      = ['6', '12', '18', 'FFCC', 'IPREM', ''];
           const COD_MESES_FIN      = 'piso_meses_financiar';
           // ===== v17.62: ACORDEÓN BOT POR TIPO — datos REALES (bot_documentos/bot_expedientes) =====
@@ -1408,7 +1428,7 @@ module.exports = function (app) {
               // PISO en modo bot -> conteo bot
               if(id!=='ccpp'){
                 var dpb=dataPisos.find(function(p){ return p.id===id; });
-                if(dpb && dpb.acordeonBot){
+                if(dpb && dpb.acordeonBot && !MODO_FASE_08){   // v19.98: en 08/09/ZZ cuentan contrato y pago, como el acordeon viejo
                   var c=botContarPiso(dpb);
                   if(tag){
                     if(!c.aplica){ tag.className='ptl-vec-docs-tag ptl-vec-docs-gris'; tag.textContent='—'; }
@@ -1474,6 +1494,9 @@ module.exports = function (app) {
           }
           function renderAcordeonBot(cont, dp){
             var mapEst=estadosMapPiso(dp); var idx=indexBotDocs(dp);
+            // v19.98 -- En 08/09/ZZ los pisos del acordeon nuevo tambien muestran arriba Contrato y
+            //   Pago (las mismas pastillas y columnas AR/AS que el acordeon viejo); lo de la 05, debajo.
+            var _top08 = MODO_FASE_08 ? ('<div class="ptl-vec-doc-lista">' + htmlBloqueDocs(dataDocsPiso, dp.estados || [], false) + '</div><div class="ptl-vec-doc-sep">Documentaci\u00f3n previa</div>') : '';
             var tipo=String(dp.pisoTipo||dp.tipoBot||'').trim().toLowerCase();
             var cfg=TIPOS_BOT[tipo]||null;
             var nsEsc=String(dp.nota_simple||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -1482,6 +1505,7 @@ module.exports = function (app) {
               + '<div style="width:76px;font-size:10px;color:var(--ptl-gray-500);font-weight:600">NOTA SIMPLE</div>'
               + '<div style="width:36px">' + swNotaSimple(mapEst) + '</div>'
               + '<input type="text" class="ptl-doc-nota-simple" data-vivienda="'+vivEsc+'" data-orig="'+nsEsc+'" value="'+nsEsc+'" placeholder="Titular registral según Nota Simple" style="flex:1;padding:2px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2"/></div>';
+            html = _top08 + html;
             var LISTA=[['','— sin definir —'],['propietario','Propietario'],['familiar','Familiar'],['inquilino','Inquilino'],['sociedad','Sociedad'],['local','Local'],['disidente','Disidente']];
             var opts=LISTA.map(function(t){ return '<option value="'+t[0]+'"'+(tipo===t[0]?' selected':'')+'>'+t[1]+'</option>'; }).join('');
             html+='<div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px 0"><span style="font-size:9px;color:var(--ptl-gray-500);font-weight:700;text-transform:uppercase">Tipo</span>'
@@ -1592,10 +1616,12 @@ module.exports = function (app) {
           // Para los demás estados: el valor literal (OK, OP, NP, 6, 12, 18, FFCC, IPREM)
           function textoBoton(estado) {
             if (!estado) return '·';
+            if (estado === 'REVISAR') return 'REV';   // v19.98: lo mando el vecino al bot, falta revisarlo
             return estado;
           }
           function colorBoton(estado) {
             if (!estado) return 'amarillo';
+            if (estado === 'REVISAR') return 'amarillo';   // v19.98
             if (estado === 'F') return 'rojo';
             if (estado === 'NP') return 'rojo';
             if (estado === 'OP') return 'amarillo';
@@ -1671,6 +1697,7 @@ module.exports = function (app) {
             let opciones;
             if (codigo === 'ccpp_pago')        opciones = ESTADOS_CCPP_PAGO;
             else if (codigo === 'piso_pago')   opciones = ESTADOS_PISO_PAGO;
+            else if (codigo === 'piso_contrato') opciones = ESTADOS_PISO_CONTRATO;   // v19.98
             else if (codigo === COD_MESES_FIN) opciones = ESTADOS_MESES;
             else                               opciones = ESTADOS_BASICOS;
             const menu = document.createElement('div');
@@ -2038,7 +2065,7 @@ module.exports = function (app) {
             var _swW = fila.querySelector('.ptl-bot-switch-piso');
             var _esW = !!(_swW && _swW.dataset.modo === 'BOT_WHATSAPP');
             var _enviarPres = false;
-            if (ri && _esW && _telN && _telN !== _telO) {
+            if (ri && _esW && _telN && _telN !== _telO && !ES_FASE_08) {   // v19.98: en 08 no se manda la presentacion
               _enviarPres = confirm('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?');
               if (_enviarPres) fd.append('enviar_presentacion', '1');
             }
@@ -2284,8 +2311,56 @@ module.exports = function (app) {
               } catch (e) { alert('Error de red: ' + e.message); btn.disabled = false; }
             });
           });
+          // v19.98 (criterio de Guille) -- FASE 08: el boton W manda el contrato (y la carta de pago)
+          //   por el bot, piso a piso. W: pregunta si enviarlo; si no, si pasar a M. M: pasa a W y
+          //   pregunta si enviarlo (igual que la presentacion en la 05).
+          async function _enviarContrato08(btn) {
+            var viv = btn.dataset.vivienda || '';
+            var body = new URLSearchParams({ ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: viv });
+            var r = await fetch(URL_ENVIAR_CONTRATO, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
+            var data = await r.json().catch(function(){ return {}; });
+            var env = (data && data.envio) || {};
+            if (!r.ok || !data.ok || !env.ok) { alert('NO se ha enviado el contrato del ' + viv + ': ' + ((env && env.error) || (data && data.error) || 'error desconocido')); return; }
+            var hoy = new Date(); var hoyTxt = String(hoy.getDate()).padStart(2,'0') + '/' + String(hoy.getMonth()+1).padStart(2,'0') + '/' + hoy.getFullYear();
+            if (!btn.dataset.contratoBot) btn.dataset.contratoBot = hoyTxt;
+            btn.title = 'Contrato enviado por bot: ' + btn.dataset.contratoBot + ' (pulsa para reenviarlo o pasar a M)';
+            var av = (env.avisos && env.avisos.length) ? ('\\n\\nOJO: ' + env.avisos.join('; ') + '.') : '';
+            alert((SOLO_CONTRATO ? 'Contrato enviado' : 'Contrato y carta de pago enviados') + ' por el bot al ' + viv + ' (fecha l\u00edmite ' + (data.fechaLimite || '') + ').' + (data.primero ? '\\n\\nEs el primero de la comunidad: el plazo de 10 d\u00edas cuenta desde hoy.' : '') + av);
+          }
+          async function _cambiarModoPiso08(btn, nuevo) {
+            var body = new URLSearchParams({ ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: btn.dataset.vivienda || '', modo: nuevo });
+            var r = await fetch(URL_BOT_PISO, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
+            var data = await r.json().catch(function(){ return {}; });
+            if (!r.ok || !data.ok) { alert((data && data.error) || 'Error cambiando modo'); return false; }
+            _pintarSwitch(btn, nuevo === 'BOT_WHATSAPP');
+            btn.dataset.modo = nuevo;
+            btn.title = nuevo === 'BOT_WHATSAPP' ? 'Contrato sin enviar por bot (pulsa W para enviarlo)' : 'Manual (pulsa para activar el bot y enviar el contrato)';
+            var _dpSw = dataPisos.find(function(p){ return String(p.vivienda||'') === String(btn.dataset.vivienda||''); });
+            if (_dpSw) { _dpSw.botModo = nuevo; if (nuevo === 'BOT_WHATSAPP') _dpSw.acordeonBot = true; }
+            if (typeof repintarAbiertos === 'function') repintarAbiertos();
+            return true;
+          }
+          async function _clickSwitch08(btn) {
+            var viv = btn.dataset.vivienda || '';
+            var que = SOLO_CONTRATO ? 'el contrato' : 'el contrato y la carta de pago';
+            if (btn.dataset.modo === 'BOT_WHATSAPP') {
+              var ya = btn.dataset.contratoBot ? ('Ya se le envi\u00f3 por el bot el ' + btn.dataset.contratoBot + '.\\n\\n') : '';
+              if (confirm(ya + '\u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?')) { await _enviarContrato08(btn); return; }
+              if (!confirm('\u00bfPasar el ' + viv + ' a manual (M)? El bot dejar\u00e1 de atenderle.')) return;
+              await _cambiarModoPiso08(btn, 'MANUAL');
+              return;
+            }
+            if (!(await _cambiarModoPiso08(btn, 'BOT_WHATSAPP'))) return;
+            if (confirm('Piso activado para el bot. \u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?')) await _enviarContrato08(btn);
+          }
           document.querySelectorAll('.ptl-bot-switch-piso').forEach(function(btn){
             btn.addEventListener('click', async function(){
+              if (ES_FASE_08) {   // v19.98
+                btn.disabled = true;
+                try { await _clickSwitch08(btn); } catch (e08) { alert('Error: ' + e08.message); }
+                btn.disabled = false;
+                return;
+              }
               var esBot = btn.dataset.modo === 'BOT_WHATSAPP';
               var nuevo = esBot ? 'MANUAL' : 'BOT_WHATSAPP';
               btn.disabled = true;
@@ -2945,7 +3020,7 @@ module.exports = function (app) {
     // v18.128 — contactoByPiso: fecha del 1er WhatsApp del bot (bot_expedientes col J).
     // Es la unica fuente de esa fecha (en la pestaña pisos esa columna esta vacia) y
     // sirve para calcular {fecha_limite} del mensaje M3, igual que hace HOY.
-    const out = { docsByPiso: {}, tipoByPiso: {}, descByPiso: {}, contactoByPiso: {} };
+    const out = { docsByPiso: {}, tipoByPiso: {}, descByPiso: {}, contactoByPiso: {}, contratoByPiso: {} };
     const norm = v => String(v == null ? "" : v).trim().toLowerCase();
     const matchCom = c => mismaDireccion(c, comu.comunidad) || mismaDireccion(c, comu.direccion);
     try {
@@ -2961,13 +3036,14 @@ module.exports = function (app) {
       }
     } catch (e) { console.warn("[documentacion] leerBotDatos docs:", e.message); }
     try {
-      const rows = await _leerCompartido("bot_expedientes!A:Y");   // v19.95
+      const rows = await _leerCompartido("bot_expedientes!A:AI");   // v19.95 (v19.98: hasta AI, contrato enviado por el bot)
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i]; if (!r) continue;
         if (!matchCom(r[1] || "")) continue;
         out.tipoByPiso[norm(r[2])] = String(r[4] || "").trim();
         out.descByPiso[norm(r[2])] = String(r[24] || "").split(",").map(x => x.trim()).filter(Boolean); // col Y opcionales_descartados
         out.contactoByPiso[norm(r[2])] = String(r[9] || "").trim();
+        out.contratoByPiso[norm(r[2])] = String(r[32] || "").trim();   // v19.98: col AG, primer contrato enviado por el bot
       }
     } catch (e) { console.warn("[documentacion] leerBotDatos exp:", e.message); }
     return out;
@@ -3094,11 +3170,69 @@ module.exports = function (app) {
     }
   });
 
+  // ----- POST /documentacion/piso/enviar-contrato (v19.98, criterio de Guille 06/10/2026) -----
+  // Boton W de un piso en fase 08: manda por el bot (plantilla Twilio "contrato_cycp") el
+  // contrato y la carta de pago de ese piso (solo el contrato si la comunidad es FFCC).
+  // Body: { ccpp_id, vivienda }. Fecha limite del mensaje: si es el PRIMER contrato del bot
+  // en la comunidad, hoy + 10; si no, la de la comunidad (envio de contratos + 10, o la
+  // ampliada si hay prorroga concedida), igual que M3/M4.
+  // Plazo de la fase 08 (punto 7 del diseño): el primer contrato del bot en la comunidad
+  // pone fecha_envio_contratos_pagos (AZ) = hoy, de la que cuentan correos, badges, M3,
+  // prorroga y Tiempos; y si el cron de la 08 aun no ha mandado ningun seguimiento,
+  // su cuenta tambien arranca hoy (mails_ultimo_envio["08_CYCP"]).
+  app.post("/documentacion/piso/enviar-contrato", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const P = app.locals.presupuestos;
+    const bot = app.locals.botWhatsapp;
+    if (!P) return res.status(500).json({ error: "Presupuestos no cargado" });
+    if (!bot || typeof bot.enviarContratoPiso !== "function") return res.status(500).json({ error: "El bot de WhatsApp no est\u00e1 disponible" });
+    try {
+      const ccppId = String(req.body.ccpp_id || "").trim();
+      const vivienda = String(req.body.vivienda || "").trim();
+      if (!ccppId || !vivienda) return res.status(400).json({ error: "Faltan par\u00e1metros" });
+      const comu = await P.buscarComunidadPorId(ccppId);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      if (P.normalizarFase(comu.fase_presupuesto || "") !== "08_CYCP") return res.status(400).json({ error: "Solo se pueden enviar contratos por el bot en fase 08" });
+      const dir = comu.direccion || comu.comunidad || "";
+      const est = await bot.contratosBotComunidad(dir);
+      const hoyIso = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+      const az = String(comu.fecha_envio_contratos_pagos || "").trim().slice(0, 10);
+      const plazo = P.PLAZO_CYCP_INICIAL || 10;
+      const ancla = (est.primero || !/^\d{4}-\d{2}-\d{2}$/.test(az)) ? hoyIso : az;
+      let dias = plazo;
+      if (!est.primero && _p5ProrrogaConcedida(comu)) {
+        let pr = 0;
+        try { const pl = P.leerPlantillaMail ? await P.leerPlantillaMail("08_ULT_AVISO") : null; pr = parseFloat(String((pl && pl.dias_primer_envio) || "").replace(",", ".")) || 0; } catch (e) {}
+        dias += (pr > 0 ? pr : plazo);
+      }
+      const dL = new Date(ancla + "T12:00:00"); dL.setDate(dL.getDate() + dias);
+      const fechaLimite = String(dL.getDate()).padStart(2, "0") + "/" + String(dL.getMonth() + 1).padStart(2, "0") + "/" + dL.getFullYear();
+      const soloContrato = String(comu.est_ccpp_pago || "").trim().toUpperCase() === "FFCC";
+      const envio = await bot.enviarContratoPiso({ comunidad: dir, vivienda, tipoVia: String(comu.tipo_via || "").trim(), fechaLimite, soloContrato });
+      if (envio && envio.ok && est.primero && comu._rowIndex) {
+        try {
+          if (az !== hoyIso) await P.actualizarCampoComunidad(comu._rowIndex, "fecha_envio_contratos_pagos", hoyIso);
+          const _j = (t) => { try { return JSON.parse(t || "{}") || {}; } catch (e) { return {}; } };
+          const env = _j(comu.mails_enviados), man = _j(comu.mails_manuales), ult = _j(comu.mails_ultimo_envio);
+          const auto = Math.max(0, (parseInt(env["08_CYCP"], 10) || 0) - (parseInt(man["08_CYCP"], 10) || 0));
+          if (auto < 1 && ult["08_CYCP"] !== hoyIso) {
+            ult["08_CYCP"] = hoyIso;
+            await P.actualizarCampoComunidad(comu._rowIndex, "mails_ultimo_envio", JSON.stringify(ult));
+          }
+        } catch (eAz) { console.error("[documentacion] enviar-contrato: no se pudo mover el plazo de la 08:", eAz.message); }
+      }
+      return res.json({ ok: true, envio, fechaLimite, primero: !!(envio && envio.ok && est.primero) });
+    } catch (e) {
+      console.error("[documentacion] piso/enviar-contrato:", e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   // ----- Exponer API interna del módulo para que otros módulos
   //       (en concreto presupuestos.cjs) puedan invocar funciones aquí. -----
   app.locals.documentacion = app.locals.documentacion || {};
   app.locals.documentacion.inicializarEstadosFase = inicializarEstadosFase;
 
-  console.log("[documentacion] Módulo cargado. Rutas: /documentacion/expediente, /documentacion/piso/guardar, /documentacion/piso/borrar, /documentacion/ccpp/modo, /documentacion/manual/marcar, /documentacion/bot/marcar, /documentacion/piso/tipo");
+  console.log("[documentacion] Módulo cargado. Rutas: /documentacion/expediente, /documentacion/piso/guardar, /documentacion/piso/borrar, /documentacion/ccpp/modo, /documentacion/manual/marcar, /documentacion/bot/marcar, /documentacion/piso/tipo, /documentacion/piso/enviar-contrato");
 
 };
