@@ -682,12 +682,15 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     // los huecos de cada cuadrilla salen del mismo cálculo. Mi panel pinta las obras con estas fechas y cuadrillas.
     const pc = planCalendario.planParaCaja({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos }, certificaciones: data.cashflow.certificaciones,
         expedientes: data.cashflow.expedientes || null, sabadell: data.cashflow.sabadell || null }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
-      nombresCuadrillas: planCalendario.personasPorCuadrilla(data.cashflow.cuadrillas_personas), registros: registrosYa() });
+      nombresCuadrillas: planCalendario.personasPorCuadrilla(data.cashflow.cuadrillas_personas), registros: registrosYa(),
+      // horas por persona y mes del calendario del convenio del metal de Sevilla (config_dinero «calendario_metal»)
+      calendarioMetal: require("./lib/config-dinero.cjs").valorConfig(fuentes.config?.ok ? fuentes.config.data : [], "calendario_metal")?.valor ?? null });
     const fp = pc.obras;
     // (07/10/2026) con «lista desde» y su motivo: sin ellos Mi panel daba las no listas por listas hoy («lista ≈ 06/10»)
     data.cashflow.plan_obras = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, { inicio: v.inicio, fin: v.fin, equipo: v.equipo, lista: v.lista,
       ...(v.lista === false ? { pasos_lista: v.pasos_lista, lista_desde: v.lista_desde, lista_motivo: v.lista_motivo } : {}) }]));
     data.cashflow.huecos_plan = pc.huecos;
+    data.cashflow.horas_disponibles = pc.disponibles || null;   // por cuadrilla y mes (festivos y vacaciones de config)
     // desvío real de mano de obra (Certificaciones, obras terminadas): al coste, no a las fechas (06/10/2026);
     // sin datos, el de la calibración, y se dice
     const dc = require("./lib/desvio-mo.cjs").desvioCertificaciones(fuentes.certif?.ok ? fuentes.certif.data.obras : []);
