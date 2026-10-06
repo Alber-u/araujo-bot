@@ -565,12 +565,6 @@ function obrasEnValor(data) {
   return (t4?.detalle || []).filter((d) => d.ccpp_id && Number(d.importe) > 0).map((d) => d.ccpp_id);
 }
 
-// Mano de obra pendiente (D11) de las obras del valor de hoy: ya restada en el valor, no otra vez con la nómina
-function moEnValor(data) {
-  const d11 = (data.debo || []).find((l) => l.id === "D11");
-  return Object.fromEntries((d11?.detalle || []).filter((d) => d.ccpp_id && Number(d.mano_obra_pendiente) > 0).map((d) => [d.ccpp_id, Number(d.mano_obra_pendiente)]));
-}
-
 function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   const data = calc.calcularEscalera(fuentes, hoy, generado, opciones);
   const extra = extraCashflow(fuentes, hoy);
@@ -604,14 +598,10 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   // las listas van delante de las no listas (simulador-caja.colaObras). null = sin expedientes
   let listaDe = null;
   const marcarLista = (obras) => (listaDe ? obras.map((o) => (o.obra_id in listaDe ? { ...o, lista_para_empezar: listaDe[o.obra_id] } : o)) : obras);
-  // mano de obra del presupuesto de las obras privadas (como rentabilidad-obra): horas previstas × coste_hora_eur
-  const costeHoraCfg = require("./lib/config-dinero.cjs").numConfig(fuentes.config?.ok ? fuentes.config.data : [], "coste_hora_eur");
-  const conMOPresupuesto = (obras) => obras.map((o) => (o.tipo === "OO" && o.mano_obra_previsto == null && costeHoraCfg && Number(o.horas_previstas) > 0 && !o.horas_tope_fijo
-    ? { ...o, mano_obra_previsto: Math.round(Number(o.horas_previstas) * costeHoraCfg * 100) / 100 } : o));
-  const ordenar = (obras) => conMOPresupuesto(marcarLista(ordenCartera.aplicarPlanificacion(ordenCartera.completarCartera(
+  const ordenar = (obras) => marcarLista(ordenCartera.aplicarPlanificacion(ordenCartera.completarCartera(
     fuentes.comunidades_doc?.ok ? ordenCartera.ordenarCartera(obras, fuentes.comunidades_doc.data, hoy) : obras,
     { ot: fuentes.ot?.ok ? fuentes.ot.data : null, oo: fuentes.oo?.ok ? fuentes.oo.data : null, hoy, cobradas: cobradasCfg }),
-    fuentes.planificacion?.ok ? fuentes.planificacion.data : [])));
+    fuentes.planificacion?.ok ? fuentes.planificacion.data : []));
   // Cuadrillas reales (config_dinero «cuadrillas», p. ej. "2,3") y obra grande
   const cfgTxt = (k) => { const r = require("./lib/config-dinero.cjs").valorConfig(fuentes.config?.ok ? fuentes.config.data : [], k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; };
   const cuadrillasCfg = cfgTxt("cuadrillas");
@@ -702,14 +692,15 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     // sin datos, el de la calibración, y se dice
     const dc = require("./lib/desvio-mo.cjs").desvioCertificaciones(fuentes.certif?.ok ? fuentes.certif.data.obras : []);
     data.cashflow.desvio_mo = dc || (cal.mandos.desvio != null ? { pct: cal.mandos.desvio, fuente: "calibración (fichajes de las obras terminadas en 6 meses): Certificaciones no tiene obras con visita", fiabilidad: "estimado", obras: [] } : null);
-    data.cashflow.mo_en_valor = moEnValor(data);
+    // «Beneficio del mes» de Mi panel: horas presupuestadas × €/h (config_dinero «coste_hora_presupuesto», 30 por defecto)
+    data.cashflow.coste_hora_presupuesto = require("./lib/config-dinero.cjs").numConfig(fuentes.config?.ok ? fuentes.config.data : [], "coste_hora_presupuesto") ?? 30;
     data.cashflow.fechas_inicio_plan = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, v.inicio]));
     // solo las obras con «Cambiar personas» o movidas por el ritmo real (la lenta y las de detrás): las
     // demás siguen con su duración del cash flow (con desvío)
     data.cashflow.fechas_fin_plan = Object.fromEntries(Object.entries(fp).filter(([, v]) => v.con_tramos || v.movida).map(([k, v]) => [k, v.fin]));
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
       custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, fechasFin: data.cashflow.fechas_fin_plan, abonosSabadell: data.cashflow.sabadell?.abonos_futuros || [],
-      planObras: data.cashflow.plan_obras, capacidad: data.cashflow.capacidad_dias, enValor: obrasEnValor(data), desvioMO: data.cashflow.desvio_mo ? data.cashflow.desvio_mo.pct / 100 : null, moEnValor: data.cashflow.mo_en_valor });
+      planObras: data.cashflow.plan_obras, capacidad: data.cashflow.capacidad_dias, enValor: obrasEnValor(data), desvioMO: data.cashflow.desvio_mo ? data.cashflow.desvio_mo.pct / 100 : null, costeHoraPres: data.cashflow.coste_hora_presupuesto });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
