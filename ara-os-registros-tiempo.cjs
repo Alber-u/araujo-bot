@@ -869,6 +869,12 @@ async function getHorasAcumuladasPorObra(obra_id) {
 // REGISTRO DE ENDPOINTS
 // ============================================================
 function registrar(app) {
+  // Un fichaje guardado (crear, editar, borrar) renueva Planificación en su siguiente petición (06/10/2026),
+  // como ya hace Certificaciones
+  app.use("/api/ara-os/registros-tiempo", (req, res, next) => {
+    if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) res.on("finish", () => { if (res.statusCode < 300) { try { require("./ara-os-dinero-empresa.cjs").registrosCambiados?.(); } catch (e) { console.warn("[registros-tiempo] avisar a Planificación:", e.message); } } });
+    next();
+  });
   const bodyParser = require("body-parser");
   const jsonBodyParser = bodyParser.json({ limit: "1mb" });
 

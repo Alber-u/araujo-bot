@@ -54,7 +54,15 @@ const panel = require("./lib/panel-empresa-calculo.cjs");
 const VERSION = "0.8.0";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
-const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
+const CACHE_STALE_MS = 30 * 60 * 1000;
+// Planificación (06/10/2026): la carga que sirve caduca al cambiar de día (Madrid) y como mucho a los 12 min;
+// un fichaje o un cambio en Certificaciones la marca para renovar. Al cambiar de día se espera la carga nueva
+// hasta ESPERA_DIA_MS; si no llega, se recalcula con lo leído para hoy (y se avisa con «Actualizado a las…»)
+const PLAN_MAX_MS = 12 * 60 * 1000;
+const ESPERA_DIA_MS = 25 * 1000;
+let _planSucio = false;
+// Registros de tiempo: un fichaje guardado relee los registros y renueva la carga en la siguiente petición
+function registrosCambiados() { _regs = null; _planSucio = true; }   // hasta aquí se sirve al momento y se recalcula por detrás
 // DINERO_ESCALA_TIEMPO: solo para la prueba local del bucle (acorta las esperas)
 const ESCALA_T = Number(process.env.DINERO_ESCALA_TIEMPO) > 0 ? Number(process.env.DINERO_ESCALA_TIEMPO) : 1;
 const RENTAB_TIMEOUT_MS = 45 * 1000 * ESCALA_T;
@@ -227,7 +235,9 @@ function deUltimo(motivo, extra = {}) {
 }
 let _cargaUltimo = null;   // lectura de la última carga completa al arrancar (disco u hoja)
 
-const hoyISO = () => new Date().toISOString().slice(0, 10);
+// el día de Madrid, no el de UTC (entre las 00:00 y las 02:00 UTC sigue en ayer) · 06/10/2026
+const { hoyMadrid } = require("./lib/fecha-madrid.cjs");
+const hoyISO = () => hoyMadrid();
 
 function conTimeout(promesa, ms, nombre) {
   let t;
@@ -923,6 +933,8 @@ module.exports = function (app) {
       const json = (k) => { if (!req.query[k]) return null; try { return JSON.parse(String(req.query[k])); } catch { throw Object.assign(new Error(`${k} no es JSON`), { status: 400 }); } };
       const tam = req.query.tam ? String(req.query.tam).split(",").map(Number).filter((n) => n > 0) : null;
       let cf = c.data.cashflow;
+      // hoy, el de Madrid (aunque la carga sea de ayer: la columna de hoy, «toca visitar» y el ritmo, con hoy)
+      if (hoyMadrid() > cf.hoy) cf = { ...cf, hoy: hoyMadrid() };
       // Certificaciones cambiadas desde el último cálculo (preparar, visitas): las de ahora
       const fresca = await certificacionesFrescas(process.env.ADMIN_TOKEN || String(req.query.token));
       if (fresca && fresca.ts > c.ts) {
@@ -1041,7 +1053,7 @@ module.exports = function (app) {
           if (!fuenteCaida(data)) guardarUltimoCompleto(_cache.ts, data);
           console.log(`[ara-os-dinero-empresa] carga ${fuenteCaida(data) ? "INCOMPLETA" : "completa"} · ${data.holded?.peticiones ?? "?"} peticiones a Holded en ${data.holded?.segundos ?? "?"} s · lecturas por detrás: ${lecturasEnVuelo().length}`);
           // Seguimiento previsto vs real: no bloquea la respuesta
-          guardarPrevision(data, new Date().toISOString().slice(0, 10)).catch((e) => console.error("[ara-os-dinero-empresa] previsión del mes:", e.message));
+          guardarPrevision(data, hoyMadrid()).catch((e) => console.error("[ara-os-dinero-empresa] previsión del mes:", e.message));
           // Si alguna fuente ha fallado (Holded 503, timeout…), se reintenta
           // solo al cabo de REINTENTO_MS aunque nadie abra el panel, hasta que
           // vuelva. Nunca se guarda un fallo como si fuera el dato bueno.
@@ -1078,6 +1090,20 @@ module.exports = function (app) {
   // la carga a medias, la última completa con «datos de las HH:MM, actualizando». Sin llamadas extra.
   async function datosServibles(token) {
     await _cargaUltimo;
+    // caduca al cambiar de día (Madrid), a los PLAN_MAX_MS o tras un fichaje
+    if (_cache) {
+      const { otroDia, renovar } = require("./lib/fecha-madrid.cjs").caduca(_cache.ts, { maxMs: PLAN_MAX_MS, sucio: _planSucio });
+      if (renovar) {
+        _planSucio = false;
+        const p = refrescar(token).catch((e) => console.error("[ara-os-dinero-empresa] refresco:", e.message));
+        if (otroDia) {
+          let t;
+          await Promise.race([p, new Promise((r) => { t = setTimeout(r, ESPERA_DIA_MS); t.unref?.(); })]).finally(() => clearTimeout(t));
+          // sin carga nueva todavía: lo ya leído, calculado para hoy
+          if (hoyMadrid(new Date(_cache.ts)) !== hoyMadrid() && _cache.data?._base?.hoy !== hoyMadrid()) recomponer((base) => { base.hoy = hoyMadrid(); });
+        }
+      }
+    }
     if (!_cache) {
       const u = deUltimo("actualizando");
       if (u) { refrescar(token).catch((e) => console.error("[ara-os-dinero-empresa] refresco:", e.message)); return u; }
@@ -1143,7 +1169,7 @@ module.exports = function (app) {
     const c = _cache && _cache.data?.cashflow?.simulador?.ok ? _cache : _ultimoCompleto;
     const cf = c?.data?.cashflow;
     if (!cf?.simulador?.ok) return null;
-    const hoyReal = new Date().toISOString().slice(0, 10);
+    const hoyReal = hoyMadrid();
     leerRegistrosTrabajo().catch(() => {});   // por detrás: la próxima vez, más fresco
     const r = planCalendario.calendarioPlan({ cf, hoy: hoyReal > cf.hoy ? hoyReal : cf.hoy, festivos: cf.festivos || null, jornada: cf.jornada || null, registros: registrosYa(),
       nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
@@ -1202,6 +1228,7 @@ module.exports = function (app) {
 
 module.exports.construir = construir;
 module.exports.certificacionesCambiadas = certificacionesCambiadas;
+module.exports.registrosCambiados = registrosCambiados;
 module.exports.componer = componer;
 module.exports.validarFoto = validarFoto;
 module.exports.cuadreCuenta = cuadreCuenta;
