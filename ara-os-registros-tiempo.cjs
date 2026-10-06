@@ -766,7 +766,8 @@ async function tryHistorial(tipo, registro, cambios, usuario) {
 // ENRIQUECER REGISTRO (con persona + tipo + coste)
 // ============================================================
 async function enriquecerRegistro(r, personasMap, personasTodas, tiposMap) {
-  const persona = enriquecerPersona(personasMap[r.persona_id], personasTodas);
+  // (el id, sin distinguir mayúsculas ni espacios: «p3» y «P3» son la misma persona; 06/10/2026)
+  const persona = enriquecerPersona(personasMap[r.persona_id] || personasTodas.find((p) => String(p.id || "").trim().toLowerCase() === String(r.persona_id || "").trim().toLowerCase()), personasTodas);
   const horas = parseFloat(r.horas) || 0;
   const tipoConfig = tiposMap[r.tipo || "trabajo"] || null;
   const multiplicador = tipoConfig ? parseFloat(tipoConfig.multiplicador_coste) || 1 : 1;
@@ -1057,6 +1058,9 @@ function registrar(app) {
         ok: true,
         fecha,
         personas: resultado,
+        // todas las personas (también las que no son «operario» o están de baja): para poner nombre a cualquier
+        // registro de la semana o del mes (06/10/2026: salían «p3 8h» en vez del nombre)
+        todas_personas: personas.filter((p) => p.id).map((p) => enriquecerPersona(p, personas)),
         meta: {
           n_personas: resultado.length,
           n_pendientes: resultado.filter(r => r.estado === "pendiente").length,
