@@ -998,6 +998,33 @@ function registrar(app) {
   // Devuelve TODAS las personas activas con su detalle del día.
   // Si una persona no tiene registros, aparece como "pendiente".
   app.options("/api/ara-os/registros-tiempo/dia/:fecha", (req, res) => { responderCORS(res); res.status(204).end(); });
+  // Días con horas que faltan y sin motivo (06/10/2026): cada operario activo, su jornada cada día laborable;
+  // lo que falte sin una ausencia ni un motivo, en rojo en las vistas y como aviso a JM en el registro diario.
+  // ?desde&hasta (AAAA-MM-DD); por defecto, los últimos 30 días hasta ayer
+  app.get("/api/ara-os/registros-tiempo/huecos", async (req, res) => {
+    responderCORS(res);
+    try {
+      const { hoyMadrid } = require("./lib/fecha-madrid.cjs");
+      const hoy = hoyMadrid();
+      const hasta = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.hasta || "")) ? String(req.query.hasta) : hoy;
+      const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.desde || "")) ? String(req.query.desde) : new Date(Date.parse(hoy + "T00:00:00Z") - 30 * 86400000).toISOString().slice(0, 10);
+      const CD = require("./lib/config-dinero.cjs");
+      const [registros, personas, cfg] = await Promise.all([leerRegistros(), leerPersonas(), CD.leerConfigDinero().catch(() => ({ filas: [] }))]);
+      const v = (k) => CD.valorConfig(cfg.filas, k)?.valor;
+      const jornada = require("./lib/jornada.cjs").leerJornada({ horas_dia: v("horas_dia"), vacaciones_dias: v("vacaciones_dias"), vacaciones_personas: v("vacaciones_personas") });
+      const festivos = require("./lib/festivos.cjs").leerFestivos(v("festivos")).lista;
+      const fest = new Set(festivos);
+      const esLab = (x) => { const d = new Date(x + "T00:00:00Z").getUTCDay(); return d !== 0 && d !== 6 && !fest.has(x); };
+      const vac = require("./lib/jornada.cjs").diasVacaciones(jornada, personas.map((p) => p.nombre), desde, hasta, esLab).porPersona;
+      const huecos = require("./lib/huecos-horas.cjs").huecosHoras({ personas, registros, desde, hasta, hoy, horasDia: jornada.horas_dia, festivos,
+        vacaciones: (p, d) => !!vac[p.nombre]?.has(d) });
+      res.json({ ok: true, desde, hasta, horas_dia: jornada.horas_dia, huecos, total_faltan: Math.round(huecos.reduce((t, x) => t + x.faltan, 0) * 10) / 10 });
+    } catch (e) {
+      console.error("[GET /registros-tiempo/huecos]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   app.get("/api/ara-os/registros-tiempo/dia/:fecha", async (req, res) => {
     responderCORS(res);
     try {
