@@ -565,6 +565,12 @@ function obrasEnValor(data) {
   return (t4?.detalle || []).filter((d) => d.ccpp_id && Number(d.importe) > 0).map((d) => d.ccpp_id);
 }
 
+// Mano de obra pendiente (D11) de las obras del valor de hoy: ya restada en el valor, no otra vez con la nómina
+function moEnValor(data) {
+  const d11 = (data.debo || []).find((l) => l.id === "D11");
+  return Object.fromEntries((d11?.detalle || []).filter((d) => d.ccpp_id && Number(d.mano_obra_pendiente) > 0).map((d) => [d.ccpp_id, Number(d.mano_obra_pendiente)]));
+}
+
 function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   const data = calc.calcularEscalera(fuentes, hoy, generado, opciones);
   const extra = extraCashflow(fuentes, hoy);
@@ -680,13 +686,18 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     const fp = pc.obras;
     data.cashflow.plan_obras = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, { inicio: v.inicio, fin: v.fin, equipo: v.equipo, lista: v.lista }]));
     data.cashflow.huecos_plan = pc.huecos;
+    // desvío real de mano de obra (Certificaciones, obras terminadas): al coste, no a las fechas (06/10/2026);
+    // sin datos, el de la calibración, y se dice
+    const dc = require("./lib/desvio-mo.cjs").desvioCertificaciones(fuentes.certif?.ok ? fuentes.certif.data.obras : []);
+    data.cashflow.desvio_mo = dc || (cal.mandos.desvio != null ? { pct: cal.mandos.desvio, fuente: "calibración (fichajes de las obras terminadas en 6 meses): Certificaciones no tiene obras con visita", fiabilidad: "estimado", obras: [] } : null);
+    data.cashflow.mo_en_valor = moEnValor(data);
     data.cashflow.fechas_inicio_plan = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, v.inicio]));
     // solo las obras con «Cambiar personas» o movidas por el ritmo real (la lenta y las de detrás): las
     // demás siguen con su duración del cash flow (con desvío)
     data.cashflow.fechas_fin_plan = Object.fromEntries(Object.entries(fp).filter(([, v]) => v.con_tramos || v.movida).map(([k, v]) => [k, v.fin]));
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
       custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, fechasFin: data.cashflow.fechas_fin_plan, abonosSabadell: data.cashflow.sabadell?.abonos_futuros || [],
-      planObras: data.cashflow.plan_obras, enValor: obrasEnValor(data) });
+      planObras: data.cashflow.plan_obras, enValor: obrasEnValor(data), desvioMO: data.cashflow.desvio_mo ? data.cashflow.desvio_mo.pct / 100 : null, moEnValor: data.cashflow.mo_en_valor });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
