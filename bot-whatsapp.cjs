@@ -4124,6 +4124,20 @@ function _guardarMediaContrato(buf, nombre) {
   _mediaContratos.set(clave, { buf, nombre, ts: ahora });
   return clave;
 }
+// v19.98 -- PDF de ejemplo fijo: Twilio lo pide para aprobar la plantilla (el ejemplo de {{4}}
+// tiene que abrir un PDF de verdad). Va ANTES de la ruta general para que no la tape.
+app.get("/media-contrato/ejemplo/EJEMPLO.pdf", async (req, res) => {
+  try {
+    const d = await PDFDocument.create();
+    const f = await d.embedFont(StandardFonts.Helvetica);
+    const pg = d.addPage([595, 842]);
+    pg.drawText("CONTRATO Y CARTA DE PAGO - EJEMPLO", { x: 60, y: 760, size: 18, font: f, color: rgb(0, 0, 0) });
+    pg.drawText("Instalaciones Araujo - Plan 5 EMASESA", { x: 60, y: 730, size: 12, font: f, color: rgb(0.3, 0.3, 0.3) });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline; filename=\"EJEMPLO.pdf\"");
+    return res.send(Buffer.from(await d.save()));
+  } catch (e) { return res.status(500).send("Error"); }
+});
 app.get("/media-contrato/:clave/:nombre", (req, res) => {
   const m = _mediaContratos.get(String(req.params.clave || ""));
   if (!m) return res.status(404).send("No encontrado");
