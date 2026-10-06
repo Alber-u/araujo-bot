@@ -558,6 +558,13 @@ async function leerRegistrosTrabajo(maxEdadMs = 60 * 1000) {
 }
 const registrosYa = () => _regs?.data || null;
 
+// Obras cuyo margen ya está en el valor de la empresa de hoy (T4 obra sin facturar − D11 − D14): fases 12-17 con
+// algo por facturar (Urbano Orad, Montemayor…). Su beneficio no vuelve a sumar en «valor a fin de mes».
+function obrasEnValor(data) {
+  const t4 = [...(data.tengo || [])].find((l) => l.id === "T4");
+  return (t4?.detalle || []).filter((d) => d.ccpp_id && Number(d.importe) > 0).map((d) => d.ccpp_id);
+}
+
 function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   const data = calc.calcularEscalera(fuentes, hoy, generado, opciones);
   const extra = extraCashflow(fuentes, hoy);
@@ -665,14 +672,21 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
     // fechas de inicio de Planificación (la misma cola, en jornadas y sin desvío): ahí se entregan las custodias
     // y su último día (con los tramos de «Cambiar personas» y lo fichado): desde ahí se cobran esas obras
-    const fp = planCalendario.fechasPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos }, certificaciones: data.cashflow.certificaciones }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
+    // (06/10/2026) con los expedientes y Sabadell, como Planificación: las no listas van detrás (provisionales) y
+    // los huecos de cada cuadrilla salen del mismo cálculo. Mi panel pinta las obras con estas fechas y cuadrillas.
+    const pc = planCalendario.planParaCaja({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos }, certificaciones: data.cashflow.certificaciones,
+        expedientes: data.cashflow.expedientes || null, sabadell: data.cashflow.sabadell || null }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
       nombresCuadrillas: planCalendario.personasPorCuadrilla(data.cashflow.cuadrillas_personas), registros: registrosYa() });
+    const fp = pc.obras;
+    data.cashflow.plan_obras = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, { inicio: v.inicio, fin: v.fin, equipo: v.equipo, lista: v.lista }]));
+    data.cashflow.huecos_plan = pc.huecos;
     data.cashflow.fechas_inicio_plan = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, v.inicio]));
     // solo las obras con «Cambiar personas» o movidas por el ritmo real (la lenta y las de detrás): las
     // demás siguen con su duración del cash flow (con desvío)
     data.cashflow.fechas_fin_plan = Object.fromEntries(Object.entries(fp).filter(([, v]) => v.con_tramos || v.movida).map(([k, v]) => [k, v.fin]));
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
-      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, fechasFin: data.cashflow.fechas_fin_plan, abonosSabadell: data.cashflow.sabadell?.abonos_futuros || [] });
+      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, fechasFin: data.cashflow.fechas_fin_plan, abonosSabadell: data.cashflow.sabadell?.abonos_futuros || [],
+      planObras: data.cashflow.plan_obras, enValor: obrasEnValor(data) });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
