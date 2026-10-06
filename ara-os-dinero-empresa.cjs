@@ -258,10 +258,14 @@ async function conHorasOO(r) {
   try {
     const rt = require("./ara-os-registros-tiempo.cjs");
     const [tot, ult] = await Promise.all([rt.getHorasAcumuladasMap(), rt.getUltimaFechaHorasMap()]);
+    const GRUPOS = require("./lib/orden-cartera.cjs").GRUPOS_OO;
     for (const o of r.data?.obras || []) {
       const ks = [...new Set([o.obra_id, o.codigo_ot, o.nombre].map((k) => String(k || "").trim()).filter(Boolean))];
-      o.horas_registradas_rt = Math.round(ks.reduce((t, k) => t + (Number(tot[k]) || 0), 0) * 100) / 100;
-      o.ultima_hora = ks.map((k) => ult[k]).filter(Boolean).map((f) => String(f).slice(0, 10)).sort().pop() || null;
+      // obra de varias OO (Urbano Orad): también su parte de lo fichado en «Urbano Orad 13-15» (06/10/2026)
+      const g = GRUPOS.find((x) => x.ids.includes(o.obra_id));
+      const deGrupo = g ? (Number(tot[g.nombre]) || 0) / g.ids.length : 0;
+      o.horas_registradas_rt = Math.round((ks.reduce((t, k) => t + (Number(tot[k]) || 0), 0) + deGrupo) * 100) / 100;
+      o.ultima_hora = [...ks, ...(g ? [g.nombre] : [])].map((k) => ult[k]).filter(Boolean).map((f) => String(f).slice(0, 10)).sort().pop() || null;
     }
   } catch (e) { console.warn("[dinero-empresa] horas de obras privadas:", e.message); }
   return r;
@@ -470,6 +474,10 @@ async function construirFuentes(token, force) {
     for (const a of fuentes.banco.data) tiposBanco[a.tipo || "(vacío)"] = (tiposBanco[a.tipo || "(vacío)"] || 0) + 1;
     fuentes.banco = { ok: true, data: fuentes.banco.data.filter(calc.esMovimientoBancario), cuentas: fuentes.banco.cuentas, error_cuenta_2: fuentes.banco.error_cuenta_2 };
   }
+
+  // Obras privadas en ejecución que /ordenes-trabajo aún no trae (sin planificación calculada tras un reinicio):
+  // desde obras-otras, para T4, D11 y la rentabilidad (Urbano Orad 13-15 con su id combinado; 06/10/2026)
+  if (fuentes.ot?.ok && fuentes.oo?.ok) fuentes.ot = { ...fuentes.ot, data: calc.otConOOEnCurso(fuentes.ot.data, fuentes.oo.data, fuentes.invoices) };
 
   // Segunda tanda: depende de la primera
   //  · rentabilidad de las obras en fase 12-17 (D11 coste pendiente, D14 comisión)

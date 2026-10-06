@@ -1323,6 +1323,9 @@ function registrar(app) {
           const ult = await rt.getUltimaFechaHorasMap();
           obras = obras.map((o) => {
             const ks = [o.obra_id, o.codigo_ot, o.nombre].map((k) => String(k || "").trim()).filter(Boolean);
+            // (Urbano Orad: también lo fichado con el nombre de la obra, «Urbano Orad 13-15»; 06/10/2026)
+            const g = require("./lib/orden-cartera.cjs").GRUPOS_OO.find((x) => x.ids.includes(o.obra_id));
+            if (g) ks.push(g.nombre);
             return { ...o, ultima_hora: ks.map((k) => ult[k]).filter(Boolean).map((f) => String(f).slice(0, 10)).sort().pop() || null };
           });
         }

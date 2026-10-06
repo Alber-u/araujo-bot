@@ -515,7 +515,9 @@ async function leerCostesPorPersona() {
 // v0.4.0: lee `registros_tiempo` y agrega horas por obra (clave = nombre comunidad).
 // Devuelve { mano_obra_eur: number, horas_total: number, registros: number }
 //   nombre_comunidad: nombre exacto como aparece en la columna E de registros_tiempo
-async function calcularManoObraReal(nombre_comunidad, costesPorPersona) {
+// extra: [{ nombre, factor }] · otros nombres con que se ficha esta obra y la parte que le toca (Urbano Orad:
+// lo fichado en «Urbano Orad 13-15», la mitad para cada OO; 06/10/2026)
+async function calcularManoObraReal(nombre_comunidad, costesPorPersona, extra = []) {
   if (!nombre_comunidad) return { mano_obra_eur: 0, horas_total: 0, registros: 0 };
   let filas;
   try {
@@ -537,10 +539,12 @@ async function calcularManoObraReal(nombre_comunidad, costesPorPersona) {
     const borrado = String(r[13] || "").toUpperCase() === "TRUE";
     if (borrado) continue;
     if (tipo !== "trabajo" && tipo !== "extra") continue;
-    if (obra_id !== nombre_comunidad) continue;
+    const ex = obra_id === nombre_comunidad ? null : extra.find((x) => x.nombre === obra_id);
+    if (obra_id !== nombre_comunidad && !ex) continue;
     if (persona_id.startsWith("ZZ_")) continue;
     let h = Number(String(horas_raw || "").replace(",", "."));
     if (!isFinite(h) || h <= 0) continue;
+    if (ex) h *= ex.factor;
     horas_total += h;
     registros += 1;
     // Usar snapshot coste_hora del registro (col O, idx 14) si existe, si no el actual
@@ -2289,27 +2293,13 @@ module.exports = function setupAraOSHolded(app) {
   app.options("/api/ara-os/holded/rentabilidad-obra/:obra_id", (req, res) => {
     responderCORS(res); res.status(204).end();
   });
-  // Caché rentabilidad 3 min
-  const _cacheRent = {};
-  app.get("/api/ara-os/holded/rentabilidad-obra/:obra_id", cacheRentab, async (req, res) => {
-    responderCORS(res);
-    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
-
-    try {
-      await asegurarPestanas();
-      const obra_id = decodeURIComponent(req.params.obra_id);
-      const cacheKey = obra_id;
-      const ahora = Date.now();
-      if (!req.query.refresh && _cacheRent[cacheKey] && (ahora - _cacheRent[cacheKey].ts) < 180_000) {
-        return res.json(_cacheRent[cacheKey].data);
-      }
-
+  // Rentabilidad de una obra (presupuesto, material de Holded por etiqueta y mano de obra de registros_tiempo);
+  // null si no existe. query: { desde, hasta }
+  async function calcularRentabilidad(obra_id, query = {}) {
       const [obrasPlan5, obrasOtras] = await Promise.all([leerObrasPlan5(), leerObrasOtras()]);
 
       const eco = await leerEconomicoObra(obra_id, obrasPlan5, obrasOtras);
-      if (!eco) {
-        return res.status(404).json({ ok: false, error: `Obra ${obra_id} no encontrada` });
-      }
+      if (!eco) return null;
 
       const etiquetas = await leerTabla(HOJA_ETIQUETAS, ETIQUETAS_HEADERS);
       const fila = etiquetas.find(e => e.obra_id === obra_id);
@@ -2326,12 +2316,12 @@ module.exports = function setupAraOSHolded(app) {
         etiqueta_asignada = true;
         const tagsObraSet = new Set(tagsObra);
         // v0.4.1: sin límite hacia atrás por defecto (mismo cambio que /gastos-por-obra).
-        const desde = req.query.desde ? String(req.query.desde) : null;
-        const hasta = String(req.query.hasta || hoyISO());
+        const desde = query.desde ? String(query.desde) : null;
+        const hasta = String(query.hasta || hoyISO());
         const ts_desde = desde ? fechaAUnix(desde) : 0;
         const ts_hasta = fechaAUnix(hasta);
         const r = await obtenerPurchases();
-        if (r.error) return res.status(502).json({ ok: false, error: r.error });
+        if (r.error) throw Object.assign(new Error(r.error), { status: 502 });
         for (const d of r.docs) {
           const ts = Number(d.date || 0);
           if (ts_desde && ts < ts_desde) continue;
@@ -2364,7 +2354,16 @@ module.exports = function setupAraOSHolded(app) {
       }
 
       const costesPorPersona = await leerCostesPorPersona();
-      const mo = await calcularManoObraReal(eco.nombre_comunidad, costesPorPersona);
+      // obra de un grupo (OO-2026-142 de Urbano Orad): también su parte de lo fichado con el nombre del grupo
+      const OCg = require("./lib/orden-cartera.cjs");
+      const grupo = OCg.GRUPOS_OO.find((g) => g.ids.includes(obra_id)) || null;
+      let extraMO = [];
+      if (grupo) {
+        const ptos = grupo.ids.map((id) => Number(obrasOtras.find((o) => o.obra_id === id)?.pto_total) || 0);
+        const tot = ptos.reduce((t, x) => t + x, 0);
+        extraMO = [{ nombre: grupo.nombre, factor: tot > 0 ? ptos[grupo.ids.indexOf(obra_id)] / tot : 1 / grupo.ids.length }];
+      }
+      const mo = await calcularManoObraReal(eco.nombre_comunidad, costesPorPersona, extraMO);
 
       // v0.4.1: coste real = mano de obra + material SIN IVA
       const coste_real = mo.mano_obra_eur + material_real_sin_iva;
@@ -2424,11 +2423,47 @@ module.exports = function setupAraOSHolded(app) {
           tiene_presupuesto: eco.pto_total > 0,
         },
       };
+      return respuesta;
+  }
+  // varias OO de una obra (Urbano Orad 13-15): sumas de presupuesto, horas, material y costes; márgenes recalculados
+  function sumarRentabilidades(obra_id, rs) {
+    if (rs.some((r) => !r)) return null;
+    const suma = (f) => rs.reduce((t, r) => t + (Number(f(r)) || 0), 0);
+    const g = require("./lib/orden-cartera.cjs").GRUPOS_OO.find((x) => obra_id.split("+").every((id) => x.ids.includes(id)));
+    const pto = suma((r) => r.real.presupuesto_real), coste = suma((r) => r.real.coste_real), benef = pto - coste, benPrev = suma((r) => r.previsto.beneficio_previsto);
+    const porPersona = {};
+    for (const r of rs) for (const d of r.real.mano_obra_desglose || []) { const x = porPersona[d.persona_id] || (porPersona[d.persona_id] = { ...d, horas: 0, coste: 0 }); x.horas += d.horas; x.coste += d.coste; }
+    return { ...rs[0], obra_id, nombre_comunidad: g ? g.nombre : rs.map((r) => r.nombre_comunidad).join(" + "), partes: rs.map((r) => ({ obra_id: r.obra_id, nombre_comunidad: r.nombre_comunidad })),
+      previsto: { ...rs[0].previsto, pto_total: suma((r) => r.previsto.pto_total), mano_obra_previsto: suma((r) => r.previsto.mano_obra_previsto), material_previsto: suma((r) => r.previsto.material_previsto), beneficio_previsto: benPrev },
+      real: { ...rs[0].real, presupuesto_real: pto, mano_obra_real: suma((r) => r.real.mano_obra_real), mano_obra_horas: suma((r) => r.real.mano_obra_horas), mano_obra_registros: suma((r) => r.real.mano_obra_registros),
+        mano_obra_desglose: Object.values(porPersona), material_real: suma((r) => r.real.material_real), material_real_con_iva: suma((r) => r.real.material_real_con_iva), material_iva: suma((r) => r.real.material_iva),
+        material_facturas_count: suma((r) => r.real.material_facturas_count), material_facturas_compartidas: suma((r) => r.real.material_facturas_compartidas), coste_real: coste, beneficio_real: benef, margen_pct: pto ? (benef / pto) * 100 : null },
+      desvio: { eur: benef - benPrev, pct: benPrev ? ((benef - benPrev) / Math.abs(benPrev)) * 100 : null },
+      flags: { tiene_etiqueta_holded: rs.some((r) => r.flags.tiene_etiqueta_holded), tiene_registros_tiempo: rs.some((r) => r.flags.tiene_registros_tiempo), tiene_presupuesto: pto > 0 } };
+  }
+  // Caché rentabilidad 3 min
+  const _cacheRent = {};
+  app.get("/api/ara-os/holded/rentabilidad-obra/:obra_id", cacheRentab, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+
+    try {
+      await asegurarPestanas();
+      const obra_id = decodeURIComponent(req.params.obra_id);
+      const cacheKey = obra_id;
+      const ahora = Date.now();
+      if (!req.query.refresh && _cacheRent[cacheKey] && (ahora - _cacheRent[cacheKey].ts) < 180_000) {
+        return res.json(_cacheRent[cacheKey].data);
+      }
+
+      // obra de varias OO («OO-2026-142+OO-2026-143», 06/10/2026): la suma de cada una
+      const respuesta = obra_id.includes("+") ? sumarRentabilidades(obra_id, await Promise.all(obra_id.split("+").map((id) => calcularRentabilidad(id, req.query)))) : await calcularRentabilidad(obra_id, req.query);
+      if (!respuesta) return res.status(404).json({ ok: false, error: `Obra ${obra_id} no encontrada` });
       _cacheRent[cacheKey] = { ts: Date.now(), data: respuesta };
       res.json(respuesta);
     } catch (e) {
       console.error("[holded/rentabilidad-obra]", e);
-      res.status(500).json({ ok: false, error: e.message });
+      res.status(e.status || 500).json({ ok: false, error: e.message });
     }
   });
 

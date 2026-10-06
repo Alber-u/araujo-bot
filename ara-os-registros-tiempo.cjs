@@ -569,6 +569,15 @@ async function validarObra(obra_id) {
     return { ok: true, obra: { comunidad: q.comunidad, fase_ot: q.fase_otras } };
   }
 
+  // 4. Obra de varias OO (Urbano Orad 13-15 = OO-2026-142 + OO-2026-143, 06/10/2026): se ficha con el nombre de
+  // la obra (el de Planificación); quien lee las horas las reparte entre sus OO según su presupuesto
+  const g = require("./lib/orden-cartera.cjs").grupoDe({ nombre: obra_id });
+  if (g && g.nombre === obra_id) {
+    const sueltas = (await leerHojaSafe("obras_otras!A2:H")).filter((f) => g.ids.includes(String(f[0] || "").trim()));
+    if (sueltas.some((f) => FASES_OTRAS_VALIDAS.includes(String(f[7] || "").trim()))) return { ok: true, obra: { comunidad: g.nombre, fase_ot: "EN_EJECUCION", grupo: g.ids } };
+    return { ok: false, error: `Obra "${obra_id}": ninguna de sus órdenes (${g.ids.join(", ")}) está activa` };
+  }
+
   return { ok: false, error: `Obra "${obra_id}" no encontrada en ninguna fuente activa (ordenes_trabajo, comunidades Plan5 05-11, obras_otras)` };
 }
 
