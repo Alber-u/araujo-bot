@@ -604,10 +604,14 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   // las listas van delante de las no listas (simulador-caja.colaObras). null = sin expedientes
   let listaDe = null;
   const marcarLista = (obras) => (listaDe ? obras.map((o) => (o.obra_id in listaDe ? { ...o, lista_para_empezar: listaDe[o.obra_id] } : o)) : obras);
-  const ordenar = (obras) => marcarLista(ordenCartera.aplicarPlanificacion(ordenCartera.completarCartera(
+  // mano de obra del presupuesto de las obras privadas (como rentabilidad-obra): horas previstas × coste_hora_eur
+  const costeHoraCfg = require("./lib/config-dinero.cjs").numConfig(fuentes.config?.ok ? fuentes.config.data : [], "coste_hora_eur");
+  const conMOPresupuesto = (obras) => obras.map((o) => (o.tipo === "OO" && o.mano_obra_previsto == null && costeHoraCfg && Number(o.horas_previstas) > 0 && !o.horas_tope_fijo
+    ? { ...o, mano_obra_previsto: Math.round(Number(o.horas_previstas) * costeHoraCfg * 100) / 100 } : o));
+  const ordenar = (obras) => conMOPresupuesto(marcarLista(ordenCartera.aplicarPlanificacion(ordenCartera.completarCartera(
     fuentes.comunidades_doc?.ok ? ordenCartera.ordenarCartera(obras, fuentes.comunidades_doc.data, hoy) : obras,
     { ot: fuentes.ot?.ok ? fuentes.ot.data : null, oo: fuentes.oo?.ok ? fuentes.oo.data : null, hoy, cobradas: cobradasCfg }),
-    fuentes.planificacion?.ok ? fuentes.planificacion.data : []));
+    fuentes.planificacion?.ok ? fuentes.planificacion.data : [])));
   // Cuadrillas reales (config_dinero «cuadrillas», p. ej. "2,3") y obra grande
   const cfgTxt = (k) => { const r = require("./lib/config-dinero.cjs").valorConfig(fuentes.config?.ok ? fuentes.config.data : [], k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; };
   const cuadrillasCfg = cfgTxt("cuadrillas");
