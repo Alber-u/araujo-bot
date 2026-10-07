@@ -681,7 +681,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
       calendarioMetal: require("./lib/config-dinero.cjs").valorConfig(fuentes.config?.ok ? fuentes.config.data : [], "calendario_metal")?.valor ?? null });
     const fp = pc.obras;
     // (07/10/2026) con «lista desde» y su motivo: sin ellos Mi panel daba las no listas por listas hoy («lista ≈ 06/10»)
-    data.cashflow.plan_obras = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, { inicio: v.inicio, fin: v.fin, equipo: v.equipo, lista: v.lista, ...(v.extra ? { extra: v.extra } : {}),
+    data.cashflow.plan_obras = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, { inicio: v.inicio, fin: v.fin, equipo: v.equipo, lista: v.lista, ...(v.extra ? { extra: v.extra } : {}), ...(v.exceso ? { exceso: v.exceso } : {}),
       ...(v.lista === false ? { pasos_lista: v.pasos_lista, lista_desde: v.lista_desde, lista_motivo: v.lista_motivo } : {}) }]));
     data.cashflow.huecos_plan = pc.huecos;
     data.cashflow.horas_disponibles = pc.disponibles || null;   // por cuadrilla y mes (festivos y vacaciones de config)
