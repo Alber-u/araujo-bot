@@ -237,8 +237,8 @@ module.exports = function (app) {
     if (fase === "08_SEGUIMIENTO_CYCP")    return "08-SEGUIMIENTO CYCP";
     if (fase === "08_FIN_CYCP")            return "08-FIN CYCP";
     // v19.100 -- correos a un vecino (boton de la carta en la caja de documentacion)
-    if (fase === "05_DOC_VECINO")          return "05-DOCUMENTACION VECINO";
-    if (fase === "08_CYCP_VECINO")         return "08-CONTRATO Y CARTA DE PAGO VECINO";
+    if (fase === "05_DOC_VECINO")          return "05-INICIO DOC (VECINO)";
+    if (fase === "08_CYCP_VECINO")         return "08-INICIO CYCP (VECINO)";
     const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
     if (def) return `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
     return fase;
@@ -15306,7 +15306,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP", "05_DOC_VECINO", "08_CYCP_VECINO"];   // v19.100: + correos a un vecino
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_DOC_VECINO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_CYCP_VECINO", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP"];   // v19.100: + correos a un vecino, cada uno tras el de la comunidad de su fase
       // v17.20: paralelizar las 12 lecturas. Con el caché de filas
       // todas resuelven contra una sola lectura del Sheet (antes era
       // un for secuencial que disparaba 12 peticiones).
