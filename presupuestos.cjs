@@ -13149,7 +13149,7 @@ module.exports = function (app) {
             else if (_k === "msg_wa_m5") _msgWaM5 = _rawv;
           }
         } catch (e) {}
-        const _exp = await _leerHoy("bot_expedientes!A:AF");   // v19.89: lectura compartida
+        const _exp = await _leerHoy("bot_expedientes!A:AK");   // v19.89: lectura compartida (v19.99: hasta AK, sin WhatsApp)
         const _erows = (_exp.data.values || []);
         // v18.99d — nombres MAESTROS desde la pestaña "pisos" (donde el usuario los edita).
         // bot_expedientes puede tener copias antiguas con "(?)". Mapa comunidad|vivienda -> nombre.
@@ -13268,7 +13268,14 @@ module.exports = function (app) {
           }
           const _tipoViaRaw = (_tipoViaMap[String(r[1] || "").trim().toLowerCase()] || "").trim(); const _tipoViaM = _tipoViaRaw ? (_tipoViaRaw + " ") : "";
           const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _p5NombreWa(_base.nombre)).replace(/\{nombre\}/g, _p5NombreWa(_base.nombre)).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)).replace(/\{prorroga_nota\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? " (fecha ampliada por la prórroga concedida a su comunidad)" : "")).replace(/\{vence_el\}/g, _p5VenceEl((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM))).replace(/\{pendiente\}/g, "la documentaci\u00f3n de su vivienda").replace(/\{consecuencia\}/g, _p5Consecuencia((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM), "la documentaci\u00f3n de su vivienda"));
-          const _waM3 = _subVars(_msgWaM5 || _msgWaM4 || _msgWaM3);   // v19.28 — pide ayuda / completo usan el WhatsApp manual (M5; respaldo M4 hasta guardarlo)
+          const _waM3 = _subVars(_msgWaM5 || _msgWaM4 || _msgWaM3);
+          // v19.99 (criterio de Guille) -- Sin WhatsApp: Twilio dijo que este numero no tiene
+          //   WhatsApp (col AJ, la pone el bot) y no esta marcado como visto (col AK). Solo si el
+          //   piso sigue en W (si ya esta en M no hace falta) y con este mismo telefono (arriba).
+          if (String(r[35] || "").trim() && String(r[36] || "").trim() !== "1" && (!(_nomKey in _pisosModo) || _pisosModo[_nomKey] === "BOT_WHATSAPP")) {
+            const _fS = _fFecha(r[35]);
+            _avisosArr.push(Object.assign({ tipo: "sin_wa", dias: 0, flag: false, waMsg: "", fecha: _fS.txt, ts: _fS.ts }, _base));
+          }   // v19.28 — pide ayuda / completo usan el WhatsApp manual (M5; respaldo M4 hasta guardarlo)
           // v18.170 — La tarjeta AVISOS solo muestra STOP (puntos que Guille debe
           // desbloquear): no arranca (M1/M2), pide ayuda / el sistema escala, y
           // TERMINADO. El antiguo aviso "faltan" (requiere_intervencion_humana) se
@@ -13459,6 +13466,11 @@ module.exports = function (app) {
           _campo = "aviso_m3"; _chkTitle = "Marcar (recordatorio M3 enviado)";
           const _icM3 = `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;height:16px;min-width:16px;padding:0 4px;border-width:1px;border-style:solid;border-radius:999px;font-size:9px;line-height:1;vertical-align:middle">M3</span>`;
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde env\u00edo de contratos (${_esc(p.fecha || "")}) - <strong>Recordatorio-${_icM3} pendiente</strong></span>`;
+        } else if (p.tipo === "sin_wa") {
+          // v19.99 -- el numero no tiene WhatsApp: boton "Pasar a M" + check (visto, se queda en W)
+          _campo = "sin_wa_visto"; _chkTitle = "Visto: dejarlo en W";
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}<strong>Sin WhatsApp</strong> \u00b7 ${_esc(_fmtTel(p.telefono))}</span>`
+            + (_ccpp ? `<button type="button" class="ptl-btn ptl-btn-sm hoy-sinwa-m" data-ccpp-id="${_esc(_ccpp)}" data-viv="${_esc(p.vivienda || "")}" data-tel="${_esc(p.telefono || "")}" style="flex:0 0 auto;padding:1px 8px;font-size:11px;line-height:1.3">Pasar a M</button>` : "");
         } else if (p.tipo === "ayuda") {
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
@@ -13469,7 +13481,7 @@ module.exports = function (app) {
         // Bot\u00f3n WhatsApp (abre WhatsApp Web/app con el chat del vecino, desde TU n\u00famero) \u2014 mudo, atascado y pide ayuda
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
         const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
-        const _waHtml = _wa
+        const _waHtml = (_wa && p.tipo !== "sin_wa")   // v19.99: sin WhatsApp, no hay chat que abrir
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">\uD83D\uDCAC</a>`
           : "";
         return `
@@ -13542,7 +13554,7 @@ module.exports = function (app) {
       const _contactoBotPorCcpp = {};
       try {
         const _sCB = getSheetsClient();
-        const _rCB = await _leerHoy("bot_expedientes!A:AF");   // v19.89: lectura compartida (solo usa B y J)
+        const _rCB = await _leerHoy("bot_expedientes!A:AK");   // v19.89: lectura compartida (solo usa B y J; v19.99: mismo rango que Avisos, una sola lectura)
         const _rowsCB = _rCB.data.values || [];
         for (let i = 1; i < _rowsCB.length; i++) {
           const rr = _rowsCB[i]; if (!rr) continue;
@@ -14946,6 +14958,23 @@ module.exports = function (app) {
             });
             
             
+            // v19.99 -- Aviso "Sin WhatsApp": pasar el piso a M (como el boton W/M de la caja) y
+            //   dar el aviso por visto; la tarjeta desaparece.
+            document.querySelectorAll('.hoy-sinwa-m').forEach(function(btn){
+              btn.addEventListener('click', async function(){
+                if (!confirm('\u00bfPasar el ' + (btn.dataset.viv || '') + ' a manual (M)? El bot dejar\u00e1 de escribirle.')) return;
+                btn.disabled = true;
+                try {
+                  var r1 = await fetch('${urlT(token, "/presupuestos/piso/modo-bot")}', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: new URLSearchParams({ ccpp_id: btn.dataset.ccppId || '', vivienda: btn.dataset.viv || '', modo: 'MANUAL' }).toString() });
+                  var d1 = await r1.json().catch(function(){ return {}; });
+                  if (!r1.ok || !d1.ok) { alert('No se pudo pasar a M: ' + ((d1 && d1.error) || r1.status)); btn.disabled = false; return; }
+                  await fetch('${urlT(token, "/presupuestos/hoy-bot-llamado")}', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: new URLSearchParams({ tel: btn.dataset.tel || '', campo: 'sin_wa_visto', valor: '1' }).toString() }).catch(function(){});
+                  var f = btn.closest('.hoy-exp-fila'); if (f) f.remove();
+                } catch(e){ alert('No se pudo pasar a M: ' + e.message); btn.disabled = false; }
+              });
+            });
             document.querySelectorAll('.hoy-bot-llamado').forEach(function(chk){
               chk.addEventListener('change', async function(){
                 var tel = chk.dataset.tel;
@@ -14959,7 +14988,7 @@ module.exports = function (app) {
                     body: body.toString()
                   });
                   if (!res.ok) { chk.checked = !chk.checked; var tx = await res.text(); alert('No se pudo guardar: ' + tx); }
-                  else if ((campo === 'revisado' || campo === 'revisado_faltan' || campo === 'revisado_ayuda' || campo === 'aviso_m3') && chk.checked) { var _fila = chk.closest('.hoy-exp-fila'); if (_fila) _fila.remove(); }
+                  else if ((campo === 'revisado' || campo === 'revisado_faltan' || campo === 'revisado_ayuda' || campo === 'aviso_m3' || campo === 'sin_wa_visto') && chk.checked) { var _fila = chk.closest('.hoy-exp-fila'); if (_fila) _fila.remove(); }
                 } catch(e){ chk.checked = !chk.checked; alert('No se pudo guardar: ' + e.message); }
                 finally { chk.disabled = false; }
               });
@@ -16113,8 +16142,8 @@ module.exports = function (app) {
       }
       if (!tel) return _err("tel requerido");
       // El bot solo usa A:Z; los flags de la caja Avisos se guardan en AA (llamado) y AB (revisado).
-      const _col = campo === "revisado" ? "AB" : (campo === "revisado_faltan" ? "AD" : (campo === "revisado_ayuda" ? "AE" : (campo === "llamado2" ? "AF" : "AA")));
-      const _need = campo === "revisado" ? 28 : (campo === "revisado_faltan" ? 30 : (campo === "revisado_ayuda" ? 31 : (campo === "llamado2" ? 32 : 27)));
+      const _col = campo === "sin_wa_visto" ? "AK" : (campo === "revisado" ? "AB" : (campo === "revisado_faltan" ? "AD" : (campo === "revisado_ayuda" ? "AE" : (campo === "llamado2" ? "AF" : "AA"))));   // v19.99: AK = sin WhatsApp visto
+      const _need = campo === "sin_wa_visto" ? 37 : (campo === "revisado" ? 28 : (campo === "revisado_faltan" ? 30 : (campo === "revisado_ayuda" ? 31 : (campo === "llamado2" ? 32 : 27))));
       const sheets = getSheetsClient();
       try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });

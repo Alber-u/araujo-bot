@@ -100,7 +100,7 @@ async function notificarEquipo(tipo, datos) {
   if (!contentSid) return;
   for (const tel of tels) {
     try {
-      await enviarWhatsAppPlantilla(tel, contentSid, variables);
+      await enviarWhatsAppPlantilla(tel, contentSid, variables, false);   // v19.99: sin seguimiento de entrega (es el equipo)
     } catch(e) {
       console.error("Error notificando equipo:", tel, e.message);
     }
@@ -118,7 +118,9 @@ async function enviarWhatsApp(to, body) {
 }
 
 // Enviar usando plantilla aprobada de Twilio (sin restriccion de ventana 24h)
-async function enviarWhatsAppPlantilla(to, contentSid, variables) {
+// v19.99 -- seguirEntrega (por defecto si): Twilio avisa a /twilio-estado de como ha ido la
+//   entrega; si el numero no tiene WhatsApp, se apunta en la ficha y sale en Avisos de HOY.
+async function enviarWhatsAppPlantilla(to, contentSid, variables, seguirEntrega) {
   if (!contentSid) return; // v0.18: plantilla twilio inactiva/sin SID en el Sheet -> no se envia
   if (!process.env.TWILIO_WHATSAPP_NUMBER) throw new Error("Falta TWILIO_WHATSAPP_NUMBER");
   if (!twilioClient) throw new Error("Twilio no configurado: faltan credenciales (TWILIO_ACCOUNT_SID/AUTH_TOKEN)");
@@ -131,11 +133,13 @@ async function enviarWhatsAppPlantilla(to, contentSid, variables) {
   for (const [k, v] of Object.entries(variables || {})) {
     varsLimpias[String(k)] = String(v || "").replace(/\n/g, " ").trim();
   }
-  await twilioClient.messages.create({
+  const _msg = {
     from: fromNum, to: toNum,
     contentSid,
     contentVariables: JSON.stringify(varsLimpias),
-  });
+  };
+  if (seguirEntrega !== false) _msg.statusCallback = String(process.env.BASE_URL || "https://araujo-bot.onrender.com").replace(/\/+$/, "") + "/twilio-estado";
+  await twilioClient.messages.create(_msg);
 }
 
 // ================= DEDUPLICACION POR MessageSid =================
@@ -4417,6 +4421,59 @@ async function manejarFase08(req, res) {
   return responderYLog(res, telefono, msgOriginal, "texto_fase08", (extra + base).trim());
 }
 
+
+
+// ============================================================================
+// v19.99 (criterio de Guille, 07/10/2026) -- TELEFONO SIN WHATSAPP
+// Twilio llama a esta ruta cuando cambia el estado de un mensaje de plantilla mandado
+// a un vecino (presentacion, recordatorio, contrato). Si no se ha podido entregar porque
+// ese numero no tiene WhatsApp (errores 63024 y 63003), se apunta la fecha en la ficha
+// del vecino (bot_expedientes col AJ "sin_whatsapp") y se borra la marca de visto (col AK):
+// HOY lo pone en Avisos con los botones "Pasar a M" y el check. Si mas adelante a ese
+// numero le llega un mensaje (entregado/leido), la marca se borra sola.
+// ============================================================================
+const _ERRORES_SIN_WA = new Set(["63024", "63003"]);
+async function _marcarSinWhatsapp(telefono, sinWa, intento) {
+  const t = normalizarTelefono(telefono);
+  const r = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:AK" });
+  const rows = r.data.values || [];
+  let fila = -1, actual = "";
+  for (let i = 1; i < rows.length; i++) {
+    if (normalizarTelefono((rows[i] || [])[0] || "") === t) { fila = i + 1; actual = String((rows[i] || [])[35] || "").trim(); break; }
+  }
+  if (fila < 0) {
+    // la ficha se crea justo despues del envio: si aun no esta, se vuelve a mirar en un rato
+    if (sinWa && (intento || 0) < 3) setTimeout(() => { _marcarSinWhatsapp(telefono, sinWa, (intento || 0) + 1).catch(e => console.error("[twilio-estado]", e.message)); }, 20000);
+    return;
+  }
+  if (!sinWa && !actual) return;   // entregado y no habia marca: nada que hacer
+  await _asegurarColsBotExp(37);
+  await getSheetsClient().spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AJ" + fila + ":AK" + fila, valueInputOption: "RAW",
+    requestBody: { values: [[sinWa ? ahoraISO() : "", ""]] } });
+  console.log("[twilio-estado]", t, sinWa ? "SIN WHATSAPP" : "vuelve a recibir: marca borrada");
+}
+app.post("/twilio-estado", (req, res) => {
+  try {
+    const _tok = process.env.TWILIO_AUTH_TOKEN || "";
+    const _base = String(process.env.BASE_URL || "https://araujo-bot.onrender.com").replace(/\/+$/, "");
+    if (_tok && !twilio.validateRequest(_tok, req.get("X-Twilio-Signature") || "", _base + req.originalUrl, req.body || {})) {
+      console.warn("[twilio-estado] firma de Twilio NO valida", process.env.TWILIO_VALIDAR_FIRMA === "1" ? "(rechazado)" : "(solo aviso)");
+      if (process.env.TWILIO_VALIDAR_FIRMA === "1") return res.status(403).send("firma no valida");
+    }
+  } catch (eF) { console.error("[twilio-estado] firma:", eF.message); }
+  res.status(200).send("ok");
+  const b = req.body || {};
+  const estado = String(b.MessageStatus || "").toLowerCase();
+  const codigo = String(b.ErrorCode || "").trim();
+  const tel = String(b.To || "").replace("whatsapp:", "");
+  if (!tel) return;
+  let sinWa = null;
+  if ((estado === "failed" || estado === "undelivered") && _ERRORES_SIN_WA.has(codigo)) sinWa = true;
+  else if (estado === "delivered" || estado === "read") sinWa = false;
+  else if (estado === "failed" || estado === "undelivered") console.warn("[twilio-estado] no entregado", tel, "error", codigo);
+  if (sinWa === null) return;
+  _marcarSinWhatsapp(tel, sinWa, 0).catch(e => console.error("[twilio-estado]", tel, e.message));
+});
 
 // ================= JOB PROACTIVO DE SEGUIMIENTO =================
 // Se ejecuta cada hora. Lee todos los expedientes incompletos de Sheets
