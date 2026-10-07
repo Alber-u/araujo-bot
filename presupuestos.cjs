@@ -13947,8 +13947,9 @@ module.exports = function (app) {
       // SIEMPRE, todas, sin necesidad de reloj y sin mirar el badge (en 08, salvo las que
       // ya tienen el CyCP completo). En estas fases el reloj ya no sirve para quitar de HOY.
       // v19.97 (criterio de Guille) -- la 02 (Visita) tambien sale SIEMPRE entera, con o sin reloj.
-      const _FASES_HOY_SIEMPRE = new Set(["02_VISITA", "05_DOCUMENTACION", "06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP"]);
-      const _FASES_AUTO_BADGE = new Set(["01_CONTACTO", "02_VISITA", "04_ACEPTACION_PTO", "05_DOCUMENTACION", "06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP", "09_TRAMITADA"]);
+      // v19.99 (criterio de Guille, 07/10/2026) -- y la 03 (Envio PTO) tambien, entera.
+      const _FASES_HOY_SIEMPRE = new Set(["02_VISITA", "03_ENVIO_PTO", "05_DOCUMENTACION", "06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP"]);
+      const _FASES_AUTO_BADGE = new Set(["01_CONTACTO", "02_VISITA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION", "06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP", "09_TRAMITADA"]);
       const _gruposHoy = [];
       const _yaEnHoy = new Set(expedientesEnHoy.map(c => c.ccpp_id));
       // v19.21 -- Criterio Guille: en fase 09, el grupo "09 · Tramitados" lleva SOLO
