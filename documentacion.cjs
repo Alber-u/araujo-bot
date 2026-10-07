@@ -740,12 +740,15 @@ module.exports = function (app) {
       ? `<a class="ptl-vec-wa" href="${_waHref}" data-wa4="${esc(_waHref4)}" onclick="return window.__ptlWaMenu ? window.__ptlWaMenu(this, event) : true;" title="Escribir por WhatsApp: elige M4 (env\u00edo CyCP) o M5 (WhatsApp manual)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>`
       : (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
     // v19.100 -- boton de la carta (correo al vecino): pisos en M en fases 05, 07 y 08. El email
-    //   se saca de sus notas al pulsar; apagado si las notas no tienen ninguno.
+    //   se saca de sus notas al pulsar. Criterio de Guille: un solo boton por piso -- con email en
+    //   las notas sale solo la carta (se le escribe por correo); sin email, solo el WhatsApp.
+    //   Se cambia en el acto al escribir o borrar el email en las notas.
     const _mv = (!esCcpp && opciones.mailVecino) ? opciones.mailVecino : null;
     const _hayMail = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}/.test(String(notas || ""));
     const _mailBtn = _mv
-      ? `<a class="ptl-vec-mail" href="#" data-mail="${esc(JSON.stringify(_mv))}" onclick="return window.__ptlMailVecino ? window.__ptlMailVecino(this, event) : false;" title="${_hayMail ? "Enviar correo (" + esc(_mv.fase === "05_DOC_VECINO" ? "documentaci\u00f3n" : "contrato y carta de pago") + ")" : "Escribe el email en las notas"}" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle;opacity:${_hayMail ? "1" : ".3"}">\u2709\uFE0F</a>`
+      ? `<a class="ptl-vec-mail" href="#" data-mail="${esc(JSON.stringify(_mv))}" onclick="return window.__ptlMailVecino ? window.__ptlMailVecino(this, event) : false;" title="Enviar correo (${esc(_mv.fase === "05_DOC_VECINO" ? "documentaci\u00f3n" : "contrato y carta de pago")})" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle;${_hayMail ? "" : "display:none"}">\u2709\uFE0F</a>`
       : "";
+    const _waBtnV = (_mv && _hayMail && _waBtn) ? _waBtn.replace('style="', 'style="display:none;') : _waBtn;
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
       : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
@@ -769,7 +772,7 @@ module.exports = function (app) {
       ${celdaNombre}
       ${celdaNotas}
       ${celdaTelefono}
-      <td class="ptl-vec-wa-celda">${_waBtn}${_mailBtn}</td>
+      <td class="ptl-vec-wa-celda">${_waBtnV}${_mailBtn}</td>
       <td class="ptl-vec-docs">${docsHtml}</td>
       <td class="ptl-vec-acciones ptl-vec-acciones-docs">${acciones}</td>
     </tr>
@@ -1317,11 +1320,12 @@ module.exports = function (app) {
           document.addEventListener('input', function (e) {
             var ta = e.target;
             if (!ta || !ta.classList || !ta.classList.contains('ptl-doc-notas-piso')) return;
-            var b = ta.closest('tr') ? ta.closest('tr').querySelector('.ptl-vec-mail') : null;
+            var tr = ta.closest('tr');
+            var b = tr ? tr.querySelector('.ptl-vec-mail') : null;
             if (!b) return;
             var hay = RE_MAIL_NOTAS.test(ta.value || '');
-            b.style.opacity = hay ? '1' : '.3';
-            b.title = hay ? 'Enviar correo' : 'Escribe el email en las notas';
+            b.style.display = hay ? '' : 'none';
+            var wa = tr.querySelector('.ptl-vec-wa'); if (wa) wa.style.display = hay ? 'none' : '';
           });
           const ESTADOS_HECHO  = ${JSON.stringify(P._ESTADOS_HECHO)};
           const URL_BORRAR      = ${JSON.stringify(urlT(token, "/documentacion/piso/borrar"))};
