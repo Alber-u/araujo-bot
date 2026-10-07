@@ -745,4 +745,10 @@ function getPlan5Css() {
   `;
 }
 
-module.exports = { getThemeCss, getPlan5Css };
+// v19.100 (criterio de Guille, 07/10/2026) -- Simbolos UNICOS de todo el programa: el correo y el
+//   WhatsApp se pintan siempre con estos dos, cogidos de aqui (no escritos a mano en cada sitio),
+//   para que no vuelva a salir un simbolo distinto en una pantalla. Si se cambia uno, cambia en todas.
+const ICONO_MAIL = "\uD83D\uDCE7";       // sobre de correo
+const ICONO_WHATSAPP = "\uD83D\uDCAC";   // bocadillo de WhatsApp
+
+module.exports = { getThemeCss, getPlan5Css, ICONO_MAIL, ICONO_WHATSAPP };

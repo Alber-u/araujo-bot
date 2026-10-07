@@ -86,6 +86,8 @@ function _p5VenceEl(fechaDMY, hoyIsoOpt) {
   if (iso === hoy) return "vence hoy, " + fechaDMY;
   return "venci\u00f3 el " + fechaDMY;
 }
+const { ICONO_MAIL, ICONO_WHATSAPP } = require("./estilo-visual.cjs");   // v19.100: simbolos unicos de correo y WhatsApp
+
 module.exports = function (app) {
 
   // =================================================================
@@ -737,8 +739,8 @@ module.exports = function (app) {
     // v19.35 -- Criterio de Guille: el M3 NO va en el menu (es el aviso automatico de
     //   HOY en fase 08, como M1/M2 en fase 05). Menu de fase 08: M4 y M5.
     const _waBtn = (!esCcpp && _wa && _waHref4)
-      ? `<a class="ptl-vec-wa" href="${_waHref}" data-wa4="${esc(_waHref4)}" onclick="return window.__ptlWaMenu ? window.__ptlWaMenu(this, event) : true;" title="Escribir por WhatsApp: elige M4 (env\u00edo CyCP) o M5 (WhatsApp manual)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>`
-      : (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
+      ? `<a class="ptl-vec-wa" href="${_waHref}" data-wa4="${esc(_waHref4)}" onclick="return window.__ptlWaMenu ? window.__ptlWaMenu(this, event) : true;" title="Escribir por WhatsApp: elige M4 (env\u00edo CyCP) o M5 (WhatsApp manual)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">${ICONO_WHATSAPP}</a>`
+      : (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">${ICONO_WHATSAPP}</a>` : "";
     // v19.100 -- boton de la carta (correo al vecino): pisos en M en fases 05, 07 y 08. El email
     //   se saca de sus notas al pulsar. Criterio de Guille: un solo boton por piso -- con email en
     //   las notas sale solo la carta (se le escribe por correo); sin email, solo el WhatsApp.
@@ -746,7 +748,7 @@ module.exports = function (app) {
     const _mv = (!esCcpp && opciones.mailVecino) ? opciones.mailVecino : null;
     const _hayMail = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}/.test(String(notas || ""));
     const _mailBtn = _mv
-      ? `<a class="ptl-vec-mail" href="#" data-mail="${esc(JSON.stringify(_mv))}" onclick="return window.__ptlMailVecino ? window.__ptlMailVecino(this, event) : false;" title="Enviar correo (${esc(_mv.fase === "05_DOC_VECINO" ? "documentaci\u00f3n" : "contrato y carta de pago")})" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle;${_hayMail ? "" : "display:none"}">\u2709\uFE0F</a>`
+      ? `<a class="ptl-vec-mail" href="#" data-mail="${esc(JSON.stringify(_mv))}" onclick="return window.__ptlMailVecino ? window.__ptlMailVecino(this, event) : false;" title="Enviar correo (${esc(_mv.fase === "05_DOC_VECINO" ? "documentaci\u00f3n" : "contrato y carta de pago")})" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle;${_hayMail ? "" : "display:none"}">${ICONO_MAIL}</a>`
       : "";
     const _waBtnV = (_mv && _hayMail && _waBtn) ? _waBtn.replace('style="', 'style="display:none;') : _waBtn;
     const celdaTelefono = esCcpp

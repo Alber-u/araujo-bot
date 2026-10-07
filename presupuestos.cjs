@@ -22,7 +22,7 @@ const nodemailer = require("nodemailer");
 const https = require("https");
 const http = require("http");
 const { URL } = require("url");
-const { getThemeCss } = require("./estilo-visual.cjs");
+const { getThemeCss, ICONO_MAIL, ICONO_WHATSAPP } = require("./estilo-visual.cjs");   // v19.100: simbolos unicos de correo y WhatsApp
 const { validToken } = require("./lib/auth.cjs");
 
 // v19.29 -- ¿Se concedio la prorroga de verdad? El paso "Prorroga" del ultimatum
@@ -5068,7 +5068,7 @@ module.exports = function (app) {
       ["🗺️ MAPA", urlT(token, "/presupuestos/mapa", opts.expedienteId ? { focus: opts.expedienteId } : {})],
     ];
     const _navPlant = [
-      ["📧 PLANTILLAS MAIL", urlT(token, "/presupuestos/plantillas")],
+      [(ICONO_MAIL + " PLANTILLAS MAIL"), urlT(token, "/presupuestos/plantillas")],
       ["📄 PLANTILLAS DOC", urlT(token, "/presupuestos/plantillas-doc")],
       ["🤖 FLUJO BOT", urlT(token, "/presupuestos/plantillas-bot-flujo")],
     ];
@@ -5189,7 +5189,7 @@ module.exports = function (app) {
       return { texto: "", estado: "sin_plantilla", completado: false };
     }
     if (!plantilla.activo) {
-      return { texto: "📧 reenvío desactivado", estado: "desactivado", completado: false };
+      return { texto: (ICONO_MAIL + " reenvío desactivado"), estado: "desactivado", completado: false };
     }
 
     const enviados = (() => { try { return JSON.parse(comu.mails_enviados || "{}"); } catch { return {}; } })();
@@ -5225,7 +5225,7 @@ module.exports = function (app) {
     // No iniciado: ningún envío de ningún tipo
     if (numManuales === 0 && numAutomaticos === 0) {
       return {
-        texto: _c04 ? "📧 reenvío no iniciado" : `📧 ${xy} - reenvío no iniciado`,
+        texto: _c04 ? (ICONO_MAIL + " reenvío no iniciado") : `${ICONO_MAIL} ${xy} - reenvío no iniciado`,
         estado: "no_iniciado",
         completado: false,
       };
@@ -5240,7 +5240,7 @@ module.exports = function (app) {
     const hayFechaManualNueva = !!(comu.fecha_proximo_mail_manual || "").trim();
     if (cicloAgotado && !hayFechaManualNueva) {
       return {
-        texto: _c04 ? `📧 ${_lab04} · completado` : `📧 ${xy} - reenvío completado`,
+        texto: _c04 ? `${ICONO_MAIL} ${_lab04} · completado` : `${ICONO_MAIL} ${xy} - reenvío completado`,
         estado: "completado", c04: _c04n,
         completado: true,
       };
@@ -5272,7 +5272,7 @@ module.exports = function (app) {
     // "pendiente", pero en realidad ese caso ya devuelve "no iniciado" antes.
     const fechaProxFmt = fechaProx ? formatearFechaDDMMYYYY(fechaProx) : "pendiente";
     return {
-      texto: _c04 ? `📧 ${_lab04} · próximo ${_ddmm(fechaProx)}` : `📧 ${xy} - próximo reenvío ${fechaProxFmt}`,
+      texto: _c04 ? `${ICONO_MAIL} ${_lab04} · próximo ${_ddmm(fechaProx)}` : `${ICONO_MAIL} ${xy} - próximo reenvío ${fechaProxFmt}`,
       estado: "en_curso", c04: _c04n,
       completado: false,
       fechaProxIso: fechaProx || null,
@@ -5343,14 +5343,14 @@ module.exports = function (app) {
     let pl = null;
     try { pl = await leerPlantillaMail(plantillaDeFase(fase)); } catch (_) { pl = null; }
     if (fase === "05_DOCUMENTACION" || fase === "08_CYCP") {
-      if (fase === "08_CYCP" && String(comu.fecha_cycp_completa || "").trim()) return "📧 reenvío terminado (CyCP completa)";
+      if (fase === "08_CYCP" && String(comu.fecha_cycp_completa || "").trim()) return (ICONO_MAIL + " reenvío terminado (CyCP completa)");
       const _ult = String(comu.fecha_ultimatum_ampliado || comu.fecha_disidentes_solicitados || comu.fecha_contrato_resuelto || "").trim();
-      if (_ult) return "📧 reenvío parado · ultimátum en curso (lo llevan los botones)";
+      if (_ult) return (ICONO_MAIL + " reenvío parado · ultimátum en curso (lo llevan los botones)");
     }
     // Fase 05 con bot: dos tramos (listado / documentación), como el cron.
     if (fase === "05_DOCUMENTACION" && String(comu.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP") {
       if (!pl) return "";
-      if (!pl.activo) return "📧 reenvío desactivado";
+      if (!pl.activo) return (ICONO_MAIL + " reenvío desactivado");
       let env = {}; try { env = JSON.parse(comu.mails_enviados || "{}") || {}; } catch (_) {}
       const di = (function(){ const n = parseInt(pl.dias_primer_envio, 10); return (Number.isFinite(n) && n >= 0) ? n : 5; })();
       const dr = parseInt(pl.dias_recurrente, 10) || 5;
@@ -5365,10 +5365,10 @@ module.exports = function (app) {
       const cnt = parseInt(env[contacto ? "05_DOC_N" : "05_LISTADO_N"] || 0, 10) || 0;
       const x = (parseInt(env["05_ACEPTACION_PTO"] || 0, 10) || 0) > 0 ? 1 : 0;
       const xy = x + "+" + cnt + "/" + cap;
-      if (cnt >= cap) return "📧 " + xy + " seguimiento " + tramo + " - reenvío completado";
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(anchor)) return "📧 " + xy + " seguimiento " + tramo + " - reenvío no iniciado";
+      if (cnt >= cap) return (ICONO_MAIL + " ") + xy + " seguimiento " + tramo + " - reenvío completado";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(anchor)) return (ICONO_MAIL + " ") + xy + " seguimiento " + tramo + " - reenvío no iniciado";
       const prox = new Date(anchor + "T00:00:00"); prox.setDate(prox.getDate() + di + dr * cnt);
-      return "📧 " + xy + " seguimiento " + tramo + " - próximo reenvío " + formatearFechaDDMMYYYY(prox.toISOString().slice(0, 10));
+      return (ICONO_MAIL + " ") + xy + " seguimiento " + tramo + " - próximo reenvío " + formatearFechaDDMMYYYY(prox.toISOString().slice(0, 10));
     }
     // 01, 04, 08 (y 05 sin bot): mismo calculo que el cron general.
     try { const info = calcularInfoEnvioAuto(comu, fase, pl); return info.texto || ""; } catch (_) { return ""; }
@@ -5747,7 +5747,7 @@ module.exports = function (app) {
           <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm"
             onclick="ptlIntentarReenviarFase04('${esc(comu.ccpp_id)}')"
             title="Abre el modal para reenviar el presupuesto con los cambios realizados">
-            📧 Reenviar presupuesto revisado
+            ${ICONO_MAIL} Reenviar presupuesto revisado
           </button>
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/aceptar")}" class="ptl-inline" id="ptl-form-aceptar">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -5989,7 +5989,7 @@ module.exports = function (app) {
         btnMailHtml = `<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l"
           onclick="ptlAbrirModalMail('${esc(fase)}', '${esc(comu.ccpp_id)}')"
           title="Enviar el primer mail y dejar el resto al cron automático">
-          <span class="ln">📧 Activar</span>
+          <span class="ln">${ICONO_MAIL} Activar</span>
           <span class="ln">mail</span>
           <span class="ln">automático</span>
         </button>`;
@@ -6041,7 +6041,7 @@ module.exports = function (app) {
             <button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm ptl-btn-enviar-avanzar"
               onclick="ptlIntentarEnviarFase03('${esc(fase)}', '${esc(comu.ccpp_id)}')"
               title="Abre el modal para revisar y enviar el presupuesto. Al confirmar, también pasa a fase 04-ACEPTACION PTO.">
-              <span class="ln">📧 Enviar presupuesto</span>
+              <span class="ln">${ICONO_MAIL} Enviar presupuesto</span>
               <span class="ln">Y paso a 04-ACEPTACION PTO</span>
             </button>
           </div>
@@ -6249,7 +6249,7 @@ module.exports = function (app) {
             <div class="ptl-flex-g6">
               <button type="button" id="ptlComSendBtn"
                 class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
-                title="Enviar mail manual">📧 Enviar mail manual</button>
+                title="Enviar mail manual">${ICONO_MAIL} Enviar mail manual</button>
             </div>
           </div>
           <style>
@@ -6406,7 +6406,7 @@ module.exports = function (app) {
         <div id="ptlComSendModal" class="ptl-floating-wrapper">
           <div id="ptlComSendBox" class="ptl-floating-window" style="width:680px">
             <div id="ptlComSendTitle" class="ptl-floating-title">
-              <span class="ptl-floating-title-text">📧 Enviar mail manual</span>
+              <span class="ptl-floating-title-text">${ICONO_MAIL} Enviar mail manual</span>
               <button type="button" id="ptlComSxclose" class="ptl-floating-close" title="Cerrar">✕</button>
             </div>
             <div class="ptl-floating-body">
@@ -6454,7 +6454,7 @@ module.exports = function (app) {
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
               <button type="button" id="ptlComScancel" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
-              <button type="button" id="ptlComSsend" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Enviar</button>
+              <button type="button" id="ptlComSsend" class="ptl-btn ptl-btn-primary ptl-btn-sm">${ICONO_MAIL} Enviar</button>
             </div>
             </div>
           </div>
@@ -7147,7 +7147,7 @@ module.exports = function (app) {
                             : ((r.payload && r.payload.error) || ('HTTP ' + (r.status || '?')));
                     alert('No se pudo enviar:\\n\\n' + t);
                     sSend.disabled = false;
-                    sSend.textContent = '📧 Enviar';
+                    sSend.textContent = '${ICONO_MAIL} Enviar';
                     return;
                   }
                   // v18.36 — recarga limpia (NO reload).
@@ -7159,7 +7159,7 @@ module.exports = function (app) {
                   const t = (d0 && typeof d0 === 'object') ? JSON.stringify(d0) : await res.text();
                   alert('No se pudo enviar:\\n\\n' + t);
                   sSend.disabled = false;
-                  sSend.textContent = '📧 Enviar';
+                  sSend.textContent = '${ICONO_MAIL} Enviar';
                   return;
                 }
                 window.ptlRecargaLimpia();
@@ -7171,7 +7171,7 @@ module.exports = function (app) {
                 }
                 alert('Error: ' + e.message);
                 sSend.disabled = false;
-                sSend.textContent = '📧 Enviar';
+                sSend.textContent = '${ICONO_MAIL} Enviar';
               }
             });
           })();
@@ -7936,7 +7936,7 @@ module.exports = function (app) {
           div.innerHTML = \`
             <div id="ptl-mm-box" class="ptl-floating-window" style="width:680px">
               <div id="ptl-mm-title" class="ptl-floating-title">
-                <span id="ptl-mm-titulo" class="ptl-floating-title-text">📧 Enviar email</span>
+                <span id="ptl-mm-titulo" class="ptl-floating-title-text">${ICONO_MAIL} Enviar email</span>
                 <button type="button" id="ptl-mm-cerrar" class="ptl-floating-close" title="Cerrar">✕</button>
               </div>
               <div class="ptl-floating-body">
@@ -7985,7 +7985,7 @@ module.exports = function (app) {
                 <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--ptl-gray-200)">
                   <button type="button" id="ptl-mm-saltar" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="display:none;margin-right:auto">→ Saltar envío</button>
                   <button type="button" id="ptl-mm-cancelar" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
-                  <button type="button" id="ptl-mm-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Confirmar envío</button>
+                  <button type="button" id="ptl-mm-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">${ICONO_MAIL} Confirmar envío</button>
                 </div>
               </div>
             </div>
@@ -8034,8 +8034,8 @@ module.exports = function (app) {
             }
             const data = await r.json();
             document.getElementById('ptl-mm-titulo').textContent = esReenvio
-              ? '📧 Reenviar presupuesto revisado'
-              : '📧 Email · Fase ' + fase;
+              ? '${ICONO_MAIL} Reenviar presupuesto revisado'
+              : '${ICONO_MAIL} Email · Fase ' + fase;
             document.getElementById('ptl-mm-destinatario').value = data.destinatario.email || '';
             document.getElementById('ptl-mm-cc').value = data.destinatario.cc || '';
             document.getElementById('ptl-mm-asunto').value = data.plantilla.asunto || '';
@@ -8128,7 +8128,7 @@ module.exports = function (app) {
             }
             // Botón confirmar
             const btn = document.getElementById('ptl-mm-enviar');
-            if (esReenvio) btn.textContent = '📧 Confirmar reenvío';
+            if (esReenvio) btn.textContent = '${ICONO_MAIL} Confirmar reenvío';
             btn.onclick = async () => {
               btn.disabled = true; btn.textContent = esReenvio ? 'Reenviando...' : 'Enviando...';
               const envioId = 'e' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -8215,7 +8215,7 @@ module.exports = function (app) {
                   return;
                 }
                 alert('Error: ' + e.message);
-                btn.disabled = false; btn.textContent = esReenvio ? '📧 Confirmar reenvío' : '📧 Confirmar envío';
+                btn.disabled = false; btn.textContent = esReenvio ? '${ICONO_MAIL} Confirmar reenvío' : '${ICONO_MAIL} Confirmar envío';
               }
             };
           } catch (e) {
@@ -8705,7 +8705,7 @@ module.exports = function (app) {
     const _pDis8 = _pAmp8;
     const _pRes8 = _n05(_res08.dias_primer_envio, 5);
     // v19.53 — Ventana de Tiempos de fase 08 al dia con el proceso real.
-    const _esqRows8 = [["0", "08-INICIO CYCP (correo a la comunidad)", "envío manual; a cada vecino, su contrato y carta con el WhatsApp " + _B("M4") + " (botón 💬)", "👍 CyCP solicitados · hace 0 d"]];
+    const _esqRows8 = [["0", "08-INICIO CYCP (correo a la comunidad)", "envío manual; a cada vecino, su contrato y carta con el WhatsApp " + _B("M4") + (" (botón " + ICONO_WHATSAPP + ")"), "👍 CyCP solicitados · hace 0 d"]];
     for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP (correo)", "automático (cron)", "👍 CyCP solicitados · hace " + dia + " d"]); }
     { const _p8 = [[PLAZO_CYCP_INICIAL + 1, [String(PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "WhatsApp M3 (2º aviso)", "aviso en la caja Avisos de HOY a cada vecino al que le falte contrato o pago: DURO si no hay prórroga; amable con la fecha ampliada si la hay", "🔔 M3"]]];
       _p8.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows8.push(x[2])); }
@@ -8741,12 +8741,12 @@ module.exports = function (app) {
           cuentasList.map(c => `<option value="${esc(c.id)}" ${c.id === cuentaSel ? 'selected' : ''}>${esc(c.id)} (${esc(c.email)})</option>`).join('');
       // Descripción del disparador (qué desencadena el envío de esta plantilla)
       const DESCR_PLANTILLA = {
-        "01_CONTACTO":             'Envío manual al pulsar "📧 Activar mail automático" en fase 01.',
+        "01_CONTACTO":             ('Envío manual al pulsar "' + ICONO_MAIL + ' Activar mail automático" en fase 01.'),
         "02_PTE_VISITA_CON_ACTA":  'Envío manual al pulsar "→ Paso a 02-VISITA" en fase 01 cuando han enviado el acta de la asamblea.',
         "02_PTE_VISITA_SIN_ACTA":  'Envío manual al pulsar "→ Paso a 02-VISITA" en fase 01 cuando NO han enviado el acta (la respuesta vale como interés).',
-        "03_ENVIO_PTO":            'Envío manual al pulsar "📧 Enviar presupuesto" en fase 03.',
-        "04_ACEPTACION_PTO":  'Envío automático de seguimiento al pulsar "📧 Enviar presupuesto" en fase 03.',
-        "04_REENVIO":         'Envío manual al pulsar "📧 Reenviar presupuesto revisado" en fase 04.',
+        "03_ENVIO_PTO":            ('Envío manual al pulsar "' + ICONO_MAIL + ' Enviar presupuesto" en fase 03.'),
+        "04_ACEPTACION_PTO":  ('Envío automático de seguimiento al pulsar "' + ICONO_MAIL + ' Enviar presupuesto" en fase 03.'),
+        "04_REENVIO":         ('Envío manual al pulsar "' + ICONO_MAIL + ' Reenviar presupuesto revisado" en fase 04.'),
         "05_ACEPTACION_PTO":  'Envío manual al pulsar "✓ ACEPTADO" en fase 04.',
         "05_SEGUIMIENTO_DOC": 'Envío automático de seguimiento al pulsar "✓ ACEPTADO" en fase 04.',
         "05_ULTIMATUM_DOC":   'Ultimátum de documentación (fase 05). Un solo cron; dos textos (AVISO / RESOLUCIÓN). La lógica de disparo se conecta en un paso posterior.',
@@ -8754,8 +8754,8 @@ module.exports = function (app) {
         "08_INICIO_CYCP":     'Envío manual al pulsar "→ Paso a 08-CYCP" en fase 07.',
         "08_SEGUIMIENTO_CYCP":'Envío automático de seguimiento al pulsar "→ Paso a 08-CYCP" en fase 07.',
         "08_FIN_CYCP":        'Envío manual al pulsar "✓ Cerrar fase 08-CYCP" en fase 08.',
-        "05_DOC_VECINO":      'Correo a UN vecino en M, en fase 05: botón ✉️ de su fila en Datos documentación (el email se saca de sus notas). Abre el correo ya escrito para revisarlo y enviarlo. Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.',
-        "08_CYCP_VECINO":     'Correo a UN vecino en M, en fases 07 y 08: botón ✉️ de su fila en Datos documentación. Adjunta además, solo, su contrato y su carta de pago de Drive (solo el contrato si la comunidad es FFCC). Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.',
+        "05_DOC_VECINO":      ('Correo a UN vecino en M, en fase 05: botón ' + ICONO_MAIL + ' de su fila en Datos documentación (el email se saca de sus notas). Abre el correo ya escrito para revisarlo y enviarlo. Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.'),
+        "08_CYCP_VECINO":     ('Correo a UN vecino en M, en fases 07 y 08: botón ' + ICONO_MAIL + ' de su fila en Datos documentación. Adjunta además, solo, su contrato y su carta de pago de Drive (solo el contrato si la comunidad es FFCC). Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.'),
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       if (fase === "02_PTE_VISITA_CON_ACTA") {
@@ -8767,7 +8767,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>📧 Fase 02-Pte visita</span>
+                <span>${ICONO_MAIL} Fase 02-Pte visita</span>
               </div>
             </div>
             <label class="ptl-acordeon-activa ptl-acc-activa-lbl" onclick="event.stopPropagation()">
@@ -8813,7 +8813,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>📧 Fase 05-Seguimiento doc</span>
+                <span>${ICONO_MAIL} Fase 05-Seguimiento doc</span>
               </div>
             </div>
             <label class="ptl-acordeon-activa ptl-acc-activa-lbl" onclick="event.stopPropagation()">
@@ -8876,7 +8876,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>📧 Fase 05-Ultimátum doc</span>${_avisoAdjRoto(p)}
+                <span>${ICONO_MAIL} Fase 05-Ultimátum doc</span>${_avisoAdjRoto(p)}
               </div>
             </div>
             <label class="ptl-acordeon-activa ptl-acc-activa-lbl" onclick="event.stopPropagation()">
@@ -8941,7 +8941,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>📧 Fase 05-Resolución de contrato</span>
+                <span>${ICONO_MAIL} Fase 05-Resolución de contrato</span>
               </div>
             </div>
             <label class="ptl-acordeon-activa ptl-acc-activa-lbl" onclick="event.stopPropagation()">
@@ -8997,7 +8997,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>📧 Fase 08-Ultimátum CYCP</span>${_avisoAdjRoto(p)}
+                <span>${ICONO_MAIL} Fase 08-Ultimátum CYCP</span>${_avisoAdjRoto(p)}
               </div>
             </div>
             <label class="ptl-acordeon-activa ptl-acc-activa-lbl" onclick="event.stopPropagation()">
@@ -9057,7 +9057,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>📧 Fase 08-Resolución de contrato</span>
+                <span>${ICONO_MAIL} Fase 08-Resolución de contrato</span>
               </div>
             </div>
             <label class="ptl-acordeon-activa ptl-acc-activa-lbl" onclick="event.stopPropagation()">
@@ -9106,7 +9106,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>📧 Fase ${esc(nombre)}</span>${_avisoAdjRoto(p)}
+                <span>${ICONO_MAIL} Fase ${esc(nombre)}</span>${_avisoAdjRoto(p)}
                 ${fase === "05_ACEPTACION_PTO" ? `<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver tiempos de la fase 05-Doc" onclick="ptlAbrirEsquema05(event)">📋 Tiempos Fase 05-Doc</button>` : ""}
                 ${fase === "08_INICIO_CYCP" ? `<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver tiempos de la fase 08-CYCP" onclick="ptlAbrirEsquemaCycp(event)">📋 Tiempos Fase 08-CYCP</button>` : ""}
               </div>
@@ -9235,7 +9235,7 @@ module.exports = function (app) {
               h+='<tr><td style="padding:4px 0"><strong>TOTAL aprox. (con LISTADO de ${_diaUltListado} d)</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totMax} días</strong></td></tr>';
               h+='</table>';
               h+="</div>";
-              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>contacto</strong> = primer WhatsApp del bot a cualquier vecino de la comunidad (la misma fecha para todos)<br><strong>disidentes</strong> = desde que se ENVÍA el correo de disidentes<br>Los días (${_segDi}/${_segDr}/${_segMx} seguimiento · ${_pAmp} prórroga · ${_pRec} recordatorio · ${_pRes} resolución · M1 ${waDias.m1} · M2 ${waDias.m2}) salen de las plantillas: si los cambias, esta tabla se recalcula sola.<br>Cada decisión (prórroga, disidentes, resolución) sale el DÍA SIGUIENTE a su vencimiento: el último día del plazo es entero de la comunidad. No conceder la prórroga es AVANZAR: no hay recordatorio y los disidentes tocan ya.<br>Si lo entregan todo, no se propone ningún paso de ultimátum: toca pasar de fase.<br>Los WhatsApp M1/M2 salen en la caja Avisos de HOY; el M5 (manual) en el botón 💬 de cada vecino.</div>';
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>contacto</strong> = primer WhatsApp del bot a cualquier vecino de la comunidad (la misma fecha para todos)<br><strong>disidentes</strong> = desde que se ENVÍA el correo de disidentes<br>Los días (${_segDi}/${_segDr}/${_segMx} seguimiento · ${_pAmp} prórroga · ${_pRec} recordatorio · ${_pRes} resolución · M1 ${waDias.m1} · M2 ${waDias.m2}) salen de las plantillas: si los cambias, esta tabla se recalcula sola.<br>Cada decisión (prórroga, disidentes, resolución) sale el DÍA SIGUIENTE a su vencimiento: el último día del plazo es entero de la comunidad. No conceder la prórroga es AVANZAR: no hay recordatorio y los disidentes tocan ya.<br>Si lo entregan todo, no se propone ningún paso de ultimátum: toca pasar de fase.<br>Los WhatsApp M1/M2 salen en la caja Avisos de HOY; el M5 (manual) en el botón ${ICONO_WHATSAPP} de cada vecino.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
               function _cerrarEsq(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; }
@@ -9265,7 +9265,7 @@ module.exports = function (app) {
               h+='<tr><td style="padding:4px 0"><strong>TOTAL desde el envío de contratos · SIN prórroga</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt8Sin} días</strong></td></tr>';
               h+='</table>';
               h+="</div>";
-              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>envío</strong> = desde el envío de contratos y cartas de pago (correo 08-INICIO CYCP), la misma fecha para todos los vecinos<br><strong>disidentes</strong> = desde que se ENVÍA el correo de disidentes<br>Los días (${_segDi8}/${_segDr8}/${_segMx8} seguimiento · ${_pAmp8} prórroga · ${_pRec8} recordatorio · ${_pRes8} resolución · M3 ${waDias.m3}) salen de las plantillas: si los cambias, esta tabla se recalcula sola.<br>Cada decisión (prórroga, disidentes, resolución) sale el DÍA SIGUIENTE a su vencimiento: el último día del plazo es entero de la comunidad. No conceder la prórroga es AVANZAR: no hay recordatorio y los disidentes tocan ya. Se puede no conceder en 05 y sí conceder en 08.<br>El bot no lleva estos plazos. En el botón 💬 de cada vecino: M4 (envío CyCP) o M5 (manual).<br>Al entrar en fase 08 se limpian las fechas del ultimátum de la fase 05 (BL/BM/BN) y sus marcas de omitido.</div>';
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>envío</strong> = desde el envío de contratos y cartas de pago (correo 08-INICIO CYCP), la misma fecha para todos los vecinos<br><strong>disidentes</strong> = desde que se ENVÍA el correo de disidentes<br>Los días (${_segDi8}/${_segDr8}/${_segMx8} seguimiento · ${_pAmp8} prórroga · ${_pRec8} recordatorio · ${_pRes8} resolución · M3 ${waDias.m3}) salen de las plantillas: si los cambias, esta tabla se recalcula sola.<br>Cada decisión (prórroga, disidentes, resolución) sale el DÍA SIGUIENTE a su vencimiento: el último día del plazo es entero de la comunidad. No conceder la prórroga es AVANZAR: no hay recordatorio y los disidentes tocan ya. Se puede no conceder en 05 y sí conceder en 08.<br>El bot no lleva estos plazos. En el botón ${ICONO_WHATSAPP} de cada vecino: M4 (envío CyCP) o M5 (manual).<br>Al entrar en fase 08 se limpian las fechas del ultimátum de la fase 05 (BL/BM/BN) y sus marcas de omitido.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
               function _cerrarEsq8(){ var m=document.getElementById("ptl-esquemaCycp"); if(m) m.style.display="none"; }
@@ -13523,7 +13523,7 @@ module.exports = function (app) {
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
         const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
         const _waHtml = (_wa && p.tipo !== "sin_wa")   // v19.99: sin WhatsApp, no hay chat que abrir
-          ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">\uD83D\uDCAC</a>`
+          ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
           : "";
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
@@ -14845,7 +14845,7 @@ module.exports = function (app) {
             // Carga la plantilla de /plantilla-mail y envía al endpoint del ultimátum (que sella la fecha).
             var _URL_ULT = { ampliar:'${urlT(token, "/presupuestos/ultimatum/ampliar")}', disidentes:'${urlT(token, "/presupuestos/ultimatum/disidentes")}', resolver:'${urlT(token, "/presupuestos/ultimatum/resolver")}', ampliar8:'${urlT(token, "/presupuestos/ultimatum8/ampliar")}', disidentes8:'${urlT(token, "/presupuestos/ultimatum8/disidentes")}', resolver8:'${urlT(token, "/presupuestos/ultimatum8/resolver")}', recordar:'${urlT(token, "/presupuestos/ultimatum/recordar")}', recordar8:'${urlT(token, "/presupuestos/ultimatum8/recordar")}' };
             var _FASE_ULT = { ampliar:'05_ULT_AVISO', disidentes:'05_ULT_RESOLUCION', resolver:'05_ULT_RESOLVER', ampliar8:'08_ULT_AVISO', disidentes8:'08_ULT_RESOLUCION', resolver8:'08_ULT_RESOLVER', recordar:'05_ULT_AVISO', recordar8:'08_ULT_AVISO' };
-            var _TIT_ULT = { ampliar:'📧 Ampliación de plazo (envía PRÓRROGA · 1er envío)', disidentes:'📧 Solicitud de disidentes (envía SOLICITUD DISIDENTES)', resolver:'📧 Resolución de contrato (envía SOLICITUD RESOLUCIÓN)', ampliar8:'📧 Ampliación de plazo (envía PRÓRROGA · 1er envío)', disidentes8:'📧 Solicitud de disidentes (envía SOLICITUD DISIDENTES)', resolver8:'📧 Resolución de contrato (envía SOLICITUD RESOLUCIÓN)', recordar:'📧 Ampliación de plazo (envía PRÓRROGA · 2º envío)', recordar8:'📧 Ampliación de plazo (envía PRÓRROGA · 2º envío)' };
+            var _TIT_ULT = { ampliar:'${ICONO_MAIL} Ampliación de plazo (envía PRÓRROGA · 1er envío)', disidentes:'${ICONO_MAIL} Solicitud de disidentes (envía SOLICITUD DISIDENTES)', resolver:'${ICONO_MAIL} Resolución de contrato (envía SOLICITUD RESOLUCIÓN)', ampliar8:'${ICONO_MAIL} Ampliación de plazo (envía PRÓRROGA · 1er envío)', disidentes8:'${ICONO_MAIL} Solicitud de disidentes (envía SOLICITUD DISIDENTES)', resolver8:'${ICONO_MAIL} Resolución de contrato (envía SOLICITUD RESOLUCIÓN)', recordar:'${ICONO_MAIL} Ampliación de plazo (envía PRÓRROGA · 2º envío)', recordar8:'${ICONO_MAIL} Ampliación de plazo (envía PRÓRROGA · 2º envío)' };
             var _PREV_ULT = '${urlT(token, "/presupuestos/plantilla-mail")}';
             window.ptlMakeDraggable = window.ptlMakeDraggable || function(boxEl, titleEl, closeEl){
               if (!boxEl || !titleEl) return;
@@ -14889,7 +14889,7 @@ module.exports = function (app) {
               var s='width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px';
               var h='';
               h+='<div id="ptl-ult-box" class="ptl-floating-window" style="width:680px">';
-              h+='<div id="ptl-ult-title" class="ptl-floating-title"><span id="ptl-ult-titulo" class="ptl-floating-title-text">📧 Ultimátum</span><button type="button" id="ptl-ult-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
+              h+='<div id="ptl-ult-title" class="ptl-floating-title"><span id="ptl-ult-titulo" class="ptl-floating-title-text">${ICONO_MAIL} Ultimátum</span><button type="button" id="ptl-ult-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
               h+='<div class="ptl-floating-body">';
               h+='<div id="ptl-ult-aviso" style="display:none;padding:8px 12px;background:var(--ptl-warning-light);border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--ptl-warning-dark)"></div>';
               h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Asunto</label><input id="ptl-ult-asunto" type="text" style="'+s+'"/></div>';
@@ -14907,7 +14907,7 @@ module.exports = function (app) {
             h+='<button type="button" id="ptl-ult-saltar" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="margin-right:auto">→ Continuar sin enviar</button>';
               h+='<button type="button" id="ptl-ult-cancelar" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>';
               h+='<div id="ptl-ult-col-der" style="display:flex;flex-direction:column;gap:6px;align-items:stretch">';
-              h+='<button type="button" id="ptl-ult-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Confirmar envío</button>';
+              h+='<button type="button" id="ptl-ult-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">${ICONO_MAIL} Confirmar envío</button>';
               h+='<button type="button" id="ptl-ult-nocon" class="ptl-btn ptl-btn-danger ptl-btn-sm" style="display:none">✗ No conceder prórroga y solicitar disidentes</button>';
               h+='</div>';
               h+='</div></div></div>';
@@ -14921,7 +14921,7 @@ module.exports = function (app) {
               _ultCrearModal();
               var m=document.getElementById('ptl-modal-ult'); m.style.display='block';
               if(typeof window.ptlCentrarVentana==='function'){ window.ptlCentrarVentana(document.getElementById('ptl-ult-box')); }
-              document.getElementById('ptl-ult-titulo').textContent=_TIT_ULT[accion]||'📧 Ultimátum';
+              document.getElementById('ptl-ult-titulo').textContent=_TIT_ULT[accion]||'${ICONO_MAIL} Ultimátum';
               document.getElementById('ptl-ult-aviso').style.display='none';
               document.getElementById('ptl-ult-asunto').value='Cargando...';
               document.getElementById('ptl-ult-mensaje').value=''; document.getElementById('ptl-ult-dest').value='';
@@ -14933,7 +14933,7 @@ module.exports = function (app) {
               // v19.65 -- Prorroga, criterio de Guille: izquierda (gris) = seguir SIN notificar nada,
               //   que aqui es ademas SIN conceder; derecha arriba (verde) = conceder y enviar;
               //   derecha abajo (rojo) = no conceder y abrir la solicitud de disidentes.
-              var _txtEnv=_esProrroga?'✓ Conceder prórroga y enviar':'📧 Confirmar envío';
+              var _txtEnv=_esProrroga?'✓ Conceder prórroga y enviar':'${ICONO_MAIL} Confirmar envío';
               var _txtSal=_esProrroga?'→ Continuar sin enviar (sin prórroga)':'→ Continuar sin enviar';
               var btn=document.getElementById('ptl-ult-enviar'); btn.disabled=false; btn.textContent=_txtEnv;
               btn.className='ptl-btn ptl-btn-sm '+(_esProrroga?'ptl-btn-success':'ptl-btn-primary');
@@ -14990,7 +14990,7 @@ module.exports = function (app) {
                   var dd=await resp.json();
                   if(!resp.ok) throw new Error(dd.error||('HTTP '+resp.status));
                   alert('✓ Email enviado.'); _ultCerrar(); location.reload();
-                }catch(e){ alert('Error: '+e.message); btn.disabled=false; btn.textContent='📧 Confirmar envío'; }
+                }catch(e){ alert('Error: '+e.message); btn.disabled=false; btn.textContent='${ICONO_MAIL} Confirmar envío'; }
               };
             }
             document.addEventListener('click', function(ev){
