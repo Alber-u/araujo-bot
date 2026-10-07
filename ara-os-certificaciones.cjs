@@ -1632,9 +1632,9 @@ module.exports = function (app) {
       const alarma = alarmaVisita(horasReales, ultimaVisita?.fecha, (await configCertif()).horas_visita);
       const abierta = visitaAbiertaDe(visitas, obra_id);
       // (07/10/2026) «Con las horas fichadas debería ir al N %» y «va X % · debería Y %» de la visita abierta:
-      // horas fichadas hasta la víspera de la visita ÷ horas previstas (máximo 100 %)
+      // horas fichadas hasta el final del día de la visita, incluido ÷ horas previstas (máximo 100 %)
       const fAb = abierta ? String(abierta.fecha).slice(0, 10) : null;
-      const fichAb = fAb ? horasReales.filter((r) => String(r.fecha || "").slice(0, 10) < fAb).reduce((s, r) => s + toNum(r.horas), 0) : 0;
+      const fichAb = fAb ? horasReales.filter((r) => String(r.fecha || "").slice(0, 10) <= fAb).reduce((s, r) => s + toNum(r.horas), 0) : 0;
       const vaDeb = abierta ? avanceCert.vaDeberia({ va: avancePct || 0, fichadas: fichAb, previstas: totalPrevistoH, fecha: fAb }) : null;
 
       res.json({
