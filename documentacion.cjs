@@ -739,6 +739,13 @@ module.exports = function (app) {
     const _waBtn = (!esCcpp && _wa && _waHref4)
       ? `<a class="ptl-vec-wa" href="${_waHref}" data-wa4="${esc(_waHref4)}" onclick="return window.__ptlWaMenu ? window.__ptlWaMenu(this, event) : true;" title="Escribir por WhatsApp: elige M4 (env\u00edo CyCP) o M5 (WhatsApp manual)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>`
       : (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
+    // v19.100 -- boton de la carta (correo al vecino): pisos en M en fases 05, 07 y 08. El email
+    //   se saca de sus notas al pulsar; apagado si las notas no tienen ninguno.
+    const _mv = (!esCcpp && opciones.mailVecino) ? opciones.mailVecino : null;
+    const _hayMail = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}/.test(String(notas || ""));
+    const _mailBtn = _mv
+      ? `<a class="ptl-vec-mail" href="#" data-mail="${esc(JSON.stringify(_mv))}" onclick="return window.__ptlMailVecino ? window.__ptlMailVecino(this, event) : false;" title="${_hayMail ? "Enviar correo (" + esc(_mv.fase === "05_DOC_VECINO" ? "documentaci\u00f3n" : "contrato y carta de pago") + ")" : "Escribe el email en las notas"}" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle;opacity:${_hayMail ? "1" : ".3"}">\u2709\uFE0F</a>`
+      : "";
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
       : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
@@ -762,7 +769,7 @@ module.exports = function (app) {
       ${celdaNombre}
       ${celdaNotas}
       ${celdaTelefono}
-      <td class="ptl-vec-wa-celda">${_waBtn}</td>
+      <td class="ptl-vec-wa-celda">${_waBtn}${_mailBtn}</td>
       <td class="ptl-vec-docs">${docsHtml}</td>
       <td class="ptl-vec-acciones ptl-vec-acciones-docs">${acciones}</td>
     </tr>
@@ -771,7 +778,7 @@ module.exports = function (app) {
     </tr>`;
   }
 
-  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias }) {
+  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias, mailVecino }) {
     const docsPisoCompletos = docsManuales.piso || [];
     const docsCcppCompletos = docsManuales.ccpp || [];
 
@@ -926,6 +933,7 @@ module.exports = function (app) {
     //   En 07 la fecha limite es HOY + 10 (la que tendra el correo si se pasa a 08 hoy).
     const _es07 = String((_Pm3.normalizarFase ? _Pm3.normalizarFase((comu && comu.fase_presupuesto) || "") : ((comu && comu.fase_presupuesto) || ""))) === "07_PTE_CYCP";
     const _hoyIsoM4 = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+    const _es05 = String((_Pm3.normalizarFase ? _Pm3.normalizarFase((comu && comu.fase_presupuesto) || "") : ((comu && comu.fase_presupuesto) || ""))) === "05_DOCUMENTACION";   // v19.100
     // v19.36 — Fase 05: fecha de la COMUNIDAD (primer WhatsApp del bot a cualquier
     //   vecino), la misma para todos y la misma que los correos. Criterio de Guille.
     const _anclaM3 = (p) => _es08
@@ -1011,6 +1019,23 @@ module.exports = function (app) {
         // v17.13: notas del piso (columna AU notas_piso).
         notas: p.notas_piso || "",
         botModo: p.bot_piso_activo || "",
+        // v19.100 (criterio de Guille) -- correo al vecino (pisos en M, fases 05, 07 y 08): la
+        //   plantilla de su fase ya con sus datos y las mismas fechas que el WhatsApp.
+        mailVecino: (() => {
+          if (String(p.bot_piso_activo || "").toUpperCase() === "BOT_WHATSAPP") return null;
+          const _pl = _es05 ? (mailVecino && mailVecino.f05) : ((_es07 || _es08) ? (mailVecino && mailVecino.f08) : null);
+          if (!_pl || _pl.activo === false || !String(_pl.mensaje || "").trim()) return null;
+          const _dV = {
+            nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
+            fechaLimite: _es07 ? _fmtDia(_hoyIsoM4 + "T12:00:00", (_Pm3.PLAZO_CYCP_INICIAL || 10)) : _fmtDia(_anclaM3(p), _plazoM3),
+            fechaProrroga: _es07 ? "" : _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3),
+            ampliada: _es07 ? false : _p5ProrrogaConcedida(comu),
+            fase08: _es08,
+            pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
+          };
+          const _adj = String(_pl.adjuntos_fijos || "").split("||").map(x => x.trim()).filter(x => /https?:/.test(x)).map(x => { const i = x.indexOf("http"); let l = x.slice(0, i).trim(); if (l.endsWith(":")) l = l.slice(0, -1).trim(); return { lbl: l, url: x.slice(i).trim() }; });
+          return { fase: _es05 ? "05_DOC_VECINO" : "08_CYCP_VECINO", asunto: _subVarsM3(_pl.asunto || "", _dV), cuerpo: _subVarsM3(_pl.mensaje || "", _dV), cco: String(_pl.cco || "").split("||").map(x => x.trim()).filter(Boolean).join(", "), adjuntos: _adj, contrato: !_es05 };
+        })(),
       });
     }).join("");
 
@@ -1255,6 +1280,49 @@ module.exports = function (app) {
           const ES_FASE_08 = ${_es08 ? "true" : "false"};
           const SOLO_CONTRATO = ${String((comu && comu.est_ccpp_pago) || "").trim().toUpperCase() === "FFCC" ? "true" : "false"};
           const URL_ENVIAR_CONTRATO = ${JSON.stringify(urlT(token, "/documentacion/piso/enviar-contrato"))};
+          // v19.100 (criterio de Guille) -- Boton de la carta: correo al vecino en M con la plantilla
+          //   de su fase. El email se saca de las notas del piso (el primero que haya). En 07/08 se
+          //   adjuntan solos su contrato y su carta de pago de Drive. Abre el compositor de la ficha.
+          const URL_PDFS_CONTRATO = ${JSON.stringify(urlT(token, "/documentacion/piso/pdfs-contrato"))};
+          const RE_MAIL_NOTAS = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}/;
+          window.__ptlMailVecino = async function (el, ev) {
+            if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+            var fila = el.closest('tr');
+            var ta = fila ? fila.querySelector('.ptl-doc-notas-piso') : null;
+            var m = RE_MAIL_NOTAS.exec(ta ? ta.value : '');
+            if (!m) { alert('Escribe el email del vecino en sus notas.'); return false; }
+            if (typeof window.ptlAbrirMailPrellenado !== 'function') { alert('No encuentro el compositor de correo de la ficha.'); return false; }
+            var d; try { d = JSON.parse(el.dataset.mail || '{}'); } catch (e) { d = {}; }
+            var adj = (d.adjuntos || []).slice();
+            if (d.contrato) {
+              var sw = fila.querySelector('.ptl-bot-switch-piso');
+              el.style.opacity = '.4';
+              try {
+                var r = await fetch(URL_PDFS_CONTRATO, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                  body: new URLSearchParams({ ccpp_id: (sw && sw.dataset.ccppId) || CCPP_ID, vivienda: (sw && sw.dataset.vivienda) || '' }).toString() });
+                var x = await r.json().catch(function(){ return {}; });
+                if (!r.ok || !x.ok) { if (!confirm('No he podido buscar el contrato y la carta de pago en Drive (' + ((x && x.error) || r.status) + ').' + String.fromCharCode(10,10) + '¿Abrir el correo igualmente y adjuntarlos a mano?')) { el.style.opacity = '1'; return false; } }
+                else {
+                  var pdfs = (x.adjuntos || []).concat(adj);
+                  if (x.avisos && x.avisos.length) alert('OJO: ' + x.avisos.join('. ') + '.');
+                  adj = pdfs;
+                }
+              } catch (e2) { alert('Error buscando los PDF en Drive: ' + e2.message); }
+              el.style.opacity = '1';
+            }
+            if (adj.length > 3) alert('El correo admite 3 adjuntos; van los 3 primeros: ' + adj.slice(0, 3).map(function(a){ return a.lbl; }).join(', ') + '.');
+            window.ptlAbrirMailPrellenado({ dest: m[0], asunto: d.asunto || '', cuerpo: d.cuerpo || '', cco: d.cco || '', adjuntos: adj, fase: d.fase || '' });
+            return false;
+          };
+          document.addEventListener('input', function (e) {
+            var ta = e.target;
+            if (!ta || !ta.classList || !ta.classList.contains('ptl-doc-notas-piso')) return;
+            var b = ta.closest('tr') ? ta.closest('tr').querySelector('.ptl-vec-mail') : null;
+            if (!b) return;
+            var hay = RE_MAIL_NOTAS.test(ta.value || '');
+            b.style.opacity = hay ? '1' : '.3';
+            b.title = hay ? 'Enviar correo' : 'Escribe el email en las notas';
+          });
           const ESTADOS_HECHO  = ${JSON.stringify(P._ESTADOS_HECHO)};
           const URL_BORRAR      = ${JSON.stringify(urlT(token, "/documentacion/piso/borrar"))};
           // v19.28 -- Boton de WhatsApp del vecino en fase 08: menu para elegir M4
@@ -2583,7 +2651,16 @@ module.exports = function (app) {
             _prorrogaDias = { f05: parseFloat(String((_a5 && _a5.dias_primer_envio) || "").replace(",", ".")) || 0, f08: parseFloat(String((_a8 && _a8.dias_primer_envio) || "").replace(",", ".")) || 0 };
           }
         } catch (_) {}
+        // v19.100 -- plantillas de los correos a un vecino en M (boton de la carta)
+        let _mailVec = { f05: null, f08: null };
+        try {
+          const _PP = app.locals.presupuestos || {};
+          const _ini = _PP._PLANTILLAS_VECINO_INI || {};
+          const _lee = async (f) => { const x = _PP.leerPlantillaMail ? await _PP.leerPlantillaMail(f).catch(() => null) : null; return x || (_ini[f] ? Object.assign({ activo: true, cco: "" }, _ini[f]) : null); };
+          _mailVec = { f05: await _lee("05_DOC_VECINO"), f08: await _lee("08_CYCP_VECINO") };
+        } catch (_) {}
         cajitaManual = cajitaManualHtml({
+          mailVecino: _mailVec,
           msgWaM3: _msgWaM3,
           msgWaM4: _msgWaM4,
           prorrogaDias: _prorrogaDias,
@@ -3228,11 +3305,36 @@ module.exports = function (app) {
     }
   });
 
+  // ----- POST /documentacion/piso/pdfs-contrato (v19.100) -----
+  // Contrato y carta de pago de un piso en Drive, para adjuntarlos al correo a un vecino en M
+  // (plantilla 08_CYCP_VECINO). Mismas reglas de nombre que el envio por el bot (§6.19).
+  app.post("/documentacion/piso/pdfs-contrato", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const P = app.locals.presupuestos;
+    const bot = app.locals.botWhatsapp;
+    if (!P || !bot || typeof bot.buscarPdfsContratoPiso !== "function") return res.status(500).json({ error: "No disponible" });
+    try {
+      const comu = await P.buscarComunidadPorId(String(req.body.ccpp_id || "").trim());
+      const vivienda = String(req.body.vivienda || "").trim();
+      if (!comu || !vivienda) return res.status(400).json({ error: "Faltan datos" });
+      const solo = String(comu.est_ccpp_pago || "").trim().toUpperCase() === "FFCC";
+      const r = await bot.buscarPdfsContratoPiso(comu.direccion || comu.comunidad || "", vivienda, solo);
+      if (!r.ok) return res.json({ ok: false, error: r.error });
+      const adj = [];
+      if (r.contrato) adj.push({ lbl: "CONTRATO", url: "https://drive.google.com/file/d/" + r.contrato.id + "/view" });
+      if (r.carta) adj.push({ lbl: "CARTA DE PAGO", url: "https://drive.google.com/file/d/" + r.carta.id + "/view" });
+      return res.json({ ok: true, adjuntos: adj, avisos: r.avisos || [] });
+    } catch (e) {
+      console.error("[documentacion] piso/pdfs-contrato:", e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   // ----- Exponer API interna del módulo para que otros módulos
   //       (en concreto presupuestos.cjs) puedan invocar funciones aquí. -----
   app.locals.documentacion = app.locals.documentacion || {};
   app.locals.documentacion.inicializarEstadosFase = inicializarEstadosFase;
 
-  console.log("[documentacion] Módulo cargado. Rutas: /documentacion/expediente, /documentacion/piso/guardar, /documentacion/piso/borrar, /documentacion/ccpp/modo, /documentacion/manual/marcar, /documentacion/bot/marcar, /documentacion/piso/tipo, /documentacion/piso/enviar-contrato");
+  console.log("[documentacion] Módulo cargado. Rutas: /documentacion/expediente, /documentacion/piso/guardar, /documentacion/piso/borrar, /documentacion/ccpp/modo, /documentacion/manual/marcar, /documentacion/bot/marcar, /documentacion/piso/tipo, /documentacion/piso/enviar-contrato, /documentacion/piso/pdfs-contrato");
 
 };

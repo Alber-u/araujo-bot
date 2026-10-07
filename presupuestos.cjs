@@ -236,6 +236,9 @@ module.exports = function (app) {
     if (fase === "08_INICIO_CYCP")         return "08-INICIO CYCP";
     if (fase === "08_SEGUIMIENTO_CYCP")    return "08-SEGUIMIENTO CYCP";
     if (fase === "08_FIN_CYCP")            return "08-FIN CYCP";
+    // v19.100 -- correos a un vecino (boton de la carta en la caja de documentacion)
+    if (fase === "05_DOC_VECINO")          return "05-DOCUMENTACION VECINO";
+    if (fase === "08_CYCP_VECINO")         return "08-CONTRATO Y CARTA DE PAGO VECINO";
     const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
     if (def) return `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
     return fase;
@@ -2210,6 +2213,23 @@ module.exports = function (app) {
   }
 
   // Guarda una plantilla en mail_plantillas. Si la fila existe, la actualiza; si no, la añade.
+  // v19.100 (criterio de Guille, 07/10/2026) -- Textos de partida de los dos correos a un
+  //   vecino (boton de la carta en la caja de documentacion, pisos en M). Solo se usan para
+  //   rellenar la tarjeta mientras la plantilla no existe en el Sheet. Variables de los M:
+  //   {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}...
+  const _VIDEO_CORREOS = "INSTRUCCIONES VIDEO: https://drive.google.com/file/d/1sgLurK0hTXAt0FJfxyhch14vtGTjVN-d/view?usp=sharing";
+  const _PLANTILLAS_VECINO_INI = {
+    "05_DOC_VECINO": {
+      asunto: "{tipo_via}{comunidad} ({piso}) -Plan 5 individualizaci\u00f3n contadores (DOCUMENTACION)",
+      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nPara tramitar su contrato con EMASESA, le enviamos las INSTRUCCIONES con la SOLICITUD DE EMASESA y un v\u00eddeo explicativo del proceso.\n\n*RECEPCI\u00d3N DE DOCUMENTACI\u00d3N*\n- Fotograf\u00edas o PDF respondiendo a este correo.\n- FECHA L\u00cdMITE: {fecha_limite_vigente}{prorroga_nota}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
+      adjuntos_fijos: "INSTRUCCIONES:||" + _VIDEO_CORREOS + "||",
+    },
+    "08_CYCP_VECINO": {
+      asunto: "{tipo_via}{comunidad} ({piso}) -Plan 5 individualizaci\u00f3n contadores (CONTRATO Y CARTA DE PAGO)",
+      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nPara proceder con la contrataci\u00f3n y el inicio de las obras, le enviamos su CONTRATO DE EMASESA y la CARTA DE PAGO.\n\n*NECESITAMOS*\n- Remita el contrato firmado (LAS 4 HOJAS).\n- Remita el justificante de abono de la Carta de Pago.\n- Si solicit\u00f3 financiar el pago, no abone la carta de pago: nos pondremos en contacto con usted.\n\n*FORMA DE PAGO*\n- En las oficinas de EMASESA, C/ Escuelas P\u00edas 1, en el cajero habilitado.\n- En su cajero, con el c\u00f3digo de barras del documento.\n- Transferencia a LA CAIXA ES11 2100 1683 1002 0003 1492, titular EMPR. METRO. ABAST. SANEA. AGUAS SEVILLA, indicando PLAN 5, nombre, direcci\u00f3n y piso.\n\n*RECEPCI\u00d3N DE DOCUMENTACI\u00d3N*\n- Fotograf\u00edas o PDF respondiendo a este correo.\n- FECHA L\u00cdMITE: {fecha_limite_vigente}{prorroga_nota}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
+      adjuntos_fijos: _VIDEO_CORREOS + "||||",
+    },
+  };
   async function guardarPlantillaMail(datos) {
     const sheets = getSheetsClient();
     const fila = [
@@ -7019,6 +7039,7 @@ module.exports = function (app) {
             const sAs = document.getElementById('ptlComSasunto');
             const sCu = document.getElementById('ptlComScuerpo');
             function sLimpiar() {
+              window.__ptlMailFase = '';   // v19.100: fase de la plantilla del correo a un vecino
               sDest.value = ''; sCc.value = ''; sCco.value = '';
               sAs.value = ''; sCu.value = '';
               ['ptlComSadj1lbl','ptlComSadj1url','ptlComSadj2lbl','ptlComSadj2url','ptlComSadj3lbl','ptlComSadj3url']
@@ -7043,6 +7064,19 @@ module.exports = function (app) {
               setTimeout(() => { sCu.focus(); sCu.setSelectionRange(0, 0); }, 100);
             }
             if (sBtn) sBtn.addEventListener('click', sAbrirNuevo);
+            // v19.100 -- Correo a un vecino (boton de la carta de la caja de documentacion): abre
+            //   este mismo compositor ya relleno. El pie lo pone el envio, como en los demas.
+            window.ptlAbrirMailPrellenado = function (d) {
+              sAbrir();
+              sDest.value = d.dest || ''; sAs.value = d.asunto || ''; sCu.value = d.cuerpo || '';
+              sCco.value = d.cco || '';
+              (d.adjuntos || []).slice(0, 3).forEach(function (a, i) {
+                var l = document.getElementById('ptlComSadj' + (i + 1) + 'lbl'), u = document.getElementById('ptlComSadj' + (i + 1) + 'url');
+                if (l) l.value = a.lbl || ''; if (u) u.value = a.url || '';
+              });
+              window.__ptlMailFase = d.fase || '';
+              setTimeout(function () { sCu.focus(); sCu.setSelectionRange(0, 0); sCu.scrollTop = 0; }, 100);
+            };
             if (sCancel) sCancel.addEventListener('click', sCerrar);
             if (sXclose) sXclose.addEventListener('click', sCerrar);
             // v17.71: drag&drop unificado via window.ptlMakeDraggable (helper
@@ -7090,7 +7124,8 @@ module.exports = function (app) {
                   cc, cco,
                   asunto: asun,
                   mensaje: cuer,
-                  adjuntos: adjuntos
+                  adjuntos: adjuntos,
+                  fase_plantilla: window.__ptlMailFase || ''
                 });
                 // POST con tope: si no contesta, NO es un fallo (puede haber llegado y estar
                 // enviando). Se asume encolado y se resuelve sondeando por envioId.
@@ -8618,8 +8653,8 @@ module.exports = function (app) {
     };
     waDias = waDias || { m1: 5, m2: 21, m3: 11 };   // v19.91: repuestos al dia
     // Config única: qué fases muestran CCO y cuáles adjuntos en la tarjeta.
-    const _FASES_CCO = ["01_CONTACTO","03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","05_FIN_DOC","08_INICIO_CYCP","08_FIN_CYCP"];
-    const _FASES_ADJ = ["03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","08_INICIO_CYCP","05_ULTIMATUM_DOC","08_ULTIMATUM_CYCP"];
+    const _FASES_CCO = ["01_CONTACTO","03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","05_FIN_DOC","08_INICIO_CYCP","08_FIN_CYCP","05_DOC_VECINO","08_CYCP_VECINO"];
+    const _FASES_ADJ = ["03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","08_INICIO_CYCP","05_ULTIMATUM_DOC","08_ULTIMATUM_CYCP","05_DOC_VECINO","08_CYCP_VECINO"];
     // Plazos reales para el esquema de tiempos (se leen de las plantillas)
     const _n05 = (v, d) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : d; };
     // v18.122: _n05z admite el CERO (n >= 0). Solo para dias_primer_envio del seguimiento 05,
@@ -8719,6 +8754,8 @@ module.exports = function (app) {
         "08_INICIO_CYCP":     'Envío manual al pulsar "→ Paso a 08-CYCP" en fase 07.',
         "08_SEGUIMIENTO_CYCP":'Envío automático de seguimiento al pulsar "→ Paso a 08-CYCP" en fase 07.',
         "08_FIN_CYCP":        'Envío manual al pulsar "✓ Cerrar fase 08-CYCP" en fase 08.',
+        "05_DOC_VECINO":      'Correo a UN vecino en M, en fase 05: botón ✉️ de su fila en Datos documentación (el email se saca de sus notas). Abre el correo ya escrito para revisarlo y enviarlo. Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.',
+        "08_CYCP_VECINO":     'Correo a UN vecino en M, en fases 07 y 08: botón ✉️ de su fila en Datos documentación. Adjunta además, solo, su contrato y su carta de pago de Drive (solo el contrato si la comunidad es FFCC). Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.',
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       if (fase === "02_PTE_VISITA_CON_ACTA") {
@@ -11368,6 +11405,9 @@ module.exports = function (app) {
       const asunto = String(req.body.asunto || "").trim();
       const mensaje = String(req.body.mensaje || "");
       const adjuntos = String(req.body.adjuntos || "").trim();
+      // v19.100 -- correo a un vecino desde su plantilla: se registra con esa fase (sale con su
+      //   nombre en Comunicaciones) y sale de la cuenta de la plantilla, si la tiene.
+      const _faseV = ["05_DOC_VECINO", "08_CYCP_VECINO"].includes(String(req.body.fase_plantilla || "").trim()) ? String(req.body.fase_plantilla).trim() : "";
       if (!id) return res.status(400).send("Falta id");
       if (!destinatario) return res.status(400).send("Falta destinatario");
       if (!asunto) return res.status(400).send("Falta asunto");
@@ -11376,7 +11416,8 @@ module.exports = function (app) {
       // Cuenta = primera de mail_cuentas (administracion).
       const cuentas = await leerCuentasMail();
       if (!cuentas.length) return res.status(500).send("No hay cuentas en mail_cuentas");
-      const cuentaId = cuentas[0].id;
+      let cuentaId = cuentas[0].id;
+      if (_faseV) { try { const _pv = await leerPlantillaMail(_faseV); const _cv = String((_pv && _pv.cuenta_envio) || "").trim(); if (_cv && cuentas.some(c => c.id === _cv)) cuentaId = _cv; } catch (e) {} }
       // Envío real (descarga adjuntos de Drive, los adjunta, registra error si link roto).
       let msgIdEnviado = "";
       try {
@@ -11398,7 +11439,7 @@ module.exports = function (app) {
         fecha: new Date().toISOString(),
         ccpp_id: comu.ccpp_id,
         direccion: comu.direccion || "",
-        fase: "00_MANUAL",
+        fase: _faseV || "00_MANUAL",
         destinatario,
         cc,
         cco,
@@ -15265,7 +15306,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP"];
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP", "05_DOC_VECINO", "08_CYCP_VECINO"];   // v19.100: + correos a un vecino
       // v17.20: paralelizar las 12 lecturas. Con el caché de filas
       // todas resuelven contra una sola lectura del Sheet (antes era
       // un for secuencial que disparaba 12 peticiones).
@@ -15275,6 +15316,9 @@ module.exports = function (app) {
       const plantillas = fasesConPlantilla.map((f, i) => {
         const p = _plantillasArr[i];
         if (p) return p;
+        // v19.100 -- Correos a un vecino: si aun no existen, la tarjeta sale con los textos
+        //   aprobados por Guille (07/10/2026); no se escribe nada hasta pulsar Guardar.
+        if (_PLANTILLAS_VECINO_INI[f]) return Object.assign({ fase: f, activo: true, dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "" }, _PLANTILLAS_VECINO_INI[f]);
         // Plantilla no creada todavía: fila vacía para que el usuario la rellene
         return {
           fase: f,
@@ -16754,6 +16798,7 @@ module.exports = function (app) {
     PLAZO_DOC_INICIAL,
     PLAZO_CYCP_INICIAL,
     leerPlantillaMail,   // v19.36 — documentacion lee los dias de prorroga de las plantillas
+    _PLANTILLAS_VECINO_INI, // v19.100 — textos de partida de los correos a un vecino (si la plantilla no existe)
     _migAvisosV1960: () => _migAvisosV1960(),   // v19.60 — para probarla a mano
     SHEET_ID,
     getSheetsClient,

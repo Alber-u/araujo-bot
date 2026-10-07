@@ -4154,6 +4154,28 @@ function _nombreArchivoSeguro(s) {
   return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9\-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "documento";
 }
 
+// v19.100 -- Los PDF de contrato y carta de pago de un piso (para adjuntarlos al correo a un
+//   vecino en M, plantilla 08_CYCP_VECINO). Mismas reglas que el envio por el bot.
+async function buscarPdfsContratoPiso(comunidad, vivienda, soloContrato) {
+  try {
+    let lst = await _listarPdfsExpediente(comunidad);
+    if (lst.error) return { ok: false, error: lst.error };
+    let pp = _pdfsDelPiso(lst.files, vivienda);
+    if (!pp.contratos.length || (!soloContrato && !pp.cartas.length) || pp.contratos.length > 1 || pp.cartas.length > 1) {
+      _cacheListado08.delete(lst.carpetaId);
+      lst = await _listarPdfsExpediente(comunidad);
+      if (lst.error) return { ok: false, error: lst.error };
+      pp = _pdfsDelPiso(lst.files, vivienda);
+    }
+    const avisos = [];
+    if (!pp.contratos.length) avisos.push("No encuentro el contrato del " + vivienda);
+    if (!soloContrato && !pp.cartas.length) avisos.push("No encuentro la carta de pago del " + vivienda);
+    if (pp.contratos.length > 1) avisos.push("Hay " + pp.contratos.length + " contratos del " + vivienda + " en Drive: se adjunta el primero");
+    if (!soloContrato && pp.cartas.length > 1) avisos.push("Hay " + pp.cartas.length + " cartas de pago del " + vivienda + " en Drive: se adjunta la primera");
+    return { ok: true, contrato: pp.contratos[0] || null, carta: soloContrato ? null : (pp.cartas[0] || null), avisos };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
 // ----- ENVIO de contrato (+ carta de pago) a un piso -----
 // o = { comunidad (direccion), vivienda, tipoVia, fechaLimite "DD/MM/AAAA", soloContrato }
 async function enviarContratoPiso(o) {
@@ -4622,6 +4644,7 @@ setTimeout(() => {
     // v19.98 -- contratos por el bot en fase 08 (los usa documentacion.cjs, boton W)
     enviarContratoPiso,
     contratosBotComunidad,
+    buscarPdfsContratoPiso,   // v19.100: adjuntos del correo de contrato a un vecino en M
     enviarPresentacionPiso: async (telefono, datos) => {
       const tel = normalizarTelefono(telefono);
       if (!tel) return { ok: false, estado: "sin_telefono" };
