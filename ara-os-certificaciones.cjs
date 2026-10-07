@@ -1631,10 +1631,17 @@ module.exports = function (app) {
       // recompongo lista plana de partidas con sus progresos para usar el helper
       const alarma = alarmaVisita(horasReales, ultimaVisita?.fecha, (await configCertif()).horas_visita);
       const abierta = visitaAbiertaDe(visitas, obra_id);
+      // (07/10/2026) «Con las horas fichadas debería ir al N %» y «va X % · debería Y %» de la visita abierta:
+      // horas fichadas hasta la víspera de la visita ÷ horas previstas (máximo 100 %)
+      const fAb = abierta ? String(abierta.fecha).slice(0, 10) : null;
+      const fichAb = fAb ? horasReales.filter((r) => String(r.fecha || "").slice(0, 10) < fAb).reduce((s, r) => s + toNum(r.horas), 0) : 0;
+      const vaDeb = abierta ? avanceCert.vaDeberia({ va: avancePct || 0, fichadas: fichAb, previstas: totalPrevistoH, fecha: fAb }) : null;
 
       res.json({
         ok: true,
         obra_id,
+        deberia_texto: abierta ? avanceCert.textoDeberia(fichAb, totalPrevistoH) : null,
+        va_deberia: vaDeb,
         bloques: bloqueOrden.map((n) => bloques[n]),
         // N que se cuentan una vez por obra («columnas») y si alguna partida los necesita y faltan
         // (antes «totales»: chocaba con los totales calculados de la obra de más abajo y la ficha los preguntaba)
