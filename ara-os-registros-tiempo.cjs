@@ -1540,13 +1540,17 @@ async function getUltimaFechaHorasMap() {
 // ellas lo pasado (quién fue de verdad cada día) y las horas que quedan de cada obra
 async function getRegistrosTrabajo() {
   const registros = await leerRegistros();
+  // (08/10/2026) con el nombre de cada persona: Planificación sabe de qué cuadrilla es (órdenes intermedias)
+  let nombres = {};
+  try { nombres = Object.fromEntries((await leerPersonas()).map((p) => [String(p.id || "").trim(), String(p.nombre || "").trim()])); } catch (e) { console.warn("[registros] personas:", e.message); }
   const out = [];
   for (const r of registros) {
     if (r.borrado === "TRUE") continue;
     if (r.tipo && r.tipo !== "trabajo" && r.tipo !== "extra") continue;
     const obra = (r.obra_id || "").trim(), fecha = String(r.fecha || "").slice(0, 10), h = parseFloat(r.horas) || 0;
     if (!obra || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !(h > 0)) continue;
-    out.push({ fecha, persona: String(r.persona_id || "").trim(), obra, horas: h });
+    const pid = String(r.persona_id || "").trim();
+    out.push({ fecha, persona: pid, persona_nombre: nombres[pid] || null, obra, horas: h });
   }
   return out;
 }

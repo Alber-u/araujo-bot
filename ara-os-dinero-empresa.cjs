@@ -684,6 +684,8 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     data.cashflow.plan_obras = Object.fromEntries(Object.entries(fp).map(([k, v]) => [k, { inicio: v.inicio, fin: v.fin, equipo: v.equipo, lista: v.lista, ...(v.extra ? { extra: v.extra } : {}), ...(v.exceso ? { exceso: v.exceso } : {}),
       ...(v.lista === false ? { pasos_lista: v.pasos_lista, lista_desde: v.lista_desde, lista_motivo: v.lista_motivo } : {}) }]));
     data.cashflow.huecos_plan = pc.huecos;
+    // horas fichadas en otras órdenes (órdenes intermedias) por cuadrilla y mes: Mi panel, en la fila de horas
+    data.cashflow.horas_otras_ordenes = pc.horas_otras_ordenes || null;
     data.cashflow.horas_disponibles = pc.disponibles || null;   // por cuadrilla y mes (festivos y vacaciones de config)
     data.cashflow.capacidad_dias = pc.capacidad || null;        // por cuadrilla y día laborable: el reparto de horas de Mi panel
     // «Por vender» de Mi panel: horas libres × €/h (config_dinero «eur_hora_venta», 75 por defecto)
@@ -707,7 +709,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
       horas_perdidas: sim.idle, beneficio_cartera: sim.beneficio_cartera, cartera: sim.cartera, avisos: sim.avisos, iva_trimestres: sim.iva_trimestres };
     data.cashflow.planificacion = { ok: !!fuentes.planificacion?.ok, error: fuentes.planificacion?.ok ? null : fuentes.planificacion?.error || null,
       vigente: fuentes.planificacion?.ok ? ordenCartera.planVigente(fuentes.planificacion.data) : {},
-      cambios: fuentes.planificacion?.ok ? fuentes.planificacion.data.slice(-30).reverse() : [] };
+      cambios: fuentes.planificacion?.ok ? fuentes.planificacion.data.filter((f) => !ordenCartera.esPlanBase(f)).slice(-30).reverse() : [] };
   }
   data.cashflow.seguimiento = seguimientoFilas(fuentes.previsiones, fuentes.res_anual);
   if (fuentes.pnr_ref?.viejo_min != null || fuentes.res_anual?.viejo_min != null) data.cashflow.notas.push("Datos de obra o de beneficio anual de una lectura anterior (la última no respondió).");
@@ -982,7 +984,7 @@ module.exports = function (app) {
     if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
     try {
       const r = await leerPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS);
-      res.json({ ok: true, vigente: ordenCartera.planVigente(r.filas), cambios: (r.filas || []).slice().reverse() });
+      res.json({ ok: true, vigente: ordenCartera.planVigente(r.filas), cambios: (r.filas || []).filter((f) => !ordenCartera.esPlanBase(f)).reverse() });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   app.post(RUTA_PLAN, require("express").json({ limit: "16kb" }), async (req, res) => {
@@ -1045,6 +1047,8 @@ module.exports = function (app) {
         modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null,
         // «Listas para empezar primero» (por defecto sí): las no listas, sin fecha y al final
         listasPrimero: String(req.query.listas_primero ?? "1") !== "0", jornada: cf.jornada || null, registros, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
+      // plan base (08/10/2026): la primera vez que una obra entra en obra (o con fecha), se guarda; no espera
+      guardarPlanesBase(r.planes_base_nuevos);
       // commit desplegado (Render): para comprobar qué versión calcula
       res.json({ ...r, generado: c.data.generado, de_cache: c.data.de_cache || null, cache: { edad_s: Math.round((Date.now() - c.ts) / 1000) }, commit: (process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null });
     } catch (e) {
@@ -1097,6 +1101,21 @@ module.exports = function (app) {
       res.json({ ok: true, cuadrillas: tam });
     } catch (e) { console.error("[planificacion-obras/cuadrillas]", e); res.status(500).json({ ok: false, error: e.message }); }
   });
+
+  // Plan base congelado: una fila «plan_base» por obra, solo una vez (y solo si se pudo leer la hoja: sin ella no se
+  // sabe si ya lo tenía)
+  const _basesGuardadas = new Set();
+  function guardarPlanesBase(nuevos) {
+    if (!Array.isArray(nuevos) || !nuevos.length || !_cache?.data?._base?.fuentes?.planificacion?.ok) return;
+    const ya = ordenCartera.basesPlan(_cache.data._base.fuentes.planificacion.data);
+    const ahora = new Date().toISOString();
+    const filas = nuevos.filter((b) => b.obra_id && b.fin && !ya[b.obra_id] && !_basesGuardadas.has(b.obra_id)).map((b) => ({
+      obra_id: b.obra_id, posicion: "", fecha_inicio_fija: b.inicio || "", cuadrilla: "", nota: "Plan base (automático: la primera vez en obra o con fecha)",
+      usuario: "ARA-OS", fecha: ahora, operarios: "", desde: b.fin, estado: ordenCartera.PLAN_BASE }));
+    if (!filas.length) return;
+    for (const f of filas) _basesGuardadas.add(f.obra_id);
+    guardarFilasPlan(filas).catch((e) => { console.error("[planificacion-obras] plan base:", e.message); for (const f of filas) _basesGuardadas.delete(f.obra_id); });
+  }
 
   async function guardarFilasPlan(filas, recalcular = true) {
     await asegurarPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS);
