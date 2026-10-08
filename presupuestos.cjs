@@ -14140,22 +14140,47 @@ module.exports = function (app) {
           });
           continue;
         }
-        // v18.92 (peticion Guille) — Fases 05 y 08: ordenar por FECHA DE ENVIO de la
-        // fase, la MAS ANTIGUA arriba (la que mas espera; v19.89: el comentario decia lo
-        // contrario) y, si coinciden, por direccion.
-        //   05_DOCUMENTACION -> fecha_aceptacion_pto (entrada a la fase = 1er envio)
-        //   08_CYCP          -> fecha_envio_contratos_pagos (envio de contratos y pagos)
-        // Los que no tienen fecha valida van al final del grupo. Solo reordena.
+        // v19.101 (criterio de Guille, 08/10/2026) -- 05 y 08: por el PASO de la linea de tiempo de la
+        //   fase (ventana Tiempos, §3.22), el mas avanzado arriba; a igual paso, el que mas dias lleva
+        //   (05: fecha del 1er WhatsApp del bot o, sin el, de aceptacion; 08: fecha de envio de
+        //   contratos y cartas de pago; la mas antigua arriba); luego por direccion. El paso se saca
+        //   del MISMO badge que pinta la fila (_badgeUltimatumHoy, con los mismos argumentos).
         if (clave === "05_DOCUMENTACION" || clave === "08_CYCP") {
-          const _campoEnvio = clave === "05_DOCUMENTACION" ? "fecha_aceptacion_pto" : "fecha_envio_contratos_pagos";
-          g.items.sort((A, B) => {
-            const fa = String(A.c[_campoEnvio] || "").slice(0, 10);
-            const fb = String(B.c[_campoEnvio] || "").slice(0, 10);
-            const va = /^\d{4}-\d{2}-\d{2}/.test(fa), vb = /^\d{4}-\d{2}-\d{2}/.test(fb);
-            if (va && vb) { if (fa !== fb) return fa < fb ? -1 : 1; } // ASC: mas antiguo primero (mas dias enviados)
-            else if (va !== vb) return va ? -1 : 1;                   // con fecha antes que sin fecha
-            return String(A.c.direccion || A.c.comunidad || "").toLowerCase().localeCompare(String(B.c.direccion || B.c.comunidad || "").toLowerCase(), "es");
-          });
+          const _es08o = clave === "08_CYCP";
+          const _compl = (c) => !!(faltanHoyPorCcpp[c.ccpp_id] && faltanHoyPorCcpp[c.ccpp_id].clase === "completo");
+          const _paso05 = (c) => {
+            let h = "";
+            try {
+              h = String((_es08o
+                ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, Object.assign({}, _CFG_ULT8, { completo: _compl(c) }), false, false)
+                : _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt, { completo: _compl(c) }, false, false)) || "");
+            } catch (_) {}
+            const ac = (h.match(/data-accion="([a-z]+)/) || [])[1] || "";
+            const t = h.replace(/<[^>]*>/g, " ");
+            if (/Todo entregado/.test(t)) return 1;
+            if (/Contrato resuelto/.test(t)) return 2;
+            if (ac === "resolver") return 3;
+            if (/Disidentes/.test(t) && !ac) return 4;
+            if (ac === "disidentes") return 5;
+            if (ac === "recordar") return 6;
+            if (/Pr\u00f3rroga concedida|Prórroga concedida/.test(t)) return 7;
+            if (/Sin pr\u00f3rroga|Sin prórroga/.test(t)) return 8;
+            if (ac === "ampliar") return 9;
+            if (/Doc solicitada|CyCP solicitados/.test(t)) return 10;
+            if (/Listado sin recibir/.test(t)) return 11;
+            if (/Listado solicitado/.test(t)) return 12;
+            return 13;
+          };
+          const _fDias05 = (c) => {
+            if (_es08o) { const f8 = String(c.fecha_envio_contratos_pagos || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(f8) ? f8 : "9999-99-99"; }
+            const fc = String(_contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "").slice(0, 10);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(fc)) return fc;
+            const fa = String(c.fecha_aceptacion_pto || "").slice(0, 10);
+            return /^\d{4}-\d{2}-\d{2}$/.test(fa) ? fa : "9999-99-99";
+          };
+          g.items = g.items.map((it) => ({ it, p: _paso05(it.c), f: _fDias05(it.c) }))
+            .sort((a, b) => (a.p - b.p) || a.f.localeCompare(b.f) || _dirOrden(a.it.c).localeCompare(_dirOrden(b.it.c), "es"))
+            .map(x => x.it);
           continue;
         }
         // v19.62 (criterio de Guille) — 04: por DIAS desde el envio del presupuesto, de MAS a MENOS
