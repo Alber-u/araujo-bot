@@ -421,6 +421,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // v0.31.0 — Expte. licencia de obras (CO 051). Al final para no
     // desplazar las columnas de las filas existentes.
     "expte_licencia",
+    // (08/10/2026) material de la batería (CO 080 «Material» de BATERÍA: PPR; no el del tubo) y Ø de la acometida
+    // (CO 051 «Alimentación»): campos propios, al final
+    "bateria_material", "acometida_diametro",
   ];
 
   // v0.23.0 — Helper: normaliza el orden de batería.
@@ -660,7 +663,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
   // si `datos` se omite, se asume orden=1 y `datos`=arg2. Es decir,
   // tanto escribirDatosTecnicos(com, datos) como
   //       escribirDatosTecnicos(com, orden, datos) funcionan.
-  async function escribirDatosTecnicos(comunidad, ordenOrDatos, datosOpt) {
+  // (08/10/2026) Los campos que no vienen en `datos` se quedan como estaban (antes se escribía la fila entera y se
+  // vaciaba lo demás: guardar la lista de vecinos, que sólo manda _tomas_json, borraba marca, plantas, montante…
+  // de la batería). Para vaciar la fila (Reiniciar batería): opts.reemplazar = true.
+  async function escribirDatosTecnicos(comunidad, ordenOrDatos, datosOpt, opts = {}) {
     let orden, datos;
     if (datosOpt === undefined) {
       // Firma legacy: (comunidad, datos)
@@ -722,7 +728,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
       if (h === "bateria_orden") return String(orden);
       if (h === "ultima_modificacion") return ahora;
       if (h === "campos_editados_humano") return jsonCamposEditados;
-      return String(datos[h] !== undefined ? datos[h] : "");
+      if (datos[h] !== undefined) return String(datos[h] == null ? "" : datos[h]);
+      const i = TECNICOS_HEADERS.indexOf(h);
+      return !opts.reemplazar && filaPrevia ? String(filaPrevia[i] == null ? "" : filaPrevia[i]) : "";
     });
 
     if (rowIndex > 0) {
@@ -913,7 +921,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
       // (email/teléfono del presidente, CIF de ordenes_trabajo).
       "Correo Electrónico": tecnicos.email_titular || com.email_presidente || "",
       "Teléfono":           tecnicos.telefono_titular || com.telefono_presidente || "",
-      "Text2":              tecnicos.nif_titular || com.cif_comunidad_runtime || "",
+      "Text2":              tecnicos.nif_titular || com.cif_comunidad_runtime || "",   // NIF de la comunidad
       // Nº de registro de la instalación (antes no se rellenaba nunca)
       "REGISTRO 1":         tecnicos.registro_1 || "",
       "REGISTRO 2":         tecnicos.registro_2 || "",
@@ -946,7 +954,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
       "Mes":                meses[hoy.getMonth()],
       "año":                String(hoy.getFullYear()),
       // Tubo alimentación
-      "Material":           tecnicos.tubo_material || "",
+      // (08/10/2026) cada casilla de su campo: «Material» y «Diámetro» de la fila BATERÍA (la del tubo de alimentación
+      // son «Material_2» y «Diámetro_2», abajo). El diámetro de batería sigue siendo el del tubo (Alberto: «sale bien»).
+      "Material":           tecnicos.bateria_material || "",
       "Diámetro":           tecnicos.tubo_diametro || "",
       "Trazado":            tecnicos.tubo_trazado || "",
       "Localización de conexión general": tecnicos.conexion_general_loc || "",
@@ -964,9 +974,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
       "Q INSTALADO":        tecnicos.caudal_instalado || "",
       // Montante y plantas
       "N de Plantas":       tecnicos.num_plantas || "",
-      "Material_2":         tecnicos.montante_material || "",
-      "Diámetro_2":         tecnicos.montante_diametro || "",
-      "Montante":           tecnicos.montante_material || "",
+      // TUBO DE ALIMENTACIÓN: Trazado · Material_2 · Diámetro_2 · Localización de conexión general (antes iban
+      // el material y el diámetro del montante)
+      "Material_2":         tecnicos.tubo_material || "",
+      "Diámetro_2":         tecnicos.tubo_diametro || "",
+      // TOMA DE BATERÍA · Montante: material y diámetro del montante («PERT 25», confirmado por Alberto 08/10/2026)
+      "Montante":           [tecnicos.montante_material, tecnicos.montante_diametro].map(x => String(x || "").trim()).filter(Boolean).join(" "),
       // Grupo presión
       "Tipo Grupo":         tecnicos.grupo_tipo || "",
       "P Min":              tecnicos.grupo_p_min || "",
@@ -1161,17 +1174,18 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // ─── Tubo de alimentación ───
     s("tubo_material", tecnicos.tubo_material || "");
     s("tubo_diametro", tecnicos.tubo_diametro || "");
-    s("tubo_llave",    tecnicos.tubo_situacion_llave || "");
+    s("tubo_llave",    tecnicos.tubo_llave_general_situacion || tecnicos.tubo_situacion_llave || "");   // «Situación llave general» del formulario
     s("tubo_trazado",  tecnicos.tubo_trazado || "");
 
     // ─── Batería ───
     s("bateria_marca", tecnicos.bateria_marca || "");
-    s("bateria_orden", "1");
+    s("bateria_orden", String(tecnicos._indice_bateria || 1));   // 1ª, 2ª… batería de la obra
 
     const cuadricula = cuadriculaDeBateria(tecnicos, emasesaRT, rotuloBateria);
     const numTomas = String(cuadricula.celdas.filter(c => c.tipo !== "libre").length || "");
     s("bateria_num_tomas", numTomas);
-    s("bateria_emplazamiento", emasesaRT?.ubicacion_bateria || tecnicos.bateria_emplazamiento || "");
+    // (08/10/2026) el mismo campo que la «Localización» del CO 080 (la «Ubicación» del PDF de EMASESA, «OT», no lo es)
+    s("bateria_emplazamiento", tecnicos.bateria_emplazamiento || "");
 
     // ─── Alimentación ───
     s("acometida_diametro", tecnicos.acometida_diametro || "");
@@ -1395,7 +1409,14 @@ module.exports = function setupAraOSFase14Certificados(app) {
         },
         instalador_data: getInstaladorAutorizado(),
         empresa_data: EMPRESA_INSTALADORA,
-        titular_data: titular,
+        // (08/10/2026) con el NIF, email y teléfono guardados en los datos técnicos (de la primera batería que los
+        // tenga); sin NIF, el CIF de la comunidad de su orden de trabajo
+        titular_data: {
+          ...titular,
+          nif: (baterias_completas.find(b => String(b.nif_titular || "").trim()) || {}).nif_titular || com.cif_comunidad_runtime || "",
+          email: (baterias_completas.find(b => String(b.email_titular || "").trim()) || {}).email_titular || "",
+          telefono: (baterias_completas.find(b => String(b.telefono_titular || "").trim()) || {}).telefono_titular || "",
+        },
 
         // v0.23.0 — Multi-batería:
         baterias: baterias_completas,
@@ -1429,6 +1450,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
         cp: cp || "",
         cp_emplazamiento: cp_emplazamiento || "",
       });
+      // (08/10/2026) NIF, email y teléfono del titular: se mandaban y no se guardaban (el CO 080 salía sin NIF). Van a
+      // los datos técnicos de todas las baterías de la obra (el CO 080 los lee de ahí), sólo los que vienen
+      const b = req.body || {};
+      const titularTec = Object.fromEntries(["nif_titular", "email_titular", "telefono_titular"].filter(k => b[k] !== undefined).map(k => [k, String(b[k] || "").trim()]));
+      if (Object.keys(titularTec).length) {
+        for (const bat of await bateriasDeObra(com.comunidad)) await escribirDatosTecnicos(com.comunidad, normOrden(bat.bateria_orden), titularTec);
+      }
       res.json({ ok: true, version: "0.20.0", comunidad: com.comunidad });
     } catch (err) {
       console.error("[fase14/guardar-cp-titular]", err);
@@ -1672,13 +1700,14 @@ module.exports = function setupAraOSFase14Certificados(app) {
           errores_cuadricula: erroresCuadricula,
         });
       }
-      // (08/10/2026) con varias baterías, cada CO 080 necesita los datos de su batería: si falta alguno, se avisa
-      // por batería y no se genera (con una batería, como siempre: sin bloqueo)
-      if (baterias.length > 1) {
-        const faltan = baterias.map(b => ({ bateria_orden: normOrden(b.bateria_orden), faltan: camposFaltanCO080(tecnicosCO080(b, baterias)) })).filter(x => x.faltan.length);
+      // (08/10/2026) Casillas vacías de los certificados, por batería: antes de generar, no un PDF con huecos. Con
+      // varias baterías, además, los datos de cada CO 080 (marca, filas, columnas, caudal, plantas, montante).
+      {
+        const faltan = baterias.map(b => ({ bateria_orden: normOrden(b.bateria_orden),
+          faltan: camposFaltanCertificados(tecnicosCO080(b, baterias), { varias: baterias.length > 1, cifObra: com.cif_comunidad_runtime }) })).filter(x => x.faltan.length);
         if (faltan.length) {
           return res.status(422).json({
-            error: "Faltan datos del CO 080: " + faltan.map(x => `Batería ${x.bateria_orden}: ${x.faltan.join(", ")}`).join(" · "),
+            error: "Faltan datos de los certificados: " + faltan.map(x => `${baterias.length > 1 ? `Batería ${x.bateria_orden}: ` : ""}${x.faltan.join(", ")}`).join(" · "),
             faltan_co080: faltan,
           });
         }
@@ -1705,8 +1734,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
         certs_por_bateria.push({ bateria_orden: orden, co_080: r });
       }
 
-      // 2. CO 073 + RT — uno por batería
-      for (const bat of baterias) {
+      // 2. CO 073 + RT — uno por batería (con los datos de la obra que falten en la batería, como el CO 080, y su
+      //    número de orden en la obra: 1ª, 2ª…)
+      for (const [idx, bat0] of baterias.entries()) {
+        const bat = { ...tecnicosCO080(bat0, baterias), _indice_bateria: idx + 1 };
         const orden = parseInt(bat.bateria_orden, 10) || 1;
         const emasesaRT = rtPorOrden[orden];
 
@@ -1890,7 +1921,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
   }
 
   // CO 080 por batería (08/10/2026): datos de cada batería + los de obra; obligatorios con varias. lib/co080-baterias.cjs
-  const { tecnicosCO080, camposFaltanCO080 } = require("./lib/co080-baterias.cjs");
+  const { tecnicosCO080, camposFaltanCertificados } = require("./lib/co080-baterias.cjs");
 
   // Campos del certificado que saldrían vacíos (aviso, no bloquea:
   // EMASESA los pide pero hay obras donde aún no se tienen).
@@ -3565,7 +3596,7 @@ Devuelve SOLO JSON sin markdown:
         rotulo_num_cols: "",
         url_foto_rotulo: "",
         filename_foto_rotulo: "",
-      });
+      }, { reemplazar: true });   // «Reiniciar batería»: todos los datos técnicos (como antes)
 
       res.json({ ok: true, comunidad: com.comunidad, bateria_orden: orden, mensaje: "Batería reiniciada" });
     } catch (err) {
