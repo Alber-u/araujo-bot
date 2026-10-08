@@ -608,6 +608,21 @@ module.exports = function setupAraOSFase14Certificados(app) {
     return baterias;
   }
 
+  // (08/10/2026) Las baterías de una obra con su número fijo: las de datos técnicos y las que sólo tienen RT o
+  // rótulo subidos (antes una batería sin fila de datos técnicos salía como «Batería 1» vacía y las pestañas
+  // cambiaban de número entre cargas). El número es bateria_orden (el de la subida) y es el de los archivos _bN.
+  async function bateriasDeObra(comunidad, rtTodas = null) {
+    const baterias = await leerBateriasDeComunidad(comunidad);
+    const rt = rtTodas || await leerEmasesaRT_todas(comunidad).catch(() => []);
+    for (const e of rt || []) {
+      const o = normOrden(e.bateria_orden);
+      if (!baterias.some(b => normOrden(b.bateria_orden) === o)) baterias.push(await leerDatosTecnicos(comunidad, o));
+    }
+    if (!baterias.length) baterias.push(await leerDatosTecnicos(comunidad, 1));
+    baterias.sort((a, b) => normOrden(a.bateria_orden) - normOrden(b.bateria_orden));
+    return baterias;
+  }
+
   // v0.23.0 — Próximo orden disponible para una comunidad (1 si no hay nada,
   // max+1 si ya hay baterías).
   async function siguienteOrdenBateria(comunidad) {
@@ -1324,11 +1339,17 @@ module.exports = function setupAraOSFase14Certificados(app) {
       ]);
       com.cif_comunidad_runtime = cif;
 
+      // (08/10/2026) también las baterías que sólo tienen RT o rótulo, con su número (no una «Batería 1» vacía)
+      for (const e of bateriasEmasesa || []) {
+        const o = normOrden(e.bateria_orden);
+        if (!baterias.some(b => normOrden(b.bateria_orden) === o)) baterias.push(await leerDatosTecnicos(com.comunidad, o));
+      }
       if (baterias.length === 0) {
         // Sin filas en datos_tecnicos_bateria → vista vacía con orden=1
         const vacio = await leerDatosTecnicos(com.comunidad, 1);
         baterias.push(vacio);
       }
+      baterias.sort((a, b) => normOrden(a.bateria_orden) - normOrden(b.bateria_orden));
 
       // Adjuntar datos EMASESA RT (rótulo + tomas) a cada batería por orden
       // y la cuadrícula calculada (la foto manda la posición). Los campos
@@ -1622,10 +1643,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
       // v0.23.0 — Multi-batería: leer todas las baterías de la comunidad.
       // Si no hay ninguna fila en datos_tecnicos_bateria, generamos con datos vacíos
       // (orden=1) para conservar el comportamiento mínimo.
-      let baterias = await leerBateriasDeComunidad(com.comunidad);
-      if (baterias.length === 0) {
-        baterias = [await leerDatosTecnicos(com.comunidad, 1)];
-      }
+      const baterias = await bateriasDeObra(com.comunidad);
 
       // Adjuntar CIF de comunidad desde ordenes_trabajo (columna AC=28)
       const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AK");
@@ -1654,6 +1672,17 @@ module.exports = function setupAraOSFase14Certificados(app) {
           errores_cuadricula: erroresCuadricula,
         });
       }
+      // (08/10/2026) con varias baterías, cada CO 080 necesita los datos de su batería: si falta alguno, se avisa
+      // por batería y no se genera (con una batería, como siempre: sin bloqueo)
+      if (baterias.length > 1) {
+        const faltan = baterias.map(b => ({ bateria_orden: normOrden(b.bateria_orden), faltan: camposFaltanCO080(tecnicosCO080(b, baterias)) })).filter(x => x.faltan.length);
+        if (faltan.length) {
+          return res.status(422).json({
+            error: "Faltan datos del CO 080: " + faltan.map(x => `Batería ${x.bateria_orden}: ${x.faltan.join(", ")}`).join(" · "),
+            faltan_co080: faltan,
+          });
+        }
+      }
       const avisos = camposVaciosCertificado(com, baterias[0]);
 
       console.log(`[fase14-cert] Generando certificados para "${com.comunidad}" · ${baterias.length} batería(s)...`);
@@ -1663,18 +1692,20 @@ module.exports = function setupAraOSFase14Certificados(app) {
       // Sufijo en nombre de archivo: vacío si 1 batería, "_b1", "_b2"... si N>1
       const sufijo = (orden) => multi ? `_b${orden}` : "";
 
-      // 1. CO 080 — SIEMPRE 1 (datos hidráulicos comunes, basado en batería 1)
-      //    Si hay >1 batería, ponemos num_baterias = N en los datos técnicos
-      //    que se pasan al PDF. Esto sobrescribe el valor del Sheet si difiere.
-      const tec_para_co080 = { ...baterias[0] };
-      // Nº de baterías = las de la obra (antes sólo se ponía si había >1
-      // y en obras de una batería el campo salía vacío).
-      if (multi || !tec_para_co080.num_baterias) tec_para_co080.num_baterias = String(baterias.length);
-      const pdf080 = await generarCO080(com, titular, tec_para_co080);
-      const r080 = await subirPdfADrive(pdf080, `CO_080_${fechaSlug}.pdf`, com.comunidad);
+      // 1. CO 080 + CO 073 + RT — uno de cada por batería (08/10/2026: antes, un solo CO 080 con los datos de la
+      //    primera). Cada CO 080 con los datos de SU batería; los de la obra (registro, tubo, dirección…) se
+      //    repiten en todos (si una batería no los tiene, los de la primera que sí). Nº de baterías = las de la obra.
+      const certs_por_bateria = [];
+      let r080 = null;
+      for (const bat of baterias) {
+        const orden = parseInt(bat.bateria_orden, 10) || 1;
+        const pdf080 = await generarCO080(com, titular, tecnicosCO080(bat, baterias));
+        const r = await subirPdfADrive(pdf080, `CO_080_${fechaSlug}${sufijo(orden)}.pdf`, com.comunidad);
+        if (!r080) r080 = r;
+        certs_por_bateria.push({ bateria_orden: orden, co_080: r });
+      }
 
       // 2. CO 073 + RT — uno por batería
-      const certs_por_bateria = [];
       for (const bat of baterias) {
         const orden = parseInt(bat.bateria_orden, 10) || 1;
         const emasesaRT = rtPorOrden[orden];
@@ -1691,14 +1722,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
         const r073 = await subirPdfADrive(pdf073, `CO_073_${fechaSlug}${sufijo(orden)}.pdf`, com.comunidad);
         const rRel = await subirPdfADrive(pdfRel, `Relacion_tomas_${fechaSlug}${sufijo(orden)}.pdf`, com.comunidad);
 
-        certs_por_bateria.push({
-          bateria_orden: orden,
-          co_073: r073,
-          relacion_tomas: rRel,
-        });
+        Object.assign(certs_por_bateria.find(c => c.bateria_orden === orden), { co_073: r073, relacion_tomas: rRel });
       }
 
-      console.log(`[fase14-cert] OK: CO 080 + ${certs_por_bateria.length} (CO 073 + RT)`);
+      console.log(`[fase14-cert] OK: ${certs_por_bateria.length} × (CO 080 + CO 073 + RT)`);
 
       // v0.26.0 — Marcar flag certificados_generados (no bloqueante)
       try {
@@ -1713,7 +1740,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
         tipo: "cert_generados",
         comunidad: com.comunidad,
         ccpp_id: com.ccpp_id || req.body?.ccpp_id || "",
-        detalle: `CO_080 + ${certs_por_bateria.length} (CO_073 + RT) generados`,
+        detalle: `${certs_por_bateria.length} × (CO_080 + CO_073 + RT) generados`,
         payload: { num_baterias: certs_por_bateria.length },
       });
 
@@ -1861,6 +1888,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
       motivo: `Los certificados son del ${generados.slice(0, 10)} y después hay cambios: ${cambios.join(", ")}. Hay que regenerarlos.`,
     };
   }
+
+  // CO 080 por batería (08/10/2026): datos de cada batería + los de obra; obligatorios con varias. lib/co080-baterias.cjs
+  const { tecnicosCO080, camposFaltanCO080 } = require("./lib/co080-baterias.cjs");
 
   // Campos del certificado que saldrían vacíos (aviso, no bloquea:
   // EMASESA los pide pero hay obras donde aún no se tienen).
