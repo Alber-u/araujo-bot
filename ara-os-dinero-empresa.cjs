@@ -394,6 +394,12 @@ async function construirFuentes(token, force) {
   const holded = require("./ara-os-holded.cjs");
   // force=1 solo salta la caché de ESTE cálculo: nunca se encadena a las
   // subllamadas (cada una tiene su caché y su llamada a Holded).
+  // (08/10/2026) salvo el banco: «Recalcular» vuelve a leer la foto del extracto y lo que sube la rutina (hojas),
+  // la tesorería y el libro de la 572, para que T1 y T3 salgan del mismo momento
+  if (force) {
+    _foto = null; _bancoSync = null;
+    for (const k of Object.keys(_fuente)) if (k === "tesoreria" || k.startsWith("ledger_")) delete _fuente[k];
+  }
   const f = {};
 
   // Primera tanda, todo en paralelo

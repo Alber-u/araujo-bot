@@ -924,6 +924,13 @@ function normalizarInvoice(d) {
     estado_logico,
     pagado: !!d.paid,
     tags: Array.isArray(d.tags) ? d.tags : [],
+    // (08/10/2026) cada cobro con su fecha (paymentsDetail): Mi panel avisa de los cobros posteriores a la foto del extracto
+    cobros: (Array.isArray(d.paymentsDetail) ? d.paymentsDetail : []).map((p) => {
+      const v = p && (p.date ?? p.paymentDate);
+      const n = Number(v);
+      const f = v == null || v === "" ? null : Number.isFinite(n) ? new Date(n < 1e12 ? n * 1000 : n) : new Date(String(v));
+      return { fecha: f && !isNaN(f) ? f.toISOString().slice(0, 10) : null, importe: Number(p?.amount) || 0 };
+    }).filter((c) => c.fecha),
   };
 }
 
