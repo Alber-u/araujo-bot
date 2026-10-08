@@ -1352,7 +1352,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const avisos_generar = camposVaciosCertificado(com, baterias_completas[0]);
       const errores_cuadricula = baterias_completas
         .filter(b => !b.cuadricula.ok)
-        .map(b => ({ bateria_orden: parseInt(b.bateria_orden, 10) || 1, errores: b.cuadricula.errores }));
+        .map(b => ({ bateria_orden: parseInt(b.bateria_orden, 10) || 1, errores: b.cuadricula.errores, resumen: textoResumen(b.cuadricula, parseInt(b.bateria_orden, 10) || 1) }));
 
       res.json({
         ok: true,
@@ -1644,12 +1644,11 @@ module.exports = function setupAraOSFase14Certificados(app) {
         const orden = parseInt(bat.bateria_orden, 10) || 1;
         rtPorOrden[orden] = await leerEmasesaRT(com.comunidad, orden);
         const cu = cuadriculaDeBateria(bat, rtPorOrden[orden]);
-        if (!cu.ok) erroresCuadricula.push({ bateria_orden: orden, errores: cu.errores });
+        if (!cu.ok) erroresCuadricula.push({ bateria_orden: orden, errores: cu.errores, resumen: textoResumen(cu, orden) });
       }
       if (erroresCuadricula.length) {
-        const detalle = erroresCuadricula
-          .map(b => (baterias.length > 1 ? `Batería ${b.bateria_orden}: ` : "") + b.errores.join(" · "))
-          .join(" | ");
+        // (08/10/2026) el aviso, corto: un resumen por batería; el detalle va en errores_cuadricula (desplegable)
+        const detalle = erroresCuadricula.map(b => b.resumen).join(" · ");
         return res.status(422).json({
           error: "La relación de tomas no cuadra entre la foto del rótulo y el PDF de EMASESA: " + detalle,
           errores_cuadricula: erroresCuadricula,
@@ -1790,6 +1789,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
     parsearPdfRelacionTomas,
     montarCuadricula,
     camposCuadricula,
+    textoResumen,
+    aplicarEdiciones,
     claveToma,
     abasteceA,
     ampliacionToma,
@@ -1816,26 +1817,17 @@ module.exports = function setupAraOSFase14Certificados(app) {
   }
 
   // Tomas de una batería: las del PDF EMASESA. Las ediciones a mano del
-  // modal (_tomas_json: nombre, caudal, destino) sólo se respetan si la
-  // toma sigue siendo el mismo piso+puerta; si el PDF cambió, manda el PDF.
+  // modal (_tomas_json: nombre, caudal, destino) se aplican por piso+puerta
+  // (08/10/2026: nunca por número de toma; la lista del modal va numerada por
+  // la cuadrícula del rótulo y el PDF por la suya). Si el piso ya no está en
+  // el PDF, la edición no se aplica.
   function tomasDeBateria(tecnicos, emasesaRT) {
     const base = Array.isArray(emasesaRT?.tomas) ? emasesaRT.tomas : [];
     let editadas = [];
     if (tecnicos?._tomas_json) {
       try { editadas = JSON.parse(tecnicos._tomas_json) || []; } catch {}
     }
-    if (!base.length) return Array.isArray(editadas) ? editadas : [];
-    const porToma = new Map((Array.isArray(editadas) ? editadas : []).map(t => [t.toma, t]));
-    return base.map(t => {
-      const e = porToma.get(t.toma);
-      if (!e || claveToma(e).clave !== claveToma(t).clave) return t;
-      return {
-        ...t,
-        cliente: e.cliente || e.nombre || t.cliente,
-        caudal:  e.caudal  || t.caudal,
-        destino: e.destino || t.destino,
-      };
-    });
+    return aplicarEdiciones(base, editadas);
   }
 
   // CIF de la comunidad (columna AC de ordenes_trabajo)
@@ -3432,8 +3424,9 @@ Devuelve SOLO JSON sin markdown:
           bateria_orden: orden,
           cuadricula,
           aviso: cuadricula && !cuadricula.ok && !cuadricula.sin_rotulo && cuadricula.errores.length
-            ? "La foto no cuadra con el PDF de EMASESA: " + cuadricula.errores.join(" · ")
+            ? "La foto no cuadra con el PDF de EMASESA: " + textoResumen(cuadricula, orden)
             : "",
+          errores: cuadricula && !cuadricula.ok ? cuadricula.errores : [],
           rotulo,
           url_foto_rotulo: subido.data.webViewLink,
           filename: subido.data.name,
