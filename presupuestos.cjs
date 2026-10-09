@@ -2251,6 +2251,12 @@ module.exports = function (app) {
       adjuntos_fijos: "",
     },
   };
+  // v19.102 -- recordatorios por correo de cada tarjeta de inicio (VECINO): [fase, titulo, clave de dias]
+  const _REC_VECINO = {
+    "05_DOC_VECINO":  [["05_REC_M1_VECINO", "RECORDATORIO M1", "m1"], ["05_REC_M2_VECINO", "RECORDATORIO M2", "m2"]],
+    "08_CYCP_VECINO": [["08_REC_M3_VECINO", "RECORDATORIO M3", "m3"]],
+  };
+  const _REC_VECINO_TODAS = ["05_REC_M1_VECINO", "05_REC_M2_VECINO", "08_REC_M3_VECINO"];
   async function guardarPlantillaMail(datos) {
     const sheets = getSheetsClient();
     const fila = [
@@ -8777,9 +8783,6 @@ module.exports = function (app) {
         "08_FIN_CYCP":        'Envío manual al pulsar "✓ Cerrar fase 08-CYCP" en fase 08.',
         "05_DOC_VECINO":      ('Correo a UN vecino en M, en fase 05: botón ' + ICONO_MAIL + ' de su fila en Datos documentación (el email se saca de sus notas). Abre el correo ya escrito para revisarlo y enviarlo. Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.'),
         "08_CYCP_VECINO":     ('Correo a UN vecino en M, en fases 07 y 08: botón ' + ICONO_MAIL + ' de su fila en Datos documentación. Adjunta además, solo, su contrato y su carta de pago de Drive (solo el contrato si la comunidad es FFCC). Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.'),
-        "05_REC_M1_VECINO":   ('Recordatorio M1 por correo a UN vecino en M, en fase 05 (v19.102). Sale en Avisos de HOY del d\u00eda t_wa_m1 al anterior a t_wa_m2, contados desde el inicio de la documentaci\u00f3n de la comunidad (primer WhatsApp del bot), si ya se le mand\u00f3 el 05-INICIO DOC (VECINO) y le falta documentaci\u00f3n. El bot\u00f3n ' + ICONO_MAIL + ' de la tarjeta abre este correo ya escrito. Variables de los M: {nombre} {tipo_via} {comunidad} {piso} {pendiente} {vence_el} {prorroga_nota} {consecuencia}.'),
-        "05_REC_M2_VECINO":   ('Recordatorio M2 por correo a UN vecino en M, en fase 05 (v19.102). Igual que el M1, desde el d\u00eda t_wa_m2. Si la comunidad tiene pr\u00f3rroga, vuelve a salir al terminar la pr\u00f3rroga, como el WhatsApp M2.'),
-        "08_REC_M3_VECINO":   ('Recordatorio M3 por correo a UN vecino en M con correo, en fase 08 (v19.102). Sale en Avisos de HOY el mismo d\u00eda que el WhatsApp M3 (t_wa_m3 desde el env\u00edo de contratos) y la tarjeta lleva ' + ICONO_MAIL + ' en vez de ' + ICONO_WHATSAPP + '.'),
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       if (fase === "02_PTE_VISITA_CON_ACTA") {
@@ -9152,6 +9155,7 @@ module.exports = function (app) {
                 ${optsCuenta}
               </select>
             </label>
+            ${_REC_VECINO[fase] ? `<div class="ptl-h-tight13" style="margin-top:4px">INICIO</div>` : ""}
 
 
             <label class="ptl-lbl-field">
@@ -9197,6 +9201,20 @@ module.exports = function (app) {
                 placeholder="Título: https://..."
                 class="ptl-input-sm"/>
             </div>` : ""}
+            ${_REC_VECINO[fase] ? _REC_VECINO[fase].map(([rf, tit, kd]) => {
+              const rp = (segTextos && segTextos.recVec && segTextos.recVec[rf]) || {};
+              const dia = (waDias && waDias[kd] != null) ? waDias[kd] : "";
+              return `
+            <div class="ptl-h-tight13" style="margin-top:12px;padding-top:8px;border-top:1px solid var(--ptl-gray-200)">${tit} <span class="ptl-fw400-gray">(aviso de HOY, d\u00eda ${esc(String(dia))}; misma cuenta y CCO, sin adjuntos)</span></div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Asunto del email</div>
+              <input type="text" name="rec_asunto__${rf}" value="${esc(rp.asunto || '')}" maxlength="200" required class="ptl-input-sm ptl-w100"/>
+            </label>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Cuerpo del mensaje</div>
+              <textarea name="rec_mensaje__${rf}" rows="8" maxlength="5000" required class="ptl-input-full">${esc(rp.mensaje || '')}</textarea>
+            </label>`;
+            }).join("") : ""}
           </form>
         </div>
       `;
@@ -15450,7 +15468,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_DOC_VECINO", "05_REC_M1_VECINO", "05_REC_M2_VECINO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_CYCP_VECINO", "08_REC_M3_VECINO", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP"];   // v19.100: + correos a un vecino, cada uno tras el de la comunidad de su fase
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_DOC_VECINO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_CYCP_VECINO", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP"];   // v19.100: + correos a un vecino, cada uno tras el de la comunidad de su fase
       // v17.20: paralelizar las 12 lecturas. Con el caché de filas
       // todas resuelven contra una sola lectura del Sheet (antes era
       // un for secuencial que disparaba 12 peticiones).
@@ -15488,6 +15506,13 @@ module.exports = function (app) {
       const _ultResol  = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
       const _ultAviso8 = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
       const _ultResol8 = await leerPlantillaMail("08_ULT_RESOLUCION").catch(() => null);
+      // v19.102 (criterio de Guille, 09/10/2026) -- los recordatorios por correo al vecino van
+      //   DENTRO de la tarjeta de inicio (VECINO) de su fase; si no existen, textos de partida.
+      const _recVec = {};
+      for (const _rf of _REC_VECINO_TODAS) {
+        const _x = await leerPlantillaMail(_rf).catch(() => null);
+        _recVec[_rf] = _x || Object.assign({ fase: _rf, activo: true, cco: "" }, _PLANTILLAS_VECINO_INI[_rf] || {});
+      }
       // v19.53 — dias de los WhatsApp M1-M3 (Plantillas del bot) para la ventana de Tiempos
       const _waDias = { m1: 5, m2: 21, m3: 11 };   // v19.91: repuestos al dia
       try {
@@ -15499,7 +15524,7 @@ module.exports = function (app) {
       } catch (_) {}
       sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, aviso8: _ultAviso8, resolucion8: _ultResol8, actaSin: _actaSin }, _waDias),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, aviso8: _ultAviso8, resolucion8: _ultResol8, actaSin: _actaSin, recVec: _recVec }, _waDias),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -15609,6 +15634,19 @@ module.exports = function (app) {
         const _ccoUltStr = (_ccoUlt[0] || _ccoUlt[1] || _ccoUlt[2]) ? _ccoUlt.join("||") : "";
         await guardarPlantillaMail({ fase: "08_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: _pA, dias_recurrente: _pR, max_envios: 0, cco: _ccoUltStr, cuenta_envio: "" });
         await guardarPlantillaMail({ fase: "08_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: "", dias_primer_envio: _pD, dias_recurrente: 0, max_envios: 0, cco: _ccoUltStr, cuenta_envio: "" });
+      } else if (_REC_VECINO[fase] && _REC_VECINO[fase].some(([rf]) => req.body["rec_mensaje__" + rf] != null)) {
+        // v19.102 -- tarjeta de inicio (VECINO) con sus recordatorios: se guardan todos a la vez,
+        //   cada uno en su fila, con la misma cuenta, CCO y estado activo, y sin adjuntos.
+        const _recs = [];
+        for (const [rf, tit] of _REC_VECINO[fase]) {
+          const ra = String(req.body["rec_asunto__" + rf] || "").trim();
+          const rm = String(req.body["rec_mensaje__" + rf] || "").trim();
+          if (ra.length < 1 || ra.length > 200) return sendError(res, "El asunto de " + tit + " debe tener entre 1 y 200 caracteres");
+          if (rm.length < 1 || rm.length > 5000) return sendError(res, "El texto de " + tit + " debe tener entre 1 y 5000 caracteres");
+          _recs.push({ fase: rf, activo: datos.activo, asunto: ra, mensaje: rm, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 1, cco: datos.cco, cuenta_envio: datos.cuenta_envio });
+        }
+        await guardarPlantillaMail(datos);
+        for (const x of _recs) await guardarPlantillaMail(x);
       } else {
         await guardarPlantillaMail(datos);
       }
