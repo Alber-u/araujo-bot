@@ -677,13 +677,16 @@ module.exports = function (app) {
     //   El globo dice si ya se le mando y cuando (col AG de bot_expedientes).
     const _fCtr = String(opciones.fechaContratoBot || "").trim();
     const _fCtrTxt = _fCtr ? (() => { const d = new Date(_fCtr); return isNaN(d.getTime()) ? "" : String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear(); })() : "";
+    // v19.102 -- el globo lleva todas las comunicaciones registradas (sustituye a la frase de antes)
+    if (opciones.globoHist) _tituloSwitch = opciones.globoHist;
     if (opciones.es08) {
       _tituloSwitch = esBot
         ? (_fCtrTxt ? ("Contrato enviado por bot: " + _fCtrTxt + " (pulsa para reenviarlo o pasar a M)") : "Contrato sin enviar por bot (pulsa W para enviarlo)")
         : "Manual (pulsa para activar el bot y enviar el contrato)";
+      if (opciones.globoHist) _tituloSwitch += "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n" + opciones.globoHist;
     }
     const btnBotSwitchHtml = esCcpp
-      ? `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-ccpp ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esBot ? 'Comunidad en modo BOT. Pulsa para volver a MANUAL.' : 'Comunidad en modo MANUAL. Pulsa para que la gestione el bot WhatsApp.'}">${esBot ? 'W' : 'M'}</button>`
+      ? `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-ccpp ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esc((esBot ? 'Comunidad en modo BOT. Pulsa para volver a MANUAL.' : 'Comunidad en modo MANUAL. Pulsa para que la gestione el bot WhatsApp.') + (opciones.resumenVecinos ? '\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n' + opciones.resumenVecinos : ''))}">${esBot ? 'W' : 'M'}</button>`
       : `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-piso ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" data-contrato-bot="${esc(_fCtrTxt)}" title="${esc(_tituloSwitch)}">${esBot ? 'W' : 'M'}</button>`;
     // Botón 📄 (acordeón) siempre visible.
     const btnAcordeonHtml =
@@ -783,7 +786,7 @@ module.exports = function (app) {
     </tr>`;
   }
 
-  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias, mailVecino }) {
+  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias, mailVecino, histMails, avisoM3 }) {
     const docsPisoCompletos = docsManuales.piso || [];
     const docsCcppCompletos = docsManuales.ccpp || [];
 
@@ -876,6 +879,63 @@ module.exports = function (app) {
       if (k.length > 1) expByPiso[k] = e;
     }
 
+    // v19.102 (criterio de Guille, 09/10/2026) -- GLOBO DEL W/M: todas las comunicaciones que
+    //   el programa tiene registradas con ese vecino, por fecha, y un aviso de lo que no puede
+    //   saber (WhatsApp manuales y llamadas). La fila de la comunidad lleva el resumen de vecinos.
+    const _RE_MAILH = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}/;
+    const _NOM_MAILV = { "05_DOC_VECINO": "05-INICIO DOC (VECINO)", "05_REC_M1_VECINO": "Recordatorio M1", "05_REC_M2_VECINO": "Recordatorio M2", "08_CYCP_VECINO": "08-INICIO CYCP (VECINO)", "08_REC_M3_VECINO": "Recordatorio M3", "00_MANUAL": "Correo manual" };
+    const _emailDe = (pp) => ((String((pp && pp.notas_piso) || "").match(_RE_MAILH) || [])[0] || "").toLowerCase();
+    const _histPorPiso = {};
+    (histMails || []).forEach((m) => {
+      if (!_NOM_MAILV[m.fase]) return;
+      let pp = (pisos || []).find(x => x && x.vivienda && m.asunto.indexOf("(" + String(x.vivienda).trim() + ")") >= 0);
+      if (!pp) {
+        const em = ((m.dest.match(_RE_MAILH) || [])[0] || "").toLowerCase();
+        const cand = em ? (pisos || []).filter(x => _emailDe(x) === em) : [];
+        if (cand.length === 1) pp = cand[0];
+      }
+      if (!pp) return;
+      const k = String(pp.vivienda || "").trim().toLowerCase();
+      (_histPorPiso[k] = _histPorPiso[k] || []).push({ iso: m.fecha, txt: "\uD83D\uDCE7 " + _NOM_MAILV[m.fase] });
+    });
+    const _fmtH = (v) => { const d = new Date(v); return isNaN(d.getTime()) ? "--/--/--" : String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + String(d.getFullYear()).slice(2); };
+    const _botDe = (pp) => {
+      const filas = ((botDatos && botDatos.filasByPiso) || {})[String(pp.vivienda || "").trim().toLowerCase()] || [];
+      const tel = String(pp.telefono || "").replace(/\D/g, "").slice(-9);
+      // la ficha de un vecino anterior (otro telefono) no cuenta, igual que en HOY (v19.61)
+      return filas.filter(f => !tel || !f.tel || f.tel === tel).pop() || null;
+    };
+    const _historial = (pp) => {
+      const l = [];
+      const b = _botDe(pp);
+      const enW = String(pp.bot_piso_activo || "").toUpperCase() === "BOT_WHATSAPP";
+      if (b) {
+        if (b.J) l.push({ iso: b.J, txt: enW ? "\uD83E\uDD16 Presentaci\u00f3n del bot" : "Bot apagado y pasado a manual (M)" });
+        if (b.AJ) l.push({ iso: b.AJ, txt: "\u26A0\uFE0F Sin WhatsApp (avisado por Twilio)" });
+        if (b.AA) l.push({ iso: /^\d{4}-/.test(b.AA) ? b.AA : "", txt: "\uD83D\uDCAC Recordatorio M1 (marcado en HOY)" });
+        if (b.AF) l.push({ iso: /^\d{4}-/.test(b.AF) ? b.AF : "", txt: "\uD83D\uDCAC Recordatorio M2 (marcado en HOY)" });
+        if (b.AG) l.push({ iso: b.AG, txt: "\uD83E\uDD16 Contrato y carta de pago por el bot" });
+      }
+      const m3 = (avisoM3 || {})[String(pp.vivienda || "").trim().toLowerCase()];
+      if (m3) l.push({ iso: /^\d{4}-/.test(m3) ? m3 : "", txt: "\uD83D\uDCAC Recordatorio M3 (marcado en HOY)" });
+      (_histPorPiso[String(pp.vivienda || "").trim().toLowerCase()] || []).forEach(x => l.push(x));
+      l.sort((a, c) => String(a.iso || "9").localeCompare(String(c.iso || "9")));
+      return l;
+    };
+    const _SIN_REG = "Sin registro: WhatsApp manuales (\uD83D\uDCAC M4, M5\u2026) ni llamadas";
+    const _SEP = "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500";
+    const _globoPiso = (pp) => {
+      const l = _historial(pp);
+      return (l.length ? l.map(x => _fmtH(x.iso) + "  " + x.txt).join("\n") : "Contacto no iniciado") + "\n" + _SEP + "\n" + _SIN_REG;
+    };
+    let _nBot = 0, _nMail = 0, _nNada = 0;
+    (pisos || []).forEach((pp) => {
+      const b = _botDe(pp);
+      if (b && b.J) _nBot++;
+      else if ((_histPorPiso[String(pp.vivienda || "").trim().toLowerCase()] || []).length) _nMail++;
+      else _nNada++;
+    });
+    const _resumenVecinos = (pisos || []).length + " vecinos: " + _nBot + " con bot \u00b7 " + _nMail + " por correo \u00b7 " + _nNada + " sin contacto";
     // ----- Fila CCPP virtual -----
     // v17.52: pasar enHoy + ccppId para el botón reloj.
     // v17.13: pasar notas_pto para la nueva columna NOTAS.
@@ -891,6 +951,7 @@ module.exports = function (app) {
       ccppId: (comu && comu.ccpp_id) || "",
       notas: (comu && comu.notas_pto) || "",
       botModo: (comu && comu.bot_comunidad_activo) || "",
+      resumenVecinos: _resumenVecinos,   // v19.102
     });
     const dataCcpp = {
       docs: docsCcpp.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion })),
@@ -994,6 +1055,7 @@ module.exports = function (app) {
         //   SIN el respaldo de la comunidad que usa _contactoDe: si este piso nunca
         //   pasó por el bot no debe salir fecha ninguna ("Contacto no iniciado").
         fechaBot: String(_cbp[String(p.vivienda || "").trim().toLowerCase()] || "").trim(),
+        globoHist: _globoPiso(p),   // v19.102: comunicaciones registradas de ese vecino
         // v19.98 -- fase 08: fecha del contrato enviado por el bot (globo del boton W)
         es08: _es08,
         fechaContratoBot: String(((botDatos && botDatos.contratoByPiso) || {})[String(p.vivienda || "").trim().toLowerCase()] || "").trim(),
@@ -2693,7 +2755,29 @@ module.exports = function (app) {
             // v19.102 -- recordatorios por correo (avisos de HOY con la carta)
             r1: await _lee("05_REC_M1_VECINO"), r2: await _lee("05_REC_M2_VECINO"), r3: await _lee("08_REC_M3_VECINO") };
         } catch (_) {}
+        // v19.102 (criterio de Guille, 09/10/2026) -- globo del W/M: correos a vecinos de esta
+        //   comunidad (mail_historico) y marcas del M3 (pisos col AY).
+        let _histMails = [], _avisoM3 = {};
+        try {
+          const _mh = await _leerCompartido("mail_historico!A:F");
+          const _dn = String(comu.direccion || "").trim().toLowerCase();
+          for (let i = 1; i < _mh.length; i++) {
+            const m = _mh[i]; if (!m) continue;
+            const _id = String(m[1] || "").trim();
+            if (!((_id && _id === comu.ccpp_id) || (!_id && _dn && String(m[2] || "").trim().toLowerCase() === _dn))) continue;
+            _histMails.push({ fecha: String(m[0] || ""), fase: String(m[3] || "").trim(), dest: String(m[4] || ""), asunto: String(m[5] || "") });
+          }
+        } catch (_) {}
+        try {
+          const _py = await _leerCompartido("pisos!A:AY");
+          for (let i = 1; i < _py.length; i++) {
+            const f = _py[i]; if (!f) continue;
+            if (!(mismaDireccion(f[1] || "", comu.direccion) || mismaDireccion(f[1] || "", comu.comunidad))) continue;
+            if (String(f[50] || "").trim()) _avisoM3[String(f[2] || "").trim().toLowerCase()] = String(f[50]).trim();
+          }
+        } catch (_) {}
         cajitaManual = cajitaManualHtml({
+          histMails: _histMails, avisoM3: _avisoM3,
           mailVecino: _mailVec,
           msgWaM3: _msgWaM3,
           msgWaM4: _msgWaM4,
@@ -3131,7 +3215,7 @@ module.exports = function (app) {
     // v18.128 — contactoByPiso: fecha del 1er WhatsApp del bot (bot_expedientes col J).
     // Es la unica fuente de esa fecha (en la pestaña pisos esa columna esta vacia) y
     // sirve para calcular {fecha_limite} del mensaje M3, igual que hace HOY.
-    const out = { docsByPiso: {}, tipoByPiso: {}, descByPiso: {}, contactoByPiso: {}, contratoByPiso: {} };
+    const out = { docsByPiso: {}, tipoByPiso: {}, descByPiso: {}, contactoByPiso: {}, contratoByPiso: {}, filasByPiso: {} };
     const norm = v => String(v == null ? "" : v).trim().toLowerCase();
     const matchCom = c => mismaDireccion(c, comu.comunidad) || mismaDireccion(c, comu.direccion);
     try {
@@ -3147,7 +3231,7 @@ module.exports = function (app) {
       }
     } catch (e) { console.warn("[documentacion] leerBotDatos docs:", e.message); }
     try {
-      const rows = await _leerCompartido("bot_expedientes!A:AI");   // v19.95 (v19.98: hasta AI, contrato enviado por el bot)
+      const rows = await _leerCompartido("bot_expedientes!A:AK");   // v19.95 (v19.98: contrato enviado por el bot; v19.102: hasta AK, para el globo del W/M)
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i]; if (!r) continue;
         if (!matchCom(r[1] || "")) continue;
@@ -3155,6 +3239,8 @@ module.exports = function (app) {
         out.descByPiso[norm(r[2])] = String(r[24] || "").split(",").map(x => x.trim()).filter(Boolean); // col Y opcionales_descartados
         out.contactoByPiso[norm(r[2])] = String(r[9] || "").trim();
         out.contratoByPiso[norm(r[2])] = String(r[32] || "").trim();   // v19.98: col AG, primer contrato enviado por el bot
+        // v19.102 -- todo lo que el bot sabe de ese piso, para el globo del W/M
+        (out.filasByPiso[norm(r[2])] = out.filasByPiso[norm(r[2])] || []).push({ tel: String(r[0] || "").replace(/\D/g, "").slice(-9), J: String(r[9] || "").trim(), AA: String(r[26] || "").trim(), AF: String(r[31] || "").trim(), AG: String(r[32] || "").trim(), AJ: String(r[35] || "").trim() });
       }
     } catch (e) { console.warn("[documentacion] leerBotDatos exp:", e.message); }
     return out;
