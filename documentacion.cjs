@@ -1029,7 +1029,8 @@ module.exports = function (app) {
         mailVecino: (() => {
           if (String(p.bot_piso_activo || "").toUpperCase() === "BOT_WHATSAPP") return null;
           const _pl = _es05 ? (mailVecino && mailVecino.f05) : ((_es07 || _es08) ? (mailVecino && mailVecino.f08) : null);
-          if (!_pl || _pl.activo === false || !String(_pl.mensaje || "").trim()) return null;
+          const _okPl = (x) => !!(x && x.activo !== false && String(x.mensaje || "").trim());
+          if (!_okPl(_pl)) return null;
           const _dV = {
             nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
             fechaLimite: _es07 ? _fmtDia(_hoyIsoM4 + "T12:00:00", (_Pm3.PLAZO_CYCP_INICIAL || 10)) : _fmtDia(_anclaM3(p), _plazoM3),
@@ -1039,7 +1040,12 @@ module.exports = function (app) {
             pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
           };
           const _adj = String(_pl.adjuntos_fijos || "").split("||").map(x => x.trim()).filter(x => /https?:/.test(x)).map(x => { const i = x.indexOf("http"); let l = x.slice(0, i).trim(); if (l.endsWith(":")) l = l.slice(0, -1).trim(); return { lbl: l, url: x.slice(i).trim() }; });
-          return { fase: _es05 ? "05_DOC_VECINO" : "08_CYCP_VECINO", asunto: _subVarsM3(_pl.asunto || "", _dV), cuerpo: _subVarsM3(_pl.mensaje || "", _dV), cco: String(_pl.cco || "").split("||").map(x => x.trim()).filter(Boolean).join(", "), adjuntos: _adj, contrato: !_es05 };
+          // v19.102 -- recordatorios por correo (M1/M2 en 05, M3 en 08), con los mismos datos.
+          //   Los abre el aviso de HOY (?mailaviso=FASE&piso=...). Sin adjuntos.
+          const _rec = {};
+          const _recPl = _es05 ? [["05_REC_M1_VECINO", mailVecino && mailVecino.r1], ["05_REC_M2_VECINO", mailVecino && mailVecino.r2]] : (_es08 ? [["08_REC_M3_VECINO", mailVecino && mailVecino.r3]] : []);
+          _recPl.forEach(([f, x]) => { if (_okPl(x)) _rec[f] = { fase: f, asunto: _subVarsM3(x.asunto || "", _dV), cuerpo: _subVarsM3(x.mensaje || "", _dV), cco: String(x.cco || "").split("||").map(y => y.trim()).filter(Boolean).join(", "), adjuntos: [], contrato: false }; });
+          return { fase: _es05 ? "05_DOC_VECINO" : "08_CYCP_VECINO", asunto: _subVarsM3(_pl.asunto || "", _dV), cuerpo: _subVarsM3(_pl.mensaje || "", _dV), cco: String(_pl.cco || "").split("||").map(x => x.trim()).filter(Boolean).join(", "), adjuntos: _adj, contrato: !_es05, rec: _rec };
         })(),
       });
     }).join("");
@@ -1290,7 +1296,7 @@ module.exports = function (app) {
           //   adjuntan solos su contrato y su carta de pago de Drive. Abre el compositor de la ficha.
           const URL_PDFS_CONTRATO = ${JSON.stringify(urlT(token, "/documentacion/piso/pdfs-contrato"))};
           const RE_MAIL_NOTAS = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}/;
-          window.__ptlMailVecino = async function (el, ev) {
+          window.__ptlMailVecino = async function (el, ev, recFase) {
             if (ev) { ev.preventDefault(); ev.stopPropagation(); }
             var fila = el.closest('tr');
             var ta = fila ? fila.querySelector('.ptl-doc-notas-piso') : null;
@@ -1298,6 +1304,8 @@ module.exports = function (app) {
             if (!m) { alert('Escribe el email del vecino en sus notas.'); return false; }
             if (typeof window.ptlAbrirMailPrellenado !== 'function') { alert('No encuentro el compositor de correo de la ficha.'); return false; }
             var d; try { d = JSON.parse(el.dataset.mail || '{}'); } catch (e) { d = {}; }
+            // v19.102 -- recordatorio por correo pedido desde un aviso de HOY
+            if (recFase) { if (!d.rec || !d.rec[recFase]) { alert('No encuentro la plantilla ' + recFase + ' (o est\u00e1 desactivada).'); return false; } d = d.rec[recFase]; }
             var adj = (d.adjuntos || []).slice();
             if (d.contrato) {
               var sw = fila.querySelector('.ptl-bot-switch-piso');
@@ -1319,6 +1327,24 @@ module.exports = function (app) {
             window.ptlAbrirMailPrellenado({ dest: m[0], asunto: d.asunto || '', cuerpo: d.cuerpo || '', cco: d.cco || '', adjuntos: adj, fase: d.fase || '' });
             return false;
           };
+          // v19.102 -- llegando desde un aviso de HOY (?mailaviso=FASE&piso=VIV): abre solo el correo
+          //   de recordatorio de ese piso, ya escrito, en cuanto la pagina esta lista.
+          (function () {
+            var q; try { q = new URLSearchParams(location.search); } catch (e) { return; }
+            var fz = q.get('mailaviso'), viv = q.get('piso');
+            if (!fz || !viv) return;
+            var intentos = 0;
+            var abrir = function () {
+              intentos++;
+              var sw = Array.prototype.slice.call(document.querySelectorAll('.ptl-bot-switch-piso')).filter(function (b) { return (b.dataset.vivienda || '') === viv; })[0];
+              var tr = sw ? sw.closest('tr') : null;
+              var b = tr ? tr.querySelector('.ptl-vec-mail') : null;
+              if (!b || typeof window.ptlAbrirMailPrellenado !== 'function') { if (intentos < 20) setTimeout(abrir, 250); else alert('No encuentro el bot\u00f3n de correo del piso ' + viv + '.'); return; }
+              try { history.replaceState(null, '', location.pathname + location.search.replace(/[?&]mailaviso=[^&]*/, '').replace(/[?&]piso=[^&]*/, '').replace(/^&/, '?') + location.hash); } catch (e) {}
+              window.__ptlMailVecino(b, null, fz);
+            };
+            if (document.readyState === 'complete') setTimeout(abrir, 300); else window.addEventListener('load', function () { setTimeout(abrir, 300); });
+          })();
           document.addEventListener('input', function (e) {
             var ta = e.target;
             if (!ta || !ta.classList || !ta.classList.contains('ptl-doc-notas-piso')) return;
@@ -2663,7 +2689,9 @@ module.exports = function (app) {
           const _PP = app.locals.presupuestos || {};
           const _ini = _PP._PLANTILLAS_VECINO_INI || {};
           const _lee = async (f) => { const x = _PP.leerPlantillaMail ? await _PP.leerPlantillaMail(f).catch(() => null) : null; return x || (_ini[f] ? Object.assign({ activo: true, cco: "" }, _ini[f]) : null); };
-          _mailVec = { f05: await _lee("05_DOC_VECINO"), f08: await _lee("08_CYCP_VECINO") };
+          _mailVec = { f05: await _lee("05_DOC_VECINO"), f08: await _lee("08_CYCP_VECINO"),
+            // v19.102 -- recordatorios por correo (avisos de HOY con la carta)
+            r1: await _lee("05_REC_M1_VECINO"), r2: await _lee("05_REC_M2_VECINO"), r3: await _lee("08_REC_M3_VECINO") };
         } catch (_) {}
         cajitaManual = cajitaManualHtml({
           mailVecino: _mailVec,

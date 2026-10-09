@@ -239,6 +239,10 @@ module.exports = function (app) {
     // v19.100 -- correos a un vecino (boton de la carta en la caja de documentacion)
     if (fase === "05_DOC_VECINO")          return "05-INICIO DOC (VECINO)";
     if (fase === "08_CYCP_VECINO")         return "08-INICIO CYCP (VECINO)";
+    // v19.102 -- recordatorios por correo a un vecino en M (avisos de HOY con el boton de la carta)
+    if (fase === "05_REC_M1_VECINO")       return "05-RECORDATORIO M1 (VECINO)";
+    if (fase === "05_REC_M2_VECINO")       return "05-RECORDATORIO M2 (VECINO)";
+    if (fase === "08_REC_M3_VECINO")       return "08-RECORDATORIO M3 (VECINO)";
     const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
     if (def) return `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
     return fase;
@@ -2228,6 +2232,23 @@ module.exports = function (app) {
       asunto: "{tipo_via}{comunidad} ({piso}) -Plan 5 individualizaci\u00f3n contadores (CONTRATO Y CARTA DE PAGO)",
       mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nPara proceder con la contrataci\u00f3n y el inicio de las obras, le enviamos su CONTRATO DE EMASESA y la CARTA DE PAGO.\n\n*NECESITAMOS*\n- Remita el contrato firmado (LAS 4 HOJAS).\n- Remita el justificante de abono de la Carta de Pago.\n- Si solicit\u00f3 financiar el pago, no abone la carta de pago: nos pondremos en contacto con usted.\n\n*FORMA DE PAGO*\n- En las oficinas de EMASESA, C/ Escuelas P\u00edas 1, en el cajero habilitado.\n- En su cajero, con el c\u00f3digo de barras del documento.\n- Transferencia a LA CAIXA ES11 2100 1683 1002 0003 1492, titular EMPR. METRO. ABAST. SANEA. AGUAS SEVILLA, indicando PLAN 5, nombre, direcci\u00f3n y piso.\n\n*RECEPCI\u00d3N DE DOCUMENTACI\u00d3N*\n- Fotograf\u00edas o PDF respondiendo a este correo.\n- FECHA L\u00cdMITE: {fecha_limite_vigente}{prorroga_nota}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
       adjuntos_fijos: _VIDEO_CORREOS + "||||",
+    },
+    // v19.102 (criterio de Guille, 09/10/2026) -- recordatorios por correo (M1/M2 en 05, M3 en 08)
+    //   a vecinos en M con correo: los mismos textos que los WhatsApp M1-M3, adaptados al correo.
+    "05_REC_M1_VECINO": {
+      asunto: "{tipo_via}{comunidad} ({piso}) - Plan 5 individualizaci\u00f3n contadores (RECORDATORIO DOCUMENTACION)",
+      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nLe enviamos un correo con las instrucciones al que a\u00fan no ha dado respuesta (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
+      adjuntos_fijos: "",
+    },
+    "05_REC_M2_VECINO": {
+      asunto: "{tipo_via}{comunidad} ({piso}) - Plan 5 individualizaci\u00f3n contadores (RECORDATORIO DOCUMENTACION)",
+      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nLe hemos enviado varios correos a los que a\u00fan no ha dado respuesta (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
+      adjuntos_fijos: "",
+    },
+    "08_REC_M3_VECINO": {
+      asunto: "{tipo_via}{comunidad} ({piso}) - Plan 5 individualizaci\u00f3n contadores (RECORDATORIO CONTRATO Y CARTA DE PAGO)",
+      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nA\u00fan no hemos recibido {pendiente} de su vivienda (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
+      adjuntos_fijos: "",
     },
   };
   async function guardarPlantillaMail(datos) {
@@ -8653,7 +8674,7 @@ module.exports = function (app) {
     };
     waDias = waDias || { m1: 5, m2: 21, m3: 11 };   // v19.91: repuestos al dia
     // Config única: qué fases muestran CCO y cuáles adjuntos en la tarjeta.
-    const _FASES_CCO = ["01_CONTACTO","03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","05_FIN_DOC","08_INICIO_CYCP","08_FIN_CYCP","05_DOC_VECINO","08_CYCP_VECINO"];
+    const _FASES_CCO = ["01_CONTACTO","03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","05_FIN_DOC","08_INICIO_CYCP","08_FIN_CYCP","05_DOC_VECINO","08_CYCP_VECINO","05_REC_M1_VECINO","05_REC_M2_VECINO","08_REC_M3_VECINO"];
     const _FASES_ADJ = ["03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","08_INICIO_CYCP","05_ULTIMATUM_DOC","08_ULTIMATUM_CYCP","05_DOC_VECINO","08_CYCP_VECINO"];
     // Plazos reales para el esquema de tiempos (se leen de las plantillas)
     const _n05 = (v, d) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : d; };
@@ -8756,6 +8777,9 @@ module.exports = function (app) {
         "08_FIN_CYCP":        'Envío manual al pulsar "✓ Cerrar fase 08-CYCP" en fase 08.',
         "05_DOC_VECINO":      ('Correo a UN vecino en M, en fase 05: botón ' + ICONO_MAIL + ' de su fila en Datos documentación (el email se saca de sus notas). Abre el correo ya escrito para revisarlo y enviarlo. Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.'),
         "08_CYCP_VECINO":     ('Correo a UN vecino en M, en fases 07 y 08: botón ' + ICONO_MAIL + ' de su fila en Datos documentación. Adjunta además, solo, su contrato y su carta de pago de Drive (solo el contrato si la comunidad es FFCC). Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.'),
+        "05_REC_M1_VECINO":   ('Recordatorio M1 por correo a UN vecino en M, en fase 05 (v19.102). Sale en Avisos de HOY del d\u00eda t_wa_m1 al anterior a t_wa_m2, contados desde el inicio de la documentaci\u00f3n de la comunidad (primer WhatsApp del bot), si ya se le mand\u00f3 el 05-INICIO DOC (VECINO) y le falta documentaci\u00f3n. El bot\u00f3n ' + ICONO_MAIL + ' de la tarjeta abre este correo ya escrito. Variables de los M: {nombre} {tipo_via} {comunidad} {piso} {pendiente} {vence_el} {prorroga_nota} {consecuencia}.'),
+        "05_REC_M2_VECINO":   ('Recordatorio M2 por correo a UN vecino en M, en fase 05 (v19.102). Igual que el M1, desde el d\u00eda t_wa_m2. Si la comunidad tiene pr\u00f3rroga, vuelve a salir al terminar la pr\u00f3rroga, como el WhatsApp M2.'),
+        "08_REC_M3_VECINO":   ('Recordatorio M3 por correo a UN vecino en M con correo, en fase 08 (v19.102). Sale en Avisos de HOY el mismo d\u00eda que el WhatsApp M3 (t_wa_m3 desde el env\u00edo de contratos) y la tarjeta lleva ' + ICONO_MAIL + ' en vez de ' + ICONO_WHATSAPP + '.'),
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       if (fase === "02_PTE_VISITA_CON_ACTA") {
@@ -11407,7 +11431,7 @@ module.exports = function (app) {
       const adjuntos = String(req.body.adjuntos || "").trim();
       // v19.100 -- correo a un vecino desde su plantilla: se registra con esa fase (sale con su
       //   nombre en Comunicaciones) y sale de la cuenta de la plantilla, si la tiene.
-      const _faseV = ["05_DOC_VECINO", "08_CYCP_VECINO"].includes(String(req.body.fase_plantilla || "").trim()) ? String(req.body.fase_plantilla).trim() : "";
+      const _faseV = ["05_DOC_VECINO", "08_CYCP_VECINO", "05_REC_M1_VECINO", "05_REC_M2_VECINO", "08_REC_M3_VECINO"].includes(String(req.body.fase_plantilla || "").trim()) ? String(req.body.fase_plantilla).trim() : "";
       if (!id) return res.status(400).send("Falta id");
       if (!destinatario) return res.status(400).send("Falta destinatario");
       if (!asunto) return res.status(400).send("Falta asunto");
@@ -13278,8 +13302,9 @@ module.exports = function (app) {
         };
         // v19.36 — Criterio de Guille: en fase 05 todos los vecinos ven la fecha de la
         //   COMUNIDAD (primer WhatsApp del bot a cualquier vecino + 20), la misma que los
-        //   correos ({{fecha_limite_doc_vecinos}}). Los DIAS de aparicion del M1/M2
-        //   siguen contando desde el primer WhatsApp de cada vecino.
+        //   correos ({{fecha_limite_doc_vecinos}}). v19.102 (criterio de Guille, 09/10/2026): los
+        //   DIAS de aparicion del M1/M2 cuentan TAMBIEN desde ese dia comun (antes, desde el primer
+        //   WhatsApp de cada vecino): el plazo es comun a todos, aunque a alguno se le escriba tarde.
         const _contactoComMin = {};
         for (let i = 1; i < _erows.length; i++) {
           const r = _erows[i]; if (!r) continue;
@@ -13347,7 +13372,8 @@ module.exports = function (app) {
             // 2º y último al día 20 (fijo). Cada aviso se oculta al marcarlo (flag
             // propio: AA=r[26] el 1º, AF=r[31] el 2º) y el 2º reaparece aunque
             // marcaras el 1º. Deja de avisar tras marcar el 2º.
-            const _fIni = r[9] || r[10] || "";
+            // v19.102 -- dia comun de la comunidad (primer WhatsApp del bot), no el del vecino.
+            const _fIni = _fCont;
             const _d = new Date(_fIni);
             const _dias = isNaN(_d.getTime()) ? 0 : Math.floor((_hoyMs - _d.getTime()) / 86400000);
             const _fF = _fFecha(_fIni);
@@ -13389,6 +13415,85 @@ module.exports = function (app) {
             _avisosArr.push(Object.assign({ tipo: "ayuda", dias: 0, flag: false, waMsg: _waM3, mensaje: _ayuda, fecha: _fA.txt, ts: _fA.ts }, _base));
           }
         }
+        // v19.102 (criterio de Guille, 09/10/2026) -- Avisos por CORREO a vecinos en M con
+        //   email en sus notas: la misma dinamica que los M1/M2 del bot, con el boton de la carta.
+        //   El correo enviado (mail_historico, por su plantilla y el piso del asunto) hace de
+        //   "marcado": la tarjeta se va al enviarlo. Se identifica el piso por "(vivienda)" en el
+        //   asunto o, si no, por el email (solo si ese email es de un unico piso de la comunidad).
+        const _RE_MAILN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}/;
+        const _ndM = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+        const _mailsVec = {};   // "comunidad|vivienda" -> { "05_DOC_VECINO": [isos], ... }
+        const _primerDocVec = {};   // comunidad -> primer 05_DOC_VECINO (si la comunidad no tiene bot)
+        try {
+          const _comusMV = (await _comunidadesHoy()) || [];
+          const _dirPorId = {}; _comusMV.forEach(c => { if (c && c.ccpp_id) _dirPorId[c.ccpp_id] = _ndM(c.direccion || c.comunidad); });
+          const _pisosPorCom = {};
+          for (let i = 1; i < _piRowsAll.length; i++) {
+            const _pr = _piRowsAll[i]; if (!_pr) continue;
+            const _kc = _ndM(_pr[1]); if (!_kc || !String(_pr[2] || "").trim()) continue;
+            const _em = ((String(_pr[46] || "").match(_RE_MAILN) || [])[0] || "").toLowerCase();
+            (_pisosPorCom[_kc] = _pisosPorCom[_kc] || []).push({ viv: String(_pr[2]).trim(), em: _em });
+          }
+          const _mh = await _leerHoy("mail_historico!A:F");
+          const _mhr = (_mh.data.values || []);
+          for (let i = 1; i < _mhr.length; i++) {
+            const _m = _mhr[i]; if (!_m) continue;
+            const _fz = String(_m[3] || "").trim();
+            if (!/^(05_DOC_VECINO|05_REC_M1_VECINO|05_REC_M2_VECINO|08_REC_M3_VECINO)$/.test(_fz)) continue;
+            const _iso = String(_m[0] || "").slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(_iso)) continue;
+            const _kc = _dirPorId[String(_m[1] || "").trim()] || _ndM(_m[2]);
+            const _lista = _pisosPorCom[_kc] || [];
+            const _asu = String(_m[5] || "");
+            let _p = _lista.find(x => _asu.indexOf("(" + x.viv + ")") >= 0);
+            if (!_p) { const _em = ((String(_m[4] || "").match(_RE_MAILN) || [])[0] || "").toLowerCase(); const _cand = _em ? _lista.filter(x => x.em === _em) : []; if (_cand.length === 1) _p = _cand[0]; }
+            if (!_p) continue;
+            const _kp = _kc + "|" + _ndM(_p.viv);
+            ((_mailsVec[_kp] = _mailsVec[_kp] || {})[_fz] = _mailsVec[_kp][_fz] || []).push(_iso);
+            if (_fz === "05_DOC_VECINO" && (!_primerDocVec[_kc] || _iso < _primerDocVec[_kc])) _primerDocVec[_kc] = _iso;
+          }
+          // Avisos M1/M2 por correo (fase 05)
+          for (let i = 1; i < _piRowsAll.length; i++) {
+            const _pr = _piRowsAll[i]; if (!_pr) continue;
+            const _com = String(_pr[1] || "").trim(), _viv = String(_pr[2] || "").trim();
+            if (!_com || !_viv) continue;
+            const _kl = _com.toLowerCase();
+            if (_faseComAv[_kl] && _faseComAv[_kl] !== "05_DOCUMENTACION") continue;
+            if (!_faseComAv[_kl]) continue;
+            if (String(_pr[47] || "").trim().toUpperCase() === "BOT_WHATSAPP") continue;
+            if (!_RE_MAILN.test(String(_pr[46] || ""))) continue;
+            const _kp = _ndM(_com) + "|" + _ndM(_viv);
+            const _mv = _mailsVec[_kp] || {};
+            if (!(_mv["05_DOC_VECINO"] || []).length) continue;   // aun no se le mando el correo de documentacion
+            if (await _pisoVerde(_com, _viv)) continue;
+            const _fCom = _contactoComMin[_kl] || _primerDocVec[_ndM(_com)] || "";
+            const _dC = new Date(String(_fCom).slice(0, 10) + "T00:00:00");
+            if (isNaN(_dC.getTime())) continue;
+            const _hoy0 = new Date(_hoyMs); _hoy0.setHours(0, 0, 0, 0);
+            const _dias = Math.round((_hoy0.getTime() - _dC.getTime()) / 86400000);
+            const _fF = _fFecha(_fCom);
+            const _nomM = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
+            const _baseM = { comunidad: _com, vivienda: _viv, nombre: _nomM, telefono: _pr[0] || "" };
+            const _ult = (f) => (_mv[f] || []).slice().sort().pop() || "";
+            if (_dias >= _diaM2) {
+              const _m2 = _ult("05_REC_M2_VECINO");
+              if (_m2) {
+                // como el WhatsApp M2: con prorroga concedida vuelve (duro) al terminar la prorroga
+                let _toca2 = false;
+                if (_ampliadaMap[_kl]) {
+                  const _dAmp = new Date(_dC.getTime()); _dAmp.setDate(_dAmp.getDate() + PLAZO_DOC_INICIAL + _prorroga05);
+                  const _isoAmp = _dAmp.getFullYear() + "-" + String(_dAmp.getMonth() + 1).padStart(2, "0") + "-" + String(_dAmp.getDate()).padStart(2, "0");
+                  const _isoHoy = new Date(_hoyMs).toISOString().slice(0, 10);
+                  _toca2 = _isoHoy > _isoAmp && _m2 <= _isoAmp;
+                }
+                if (!_toca2) continue;
+              }
+              _avisosArr.push(Object.assign({ tipo: "mail05", subtipo: 2, dias: _dias, flag: false, waMsg: "", mailFase: "05_REC_M2_VECINO", fecha: _fF.txt, ts: _fF.ts }, _baseM));
+            } else if (_dias >= _diaM1) {
+              if (_ult("05_REC_M1_VECINO")) continue;
+              _avisosArr.push(Object.assign({ tipo: "mail05", subtipo: 1, dias: _dias, flag: false, waMsg: "", mailFase: "05_REC_M1_VECINO", fecha: _fF.txt, ts: _fF.ts }, _baseM));
+            }
+          }
+        } catch (eMV) { console.error("[presupuestos] HOY avisos por correo:", eMV.message); }
         // v19.19 — Aviso M3 (fase 08, sin bot): a los _diaM3 dias del envio de contratos
         //   (correo 08-INICIO CYCP o, si no se envio, paso a fase 08), una tarjeta por
         //   cada vecino al que le falte el contrato o el pago (estados de la caja de
@@ -13424,7 +13529,11 @@ module.exports = function (app) {
               if (!_kc || (_kc !== _k1 && _kc !== _k2)) continue;
               // v19.59 -- Ya marcado: solo vuelve a salir (duro) si la prorroga esta concedida,
               //   ya termino y el marcado fue antes de ese fin (era el M3 amable).
-              const _mk3 = String(_pr[50] || "").trim();
+              // v19.102 -- piso en M con email en sus notas: el aviso va por correo (boton de la
+              //   carta) y el correo 08-RECORDATORIO M3 (VECINO) enviado cuenta como marcado.
+              const _esMail3 = String(_pr[47] || "").trim().toUpperCase() !== "BOT_WHATSAPP" && _RE_MAILN.test(String(_pr[46] || ""));
+              const _mail3 = _esMail3 ? ((_mailsVec[_ndM(_pr[1]) + "|" + _ndM(_pr[2])] || {})["08_REC_M3_VECINO"] || []).slice().sort().pop() || "" : "";
+              const _mk3 = [String(_pr[50] || "").trim(), _mail3].filter(Boolean).sort().pop() || "";
               if (_mk3) {
                 const _isoP3 = _dP.getFullYear() + "-" + String(_dP.getMonth() + 1).padStart(2, "0") + "-" + String(_dP.getDate()).padStart(2, "0");
                 const _isoHoy3 = new Date(_hoyMs).toISOString().slice(0, 10);
@@ -13445,7 +13554,7 @@ module.exports = function (app) {
                 .replace(/\{vence_el\}/g, _p5VenceEl(_amp ? _fmtD(_dP) : _fmtD(_dL)))
                 .replace(/\{pendiente\}/g, _pendTxt)
                 .replace(/\{consecuencia\}/g, _p5Consecuencia(_amp ? _fmtD(_dP) : _fmtD(_dL), _pendTxt, null, true));
-              _avisosArr.push({ tipo: "cycp", dias: _dias, flag: false, waMsg: _txt, fecha: _fmtD(_dA), ts: _dA.getTime(),
+              _avisosArr.push({ tipo: "cycp", dias: _dias, flag: false, waMsg: _txt, fecha: _fmtD(_dA), ts: _dA.getTime(), mailFase: _esMail3 ? "08_REC_M3_VECINO" : "",
                 comunidad: _pr[1] || "", vivienda: _pr[2] || "", nombre: _nom, telefono: _pr[0] || "" });
             }
           }
@@ -13501,7 +13610,12 @@ module.exports = function (app) {
           const _cuerpo = (p.subtipo === 2)
             ? `(${_seqW + (p.xM1 != null ? "-" + p.xM1 + "M" : "")} d\u00edas) - <strong>Recordatorio-${_icM("2")} pendiente</strong>`
             : `(${_seqW} d\u00edas) - <strong>Recordatorio-${_icM("1")} pendiente</strong>`;
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde inicio doc ${_cuerpo}</span>`;
+        } else if (p.tipo === "mail05") {
+          // v19.102 -- M1/M2 por correo (vecino en M con email): se quita al enviar el correo.
+          _campo = ""; _chkTitle = "";
+          const _icMm = (n) => `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;height:16px;min-width:16px;padding:0 4px;border-width:1px;border-style:solid;border-radius:999px;font-size:9px;line-height:1;vertical-align:middle">M${n}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0" title="Se quita sola al enviar el correo">${p.dias} d\u00edas desde inicio doc (${_esc(p.fecha || "")}) - ${ICONO_MAIL} <strong>Recordatorio-${_icMm(p.subtipo)} pendiente</strong></span>`;
         } else if (p.tipo === "cycp") {
           // v19.19 — Aviso M3 de fase 08 (contrato y carta de pago pendientes).
           _campo = "aviso_m3"; _chkTitle = "Marcar (recordatorio M3 enviado)";
@@ -13522,13 +13636,18 @@ module.exports = function (app) {
         // Bot\u00f3n WhatsApp (abre WhatsApp Web/app con el chat del vecino, desde TU n\u00famero) \u2014 mudo, atascado y pide ayuda
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
         const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
-        const _waHtml = (_wa && p.tipo !== "sin_wa")   // v19.99: sin WhatsApp, no hay chat que abrir
+        // v19.102 -- avisos por correo: boton de la carta que abre la ficha de documentacion en ese
+        //   piso con el correo ya escrito (parametros mailaviso y piso).
+        const _mailHtml = (p.mailFase && _ccpp)
+          ? `<a href="${_esc(urlT(token, "/documentacion/expediente", { id: _ccpp, mailaviso: p.mailFase, piso: p.vivienda || "" }) + "#piso-" + encodeURIComponent(p.vivienda || ""))}" class="hoy-aviso-mail" title="Abrir el correo de recordatorio ya escrito" style="flex:0 0 auto;text-decoration:none;font-size:14px;line-height:1">${ICONO_MAIL}</a>`
+          : "";
+        const _waHtml = _mailHtml ? _mailHtml : (_wa && p.tipo !== "sin_wa")   // v19.99: sin WhatsApp, no hay chat que abrir
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
           : "";
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
           ${_dirHtml}
-          <input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-campo="${_campo}" title="${_chkTitle}"${p.flag ? " checked" : ""}>
+          ${_campo ? `<input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-campo="${_campo}" title="${_chkTitle}"${p.flag ? " checked" : ""}>` : `<span style="flex:0 0 13px;width:13px"></span>`}
           <span class="hoy-piso-num" style="flex:0 0 auto;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
@@ -15331,7 +15450,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_DOC_VECINO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_CYCP_VECINO", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP"];   // v19.100: + correos a un vecino, cada uno tras el de la comunidad de su fase
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_DOC_VECINO", "05_REC_M1_VECINO", "05_REC_M2_VECINO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_CYCP_VECINO", "08_REC_M3_VECINO", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP"];   // v19.100: + correos a un vecino, cada uno tras el de la comunidad de su fase
       // v17.20: paralelizar las 12 lecturas. Con el caché de filas
       // todas resuelven contra una sola lectura del Sheet (antes era
       // un for secuencial que disparaba 12 peticiones).
