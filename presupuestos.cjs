@@ -2237,12 +2237,12 @@ module.exports = function (app) {
     //   a vecinos en M con correo: los mismos textos que los WhatsApp M1-M3, adaptados al correo.
     "05_REC_M1_VECINO": {
       asunto: "{tipo_via}{comunidad} ({piso}) - Plan 5 individualizaci\u00f3n contadores (RECORDATORIO DOCUMENTACION)",
-      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nLe enviamos un correo con las instrucciones al que a\u00fan no ha dado respuesta (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
+      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nLe recordamos que necesitamos {pendiente} para tramitar su contrato con EMASESA (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
       adjuntos_fijos: "",
     },
     "05_REC_M2_VECINO": {
       asunto: "{tipo_via}{comunidad} ({piso}) - Plan 5 individualizaci\u00f3n contadores (RECORDATORIO DOCUMENTACION)",
-      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nLe hemos enviado varios correos a los que a\u00fan no ha dado respuesta (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
+      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nA\u00fan no hemos recibido {pendiente} (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
       adjuntos_fijos: "",
     },
     "08_REC_M3_VECINO": {
@@ -2250,6 +2250,17 @@ module.exports = function (app) {
       mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nA\u00fan no hemos recibido {pendiente} de su vivienda (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
       adjuntos_fijos: "",
     },
+  };
+  // v19.102 (criterio de Guille, 09/10/2026) -- WhatsApp manuales de la cadena de avisos (Flujo bot):
+  //   ini05 = inicio de documentacion por WhatsApp manual (fase 05); m1n / m2n = M1 / M2 NEUTROS
+  //   (vecinos en M sin correo, o en W que ya contestaron: no dicen "le hemos enviado 3 mensajes").
+  //   Textos de partida mientras la fila no exista en bot_plantillas. Misma estructura que M1-M5.
+  const _WA_CABECERA = "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\n";
+  const _WA_COLA = "\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.";
+  const _WA_MANUAL_INI = {
+    ini05: _WA_CABECERA + "Para tramitar su contrato con EMASESA, le enviamos las INSTRUCCIONES con la SOLICITUD DE EMASESA y un v\u00eddeo explicativo del proceso.\n\n*RECEPCI\u00d3N DE DOCUMENTACI\u00d3N*\n- Fotograf\u00edas o PDF respondiendo a este WhatsApp.\n- FECHA L\u00cdMITE: {fecha_limite_vigente}{prorroga_nota}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
+    m1n: _WA_CABECERA + "Le recordamos que necesitamos {pendiente} para tramitar su contrato con EMASESA (si necesita ayuda, puede escribirnos por aqu\u00ed mismo)." + _WA_COLA,
+    m2n: _WA_CABECERA + "A\u00fan no hemos recibido {pendiente} (si necesita ayuda, puede escribirnos por aqu\u00ed mismo)." + _WA_COLA,
   };
   // v19.102 -- recordatorios por correo de cada tarjeta de inicio (VECINO): [fase, titulo, clave de dias]
   const _REC_VECINO = {
@@ -8707,12 +8718,12 @@ module.exports = function (app) {
     // En orden de dias (a igualdad, el orden en que se añaden).
     const _tramo05 = [];
     for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _tramo05.push([dia, ["contacto +" + dia, "05-SEGUIMIENTO DOC (correo)", "automático (cron)", "👍 Doc solicitada · hace " + dia + " d"]]); }
-    _tramo05.push([waDias.m1, ["contacto +" + waDias.m1, "WhatsApp M1", "aviso en la caja Avisos de HOY, a vecinos con bot que no contestan", "🔔 M1"]]);
+    _tramo05.push([waDias.m1, ["contacto +" + waDias.m1, "M1 (WhatsApp o correo)", "aviso en la caja Avisos de HOY a todo vecino con documentaci\u00f3n pendiente, cada uno por su camino (bot, correo o WhatsApp manual); antes, Inicio pendiente a quien no conste que se le pidi\u00f3", "🔔 M1"]]);
     _tramo05.push([PLAZO_DOC_INICIAL + 1, ["contacto +" + (PLAZO_DOC_INICIAL + 1), "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]]);
-    _tramo05.push([waDias.m2, ["contacto +" + waDias.m2, "WhatsApp M2 (2º aviso)", "aviso en la caja Avisos de HOY: DURO si no hay prórroga; amable con la fecha ampliada si la hay", "🔔 M2"]]);
+    _tramo05.push([waDias.m2, ["contacto +" + waDias.m2, "M2 (2º aviso)", "sale al decidir: al conceder la prórroga, amable con la fecha ampliada; al pedir disidentes, DURO. Mientras no se decide, espera", "🔔 M2"]]);
     _tramo05.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows.push(x[2]));
     _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_DOC_INICIAL + _pAmp + 1) + "<br>⚠️ Recordar prórroga"]);
-    _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pAmp + 1), "WhatsApp M2 (otra vez)", "vuelve a salir en Avisos, ya DURO, a quien siga sin entregar: tras un aviso amable siempre llega uno duro", "🔔 M2"]);
+    _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pAmp + 1), "M2 (otra vez)", "vuelve a salir en Avisos, ya DURO, cuando se piden los disidentes, a quien siga sin entregar: tras un aviso amable siempre llega uno duro", "🔔 M2"]);
     _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pAmp + 1), "05-ULTIMÁTUM DOC (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
     _esqRows.push([_B("SIN prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + 1), "05-ULTIMÁTUM DOC (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
     _esqRows.push(["disidentes +" + (_pRes + 1), "05-RESOLUCIÓN DE CONTRATO", "botón «Resolver el contrato»: día siguiente a los " + _pRes + " días que da el correo de disidentes", "📛 Disidentes · resolver el dd/mm<br>⚠️ Resolver el contrato<br>📛 Contrato resuelto"]);
@@ -8734,10 +8745,10 @@ module.exports = function (app) {
     // v19.53 — Ventana de Tiempos de fase 08 al dia con el proceso real.
     const _esqRows8 = [["0", "08-INICIO CYCP (correo a la comunidad)", "envío manual; a cada vecino, su contrato y carta con el WhatsApp " + _B("M4") + (" (botón " + ICONO_WHATSAPP + ")"), "👍 CyCP solicitados · hace 0 d"]];
     for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP (correo)", "automático (cron)", "👍 CyCP solicitados · hace " + dia + " d"]); }
-    { const _p8 = [[PLAZO_CYCP_INICIAL + 1, [String(PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "WhatsApp M3 (2º aviso)", "aviso en la caja Avisos de HOY a cada vecino al que le falte contrato o pago: DURO si no hay prórroga; amable con la fecha ampliada si la hay", "🔔 M3"]]];
+    { const _p8 = [[PLAZO_CYCP_INICIAL + 1, [String(PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "M3 (2º aviso)", "aviso en la caja Avisos de HOY a cada vecino al que le falte contrato o pago, por su camino; sale al decidir: al conceder la prórroga, amable con la fecha ampliada; al pedir disidentes, DURO. Mientras no se decide, espera", "🔔 M3"]]];
       _p8.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows8.push(x[2])); }
     _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_CYCP_INICIAL + _pAmp8 + 1) + "<br>⚠️ Recordar prórroga"]);
-    _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8 + 1), "WhatsApp M3 (otra vez)", "vuelve a salir en Avisos, ya DURO, a quien siga sin entregar: tras un aviso amable siempre llega uno duro", "🔔 M3"]);
+    _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8 + 1), "M3 (otra vez)", "vuelve a salir en Avisos, ya DURO, cuando se piden los disidentes, a quien siga sin entregar: tras un aviso amable siempre llega uno duro", "🔔 M3"]);
     _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8 + 1), "08-ULTIMÁTUM CYCP (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
     _esqRows8.push([_B("SIN prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
     _esqRows8.push(["disidentes +" + (_pRes8 + 1), "08-RESOLUCIÓN DE CONTRATO", "botón «Resolver el contrato»: día siguiente a los " + _pRes8 + " días que da el correo de disidentes", "📛 Disidentes · resolver el dd/mm<br>⚠️ Resolver el contrato<br>📛 Contrato resuelto"]);
@@ -9650,10 +9661,15 @@ module.exports = function (app) {
         const f3 = plantillas.find(x => x.clave === "msg_wa_m3");
         texto = (f4 && String(f4.texto || "").trim() !== "") ? f4.texto : ((f3 && String(f3.texto || "").trim() !== "") ? f3.texto : "");
       }
+      // v19.102 -- inicio de documentacion por WhatsApp manual: texto de partida si no existe
+      if (which === "ini05" && !texto) texto = _WA_MANUAL_INI.ini05;
+      // v19.102 -- M1/M2: segundo texto, NEUTRO, para vecinos en M sin correo o en W que ya contestaron
+      const _fn = (which === "m1" || which === "m2") ? plantillas.find(x => x.clave === "msg_wa_" + which + "n") : null;
+      const _textoN = (which === "m1" || which === "m2") ? ((_fn && String(_fn.texto || "").trim() !== "") ? _fn.texto : _WA_MANUAL_INI[which + "n"]) : null;
       const _desde = (which === "m3") ? "desde el env\u00edo de contratos (fase 08)" : "desde la presentaci\u00f3n";
       // v19.25 -- Titulo con dia y fase (M4: manual, boton de WhatsApp del vecino).
       const _ttlAv = sinDia
-        ? (titulo + (which === "m4" ? " (env\u00edo CyCP \u00b7 fase 08)" : " (WhatsApp manual)"))
+        ? (titulo + (which === "m4" ? " (env\u00edo CyCP \u00b7 fase 08)" : which === "ini05" ? " (WhatsApp manual \u00b7 fase 05)" : " (WhatsApp manual)"))
         : (titulo + " (d\u00eda " + a.val + " \u00b7 fase " + (which === "m3" ? "08" : "05") + ")");
       const id = "fbf-wa" + which + "-" + (_i++);
       return `
@@ -9668,9 +9684,11 @@ module.exports = function (app) {
           <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/wa-manual")}" id="${id}" class="ptl-acordeon-cuerpo ptl-acc-body8">
             <input type="hidden" name="vista" value="flujo"/>
             <input type="hidden" name="which" value="${which}"/>
-            ${sinDia ? `<input type="hidden" name="dias" value="0"/><div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:6px">${which === "m4" ? "Env\u00edo del contrato y la carta de pago a cada vecino (fase 08): se elige en el bot\u00f3n de WhatsApp del vecino." : "Mensaje manual: bot\u00f3n de WhatsApp de cada vecino en su expediente (en fase 08, eligiendo M5) y avisos de pide ayuda / completo."}</div>` : `<label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span class="ptl-fw600">Aparece el día</span><input type="number" name="dias" value="${a.val}" min="0" step="1" class="ptl-input-62r"/><span class="ptl-c-gray500">${_desde}</span></label>`}
+            ${sinDia ? `<input type="hidden" name="dias" value="0"/><div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:6px">${which === "m4" ? "Env\u00edo del contrato y la carta de pago a cada vecino (fases 07 y 08): se elige en el bot\u00f3n de WhatsApp del vecino o en la tarjeta Inicio pendiente de HOY; al abrirlo queda apuntado como enviado." : which === "ini05" ? "Petici\u00f3n de la documentaci\u00f3n por WhatsApp manual (fase 05, vecinos sin bot ni correo): se elige en el bot\u00f3n de WhatsApp del vecino o en la tarjeta Inicio pendiente de HOY; al abrirlo queda apuntado como enviado." : "Mensaje manual: bot\u00f3n de WhatsApp de cada vecino en su expediente (en fase 08, eligiendo M5) y avisos de pide ayuda / completo."}</div>` : `<label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span class="ptl-fw600">Aparece el día</span><input type="number" name="dias" value="${a.val}" min="0" step="1" class="ptl-input-62r"/><span class="ptl-c-gray500">${_desde}</span></label>`}
             <label style="font-size:13px;display:block;margin-top:4px"><div class="ptl-fw600-lh">Mensaje de WhatsApp (se abre ya escrito)</div>
               <textarea name="texto" rows="5" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(texto)}</textarea></label>
+            ${_textoN != null ? `<label style="font-size:13px;display:block;margin-top:8px"><div class="ptl-fw600-lh">Texto para el resto (vecinos en M sin correo, o en W que ya contestaron)</div>
+              <textarea name="texto_n" rows="5" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(_textoN)}</textarea></label>` : ""}
             <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Variables: {nombre}, {tipo_via}, {comunidad}, {piso}, {pendiente}, {vence_el}, {prorroga_nota}, {consecuencia}, {fecha_limite_vigente}.</div>
           </form>
         </div>`;
@@ -9687,7 +9705,7 @@ module.exports = function (app) {
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-w" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">W</span>A pisos (automáticos)`) +
         presentcard() + twcard("contrato_cycp", "Twilio - contrato CyCP (fase 08, bot\u00f3n W)") + sleepcard() + plazocard() + wakecard() +
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">M</span>A pisos (manuales)`) +
-        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m3", "Aviso M3", 11) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
+        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m3", "Aviso M3", 11) + wamanualcard("ini05", "Inicio doc", 0, true) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -13213,6 +13231,7 @@ module.exports = function (app) {
         let _t1Present = 2; // v18.98 — 1er reenvío de presentación (para el "0-t1-t2")
         let _diaM1 = 5, _diaM2 = 21, _msgWaM1 = "", _msgWaM2 = "", _msgWaM3 = ""; // v18.99 — avisos manuales
         let _diaM3 = 11, _msgWaM4 = "", _msgWaM5 = ""; // v19.19/28 — M3 fase 08; M4 envio CyCP; M5 WhatsApp manual
+        let _msgWaM1n = "", _msgWaM2n = "", _msgIni05 = "";   // v19.102 — M1/M2 neutros e inicio de documentacion por WhatsApp manual
         try {
           const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
           const _plr = (_pl.data.values || []);
@@ -13230,8 +13249,14 @@ module.exports = function (app) {
             else if (_k === "t_wa_m3" && !isNaN(_n) && _n >= 0) _diaM3 = _n;
             else if (_k === "msg_wa_m4") _msgWaM4 = _rawv;
             else if (_k === "msg_wa_m5") _msgWaM5 = _rawv;
+            else if (_k === "msg_wa_m1n") _msgWaM1n = _rawv;
+            else if (_k === "msg_wa_m2n") _msgWaM2n = _rawv;
+            else if (_k === "msg_wa_ini05") _msgIni05 = _rawv;
           }
         } catch (e) {}
+        if (!String(_msgWaM1n).trim()) _msgWaM1n = _WA_MANUAL_INI.m1n;   // v19.102: textos de partida
+        if (!String(_msgWaM2n).trim()) _msgWaM2n = _WA_MANUAL_INI.m2n;
+        if (!String(_msgIni05).trim()) _msgIni05 = _WA_MANUAL_INI.ini05;
         const _exp = await _leerHoy("bot_expedientes!A:AK");   // v19.89: lectura compartida (v19.99: hasta AK, sin WhatsApp)
         const _erows = (_exp.data.values || []);
         // v18.99d — nombres MAESTROS desde la pestaña "pisos" (donde el usuario los edita).
@@ -13240,7 +13265,7 @@ module.exports = function (app) {
         const _pisosModo = {}; const _pisosTel = {};   // v19.61 — telefono ACTUAL de cada piso (ultimos 9 digitos) // v18.99f — bot_piso_activo (AV): MANUAL silencia los avisos de HOY
         let _piRowsAll = [];   // v19.19 — filas completas de "pisos" (hasta AY aviso_m3) para el aviso M3 de fase 08
         try {
-          const _piR = await _leerHoy("pisos!A:AY");   // v19.89: lectura compartida
+          const _piR = await _leerHoy("pisos!A:AZ");   // v19.89: lectura compartida
           const _piRows = (_piR.data.values || []);
           _piRowsAll = _piRows;
           // (v19.61: _pisosTel se declara junto a _pisosModo)
@@ -13376,56 +13401,8 @@ module.exports = function (app) {
               const _fF = _fFecha(r[10]);
               _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false, waMsg: _waM3, fin: String(r[25] || "").trim().toUpperCase() === "SI", fecha: _fF.txt, ts: _fF.ts }, _base));
             }
-          } else if (_paso === "pregunta_tipo") {
-            // v18.99h — SOLO el aviso "Mudo" se silencia si el piso está en MANUAL o
-            // si tiene toda su documentación (verde). Los de atascado/ayuda/completo NO:
-            // esos solo los quitas tú marcando su check.
-            if ((_nomKey in _pisosModo) && _pisosModo[_nomKey] !== "BOT_WHATSAPP") continue;
-            // v19.92 -- solo en fase 05 (si no se encuentra la comunidad, se deja salir como antes)
-            { const _fc = _faseComAv[String(r[1] || "").trim().toLowerCase()]; if (_fc && _fc !== "05_DOCUMENTACION") continue; }
-            if (await _pisoVerde(r[1] || "", r[2] || "")) continue;
-            // v18.97 — Aviso "Mudo" en DOS momentos fijos, contando desde el ENVÍO
-            // del bot (fecha_primer_contacto, r[9]), en días ABSOLUTOS (da igual el
-            // día que lo marques): 1er aviso al llegar al umbral (casilla, def 5),
-            // 2º y último al día 20 (fijo). Cada aviso se oculta al marcarlo (flag
-            // propio: AA=r[26] el 1º, AF=r[31] el 2º) y el 2º reaparece aunque
-            // marcaras el 1º. Deja de avisar tras marcar el 2º.
-            // v19.102 -- dia comun de la comunidad (primer WhatsApp del bot), no el del vecino.
-            const _fIni = _fCont;
-            const _d = new Date(_fIni);
-            const _dias = isNaN(_d.getTime()) ? 0 : Math.floor((_hoyMs - _d.getTime()) / 86400000);
-            const _fF = _fFecha(_fIni);
-            const _m1 = String(r[26] || "").trim(); // fecha ISO del marcado del 1er aviso (M1), o ""
-            let _xM1 = null; // día del M1 respecto a la presentación (para "(0-t1-t2-X)")
-            if (/^\d{4}-\d{2}-\d{2}/.test(_m1) && !isNaN(_d.getTime())) {
-              _xM1 = Math.floor((new Date(_m1).getTime() - _d.getTime()) / 86400000);
-            }
-            if (_dias >= _diaM2) {
-              // v19.59 -- Tras un aviso amable siempre llega uno duro (criterio de Guille).
-              //   Si la comunidad tiene PRORROGA concedida, el M2 del dia 21 sale amable (fecha
-              //   ampliada) y VUELVE a salir, ya duro, el dia siguiente a que termine la prorroga.
-              //   AF guarda la fecha del marcado (antes "1"); si se marco antes o en el fin de
-              //   la prorroga, cuenta como el M2 amable y toca el duro.
-              const _m2 = String(r[31] || "").trim();
-              if (_m2) {
-                const _kCom = String(r[1] || "").trim().toLowerCase();
-                const _fCom = _contactoComMin[_kCom] || r[9] || "";
-                const _dCom = new Date(_fCom);
-                let _toca2 = false;
-                if (_ampliadaMap[_kCom] && !isNaN(_dCom.getTime())) {
-                  const _dAmp = new Date(_dCom.getTime()); _dAmp.setDate(_dAmp.getDate() + PLAZO_DOC_INICIAL + _prorroga05);
-                  const _isoAmp = _dAmp.toISOString().slice(0, 10);
-                  const _isoHoy = new Date(_hoyMs).toISOString().slice(0, 10);
-                  _toca2 = _isoHoy > _isoAmp && (_m2 === "1" || _m2.slice(0, 10) <= _isoAmp);
-                }
-                if (!_toca2) continue; // 2º aviso ya atendido (y no hay prorroga vencida pendiente)
-              }
-              _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 2, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, xM1: _xM1, waMsg: _subVars(_msgWaM2), fecha: _fF.txt, ts: _fF.ts }, _base));
-            } else if (_dias >= _diaM1) {
-              if (_m1 !== "") continue; // 1er aviso ya atendido (tiene fecha de marcado)
-              _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 1, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, waMsg: _subVars(_msgWaM1), fecha: _fF.txt, ts: _fF.ts }, _base));
-            }
           }
+          // v19.102 -- los M1/M2 (rama "pregunta_tipo") pasan al bloque unificado de la cadena de avisos.
           // Pide ayuda (independiente del paso): AC=texto (idx28), AE=revisado (idx30)
           const _ayuda = String(r[28] || "").trim();
           if (_ayuda && String(r[30] || "").trim() !== "1") {
@@ -13457,7 +13434,7 @@ module.exports = function (app) {
           for (let i = 1; i < _mhr.length; i++) {
             const _m = _mhr[i]; if (!_m) continue;
             const _fz = String(_m[3] || "").trim();
-            if (!/^(05_DOC_VECINO|05_REC_M1_VECINO|05_REC_M2_VECINO|08_REC_M3_VECINO)$/.test(_fz)) continue;
+            if (!/^(05_DOC_VECINO|05_REC_M1_VECINO|05_REC_M2_VECINO|08_CYCP_VECINO|08_REC_M3_VECINO)$/.test(_fz)) continue;
             const _iso = String(_m[0] || "").slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(_iso)) continue;
             const _kc = _dirPorId[String(_m[1] || "").trim()] || _ndM(_m[2]);
             const _lista = _pisosPorCom[_kc] || [];
@@ -13469,114 +13446,150 @@ module.exports = function (app) {
             ((_mailsVec[_kp] = _mailsVec[_kp] || {})[_fz] = _mailsVec[_kp][_fz] || []).push(_iso);
             if (_fz === "05_DOC_VECINO" && (!_primerDocVec[_kc] || _iso < _primerDocVec[_kc])) _primerDocVec[_kc] = _iso;
           }
-          // Avisos M1/M2 por correo (fase 05)
-          for (let i = 1; i < _piRowsAll.length; i++) {
-            const _pr = _piRowsAll[i]; if (!_pr) continue;
-            const _com = String(_pr[1] || "").trim(), _viv = String(_pr[2] || "").trim();
-            if (!_com || !_viv) continue;
-            const _kl = _com.toLowerCase();
-            if (_faseComAv[_kl] && _faseComAv[_kl] !== "05_DOCUMENTACION") continue;
-            if (!_faseComAv[_kl]) continue;
-            if (String(_pr[47] || "").trim().toUpperCase() === "BOT_WHATSAPP") continue;
-            if (!_RE_MAILN.test(String(_pr[46] || ""))) continue;
-            const _kp = _ndM(_com) + "|" + _ndM(_viv);
-            const _mv = _mailsVec[_kp] || {};
-            if (!(_mv["05_DOC_VECINO"] || []).length) continue;   // aun no se le mando el correo de documentacion
-            if (await _pisoVerde(_com, _viv)) continue;
-            const _fCom = _contactoComMin[_kl] || _primerDocVec[_ndM(_com)] || "";
-            const _dC = new Date(String(_fCom).slice(0, 10) + "T00:00:00");
-            if (isNaN(_dC.getTime())) continue;
-            const _hoy0 = new Date(_hoyMs); _hoy0.setHours(0, 0, 0, 0);
-            const _dias = Math.round((_hoy0.getTime() - _dC.getTime()) / 86400000);
-            const _fF = _fFecha(_fCom);
-            const _nomM = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
-            const _baseM = { comunidad: _com, vivienda: _viv, nombre: _nomM, telefono: _pr[0] || "" };
-            const _ult = (f) => (_mv[f] || []).slice().sort().pop() || "";
-            if (_dias >= _diaM2) {
-              const _m2 = _ult("05_REC_M2_VECINO");
-              if (_m2) {
-                // como el WhatsApp M2: con prorroga concedida vuelve (duro) al terminar la prorroga
-                let _toca2 = false;
-                if (_ampliadaMap[_kl]) {
-                  const _dAmp = new Date(_dC.getTime()); _dAmp.setDate(_dAmp.getDate() + PLAZO_DOC_INICIAL + _prorroga05);
-                  const _isoAmp = _dAmp.getFullYear() + "-" + String(_dAmp.getMonth() + 1).padStart(2, "0") + "-" + String(_dAmp.getDate()).padStart(2, "0");
-                  const _isoHoy = new Date(_hoyMs).toISOString().slice(0, 10);
-                  _toca2 = _isoHoy > _isoAmp && _m2 <= _isoAmp;
-                }
-                if (!_toca2) continue;
-              }
-              _avisosArr.push(Object.assign({ tipo: "mail05", subtipo: 2, dias: _dias, flag: false, waMsg: "", mailFase: "05_REC_M2_VECINO", fecha: _fF.txt, ts: _fF.ts }, _baseM));
-            } else if (_dias >= _diaM1) {
-              if (_ult("05_REC_M1_VECINO")) continue;
-              _avisosArr.push(Object.assign({ tipo: "mail05", subtipo: 1, dias: _dias, flag: false, waMsg: "", mailFase: "05_REC_M1_VECINO", fecha: _fF.txt, ts: _fF.ts }, _baseM));
-            }
-          }
         } catch (eMV) { console.error("[presupuestos] HOY avisos por correo:", eMV.message); }
-        // v19.19 — Aviso M3 (fase 08, sin bot): a los _diaM3 dias del envio de contratos
-        //   (correo 08-INICIO CYCP o, si no se envio, paso a fase 08), una tarjeta por
-        //   cada vecino al que le falte el contrato o el pago (estados de la caja de
-        //   documentacion) y que no sea disidente. Se oculta al marcar su check, que
-        //   guarda la fecha en pisos.aviso_m3 (col AY, idx 50).
+        // v19.102 (criterio de Guille, 09/10/2026) -- CADENA DE AVISOS UNIFICADA, fases 05 y 08.
+        //   Una cadena de mensajes por vecino, coherente en fechas y en lo que dice:
+        //   1) Dia comun por comunidad: 05 = primer WhatsApp del bot (respaldo: primer correo o
+        //      WhatsApp manual de inicio); 08 = envio de contratos. Fecha limite = dia comun +
+        //      plazo (20 / 10); con prorroga concedida, + los dias de la prorroga.
+        //   2) Nadie sin inicio: vecino con algo pendiente y sin inicio registrado (presentacion
+        //      del bot, correo de inicio, WhatsApp manual de inicio; en 08: contrato por el bot,
+        //      correo 08-INICIO CYCP (VECINO) o M4) -> tarjeta "Inicio pendiente".
+        //   3) Nadie sin avisos: a TODO vecino con algo pendiente, este en W o en M, haya
+        //      contestado o no: 05 -> M1 amable en plazo (dias t_wa_m1..); M2 cuando se decide
+        //      la prorroga (amable si se concede) y duro cuando se piden los disidentes (y otra
+        //      vez duro al pedirlos tras la prorroga). 08 -> M3 igual que el M2. Mientras el
+        //      plazo esta vencido y no se ha decidido nada, el 2o aviso ESPERA (no dice nada que
+        //      no sea verdad).
+        //   4) Cada uno por su camino: W -> WhatsApp (texto del bot si no contesto a la
+        //      presentacion; neutro si ya contesto); M con correo en notas -> carta (correo);
+        //      M sin correo con movil -> WhatsApp manual (neutro); sin nada -> solo el check.
+        //   5) Marcado: check (bot_expedientes AA/AF para W con ficha; pisos AY para M3; pisos AZ
+        //      "aviso_manual" para el resto), o el correo enviado (mail_historico), o abrir el
+        //      WhatsApp de inicio / M4 desde el programa (queda apuntado en AZ).
         try {
-          const _nd = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+          const _nd = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
           const _fmtD = (d) => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
-          // v19.98 -- REVISAR (lo mando el vecino por el bot y falta darlo por bueno) cuenta como
-          //   recibido para el M3: ni sale la tarjeta por eso ni el texto dice "aun no hemos recibido".
+          const _isoD = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+          const _isoHoyC = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+          const _hoy0C = new Date(_isoHoyC + "T00:00:00");
+          const _dIso = (v) => { const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+          // v19.98 -- REVISAR (lo mando el vecino por el bot y falta darlo por bueno) cuenta como recibido.
           const _pend = (e) => { e = String(e || "").trim(); if (e.toUpperCase() === "REVISAR") return false; return !_SET_IGNORA.has(e) && !_SET_HECHO.has(e); };
-          const _comusM3 = await _comunidadesHoy();   // v19.89: lectura compartida (v19.26: aqui no existe "comus")
-          for (const c of (_comusM3 || [])) {
-            if (!c || normalizarFase(c.fase_presupuesto || "") !== "08_CYCP") continue;
-            if (String(c.fecha_cycp_completa || "").trim()) continue;
-            // v19.36 — misma ancla que los correos ({{fecha_limite_cycp}}): fecha de envío
-            //   de contratos; si faltara, la del correo 08-INICIO CYCP.
-            let _anc = String(c.fecha_envio_contratos_pagos || "");
-            if (!/^\d{4}-\d{2}-\d{2}/.test(_anc)) { try { const _u = c.mails_ultimo_envio ? JSON.parse(c.mails_ultimo_envio) : {}; _anc = String(_u["08_INICIO_CYCP"] || ""); } catch (e) {} }
-            const _m = _anc.match(/^(\d{4})-(\d{2})-(\d{2})/);
-            if (!_m) continue;
-            const _dA = new Date(+_m[1], +_m[2] - 1, +_m[3]);
-            const _dias = Math.floor((_hoyMs - _dA.getTime()) / 86400000);
-            if (_dias < _diaM3) continue;
-            const _dL = new Date(_dA.getTime()); _dL.setDate(_dL.getDate() + PLAZO_CYCP_INICIAL);
-            const _dP = new Date(_dA.getTime()); _dP.setDate(_dP.getDate() + PLAZO_CYCP_INICIAL + _prorroga08);   // v19.36: casilla de la plantilla
-            const _amp = _p5ProrrogaConcedida(c);   // v19.29: omitida = sin prorroga
-            const _via = String(c.tipo_via || "").trim();
-            const _k1 = _nd(c.direccion), _k2 = _nd(c.comunidad);
-            for (let i = 1; i < _piRowsAll.length; i++) {
-              const _pr = _piRowsAll[i]; if (!_pr) continue;
-              const _kc = _nd(_pr[1]);
-              if (!_kc || (_kc !== _k1 && _kc !== _k2)) continue;
-              // v19.59 -- Ya marcado: solo vuelve a salir (duro) si la prorroga esta concedida,
-              //   ya termino y el marcado fue antes de ese fin (era el M3 amable).
-              // v19.102 -- piso en M con email en sus notas: el aviso va por correo (boton de la
-              //   carta) y el correo 08-RECORDATORIO M3 (VECINO) enviado cuenta como marcado.
-              const _esMail3 = String(_pr[47] || "").trim().toUpperCase() !== "BOT_WHATSAPP" && _RE_MAILN.test(String(_pr[46] || ""));
-              const _mail3 = _esMail3 ? ((_mailsVec[_ndM(_pr[1]) + "|" + _ndM(_pr[2])] || {})["08_REC_M3_VECINO"] || []).slice().sort().pop() || "" : "";
-              const _mk3 = [String(_pr[50] || "").trim(), _mail3].filter(Boolean).sort().pop() || "";
-              if (_mk3) {
-                const _isoP3 = _dP.getFullYear() + "-" + String(_dP.getMonth() + 1).padStart(2, "0") + "-" + String(_dP.getDate()).padStart(2, "0");
-                const _isoHoy3 = new Date(_hoyMs).toISOString().slice(0, 10);
-                if (!(_amp && _isoHoy3 > _isoP3 && _mk3.slice(0, 10) <= _isoP3)) continue;
+          const _esMovil = (t) => { let n = String(t || "").replace(/\D/g, ""); if (n.length === 11 && n.startsWith("34")) n = n.slice(2); if (n.length === 13 && n.startsWith("0034")) n = n.slice(4); return /^[67]\d{8}$/.test(n); };
+          const _azDe = (v) => { const o = {}; String(v || "").split(";").forEach(x => { const m = String(x).match(/^\s*([A-Z0-9]+)=(\d{4}-\d{2}-\d{2})/); if (m) o[m[1]] = m[2]; }); return o; };
+          const _mk = (v) => { v = String(v || "").trim(); if (!v) return ""; return /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : "0000-00-00"; };   // "1" antiguo = marcado sin fecha
+          const _max = (...xs) => xs.filter(Boolean).sort().pop() || "";
+          const _subAv = (t, v) => String(t || "")
+            .replace(/\{\{1\}\}/g, _p5NombreWa(v.nombre)).replace(/\{nombre\}/g, _p5NombreWa(v.nombre))
+            .replace(/\{tipo_via\}/g, v.via ? (v.via + " ") : "")
+            .replace(/\{comunidad\}/g, v.comunidad).replace(/\{piso\}/g, v.piso).replace(/\{vivienda\}/g, v.piso)
+            .replace(/\{fecha_limite\}/g, v.fL).replace(/\{fecha_prorroga\}/g, v.fP)
+            .replace(/\{fecha_limite_vigente\}/g, v.conced ? v.fP : v.fL)
+            .replace(/\{prorroga_nota\}/g, v.conced ? " (fecha ampliada por la prórroga concedida a su comunidad)" : "")
+            .replace(/\{vence_el\}/g, _p5VenceEl(v.conced ? v.fP : v.fL))
+            .replace(/\{pendiente\}/g, v.pend)
+            .replace(/\{consecuencia\}/g, _p5Consecuencia(v.conced ? v.fP : v.fL, v.pend, null, v.es08));
+          // Ficha del bot de cada piso (solo la del telefono actual, v19.61).
+          const _botPorPiso = {};
+          for (let i = 1; i < _erows.length; i++) {
+            const r = _erows[i]; if (!r || !r[0]) continue;
+            const kk = String(r[1] || "").trim().toLowerCase() + "|" + String(r[2] || "").trim().toLowerCase();
+            if (_pisosTel[kk] && String(r[0] || "").replace(/\D/g, "").slice(-9) !== _pisosTel[kk]) continue;
+            _botPorPiso[_nd(r[1]) + "|" + _nd(r[2])] = r;
+          }
+          for (const c of ((await _comunidadesHoy()) || [])) {
+            const fz = normalizarFase(c && c.fase_presupuesto || "");
+            if (fz !== "05_DOCUMENTACION" && fz !== "08_CYCP") continue;
+            const es08 = fz === "08_CYCP";
+            if (es08 && String(c.fecha_cycp_completa || "").trim()) continue;
+            const k1 = _nd(c.direccion), k2 = _nd(c.comunidad);
+            const pisosC = [];
+            for (let i = 1; i < _piRowsAll.length; i++) { const pr = _piRowsAll[i]; if (!pr || !String(pr[2] || "").trim()) continue; const kc = _nd(pr[1]); if (kc && (kc === k1 || kc === k2)) pisosC.push(pr); }
+            if (!pisosC.length) continue;
+            // Dia comun de la comunidad
+            let ini = "";
+            if (es08) {
+              ini = String(c.fecha_envio_contratos_pagos || "");
+              if (!/^\d{4}-\d{2}-\d{2}/.test(ini)) { try { const _u = c.mails_ultimo_envio ? JSON.parse(c.mails_ultimo_envio) : {}; ini = String(_u["08_INICIO_CYCP"] || ""); } catch (e) { ini = ""; } }
+            } else {
+              ini = _contactoComMin[String(c.comunidad || "").trim().toLowerCase()] || _contactoComMin[String(c.direccion || "").trim().toLowerCase()] || "";
+              if (!/^\d{4}-\d{2}-\d{2}/.test(String(ini))) ini = _max(_primerDocVec[k1], _primerDocVec[k2], pisosC.map(pr => _azDe(pr[51]).INI).filter(Boolean).sort()[0]);
+            }
+            const dIni = _dIso(ini);
+            if (!dIni) continue;   // la comunidad aun no ha empezado: no hay cadena
+            const dias = Math.round((_hoy0C.getTime() - dIni.getTime()) / 86400000);
+            const plazo = es08 ? PLAZO_CYCP_INICIAL : PLAZO_DOC_INICIAL;
+            const prorr = es08 ? _prorroga08 : _prorroga05;
+            const dL = new Date(dIni.getTime()); dL.setDate(dL.getDate() + plazo);
+            const dP = new Date(dIni.getTime()); dP.setDate(dP.getDate() + plazo + prorr);
+            const conced = _p5ProrrogaConcedida(c);
+            const BM = String(c.fecha_disidentes_solicitados || "").slice(0, 10);
+            const hayBM = /^\d{4}-\d{2}-\d{2}$/.test(BM);
+            // Etapa de la comunidad: plazo (en plazo) -> espera (vencido sin decidir) ->
+            //   amable2 (prorroga concedida y en curso) -> espera (prorroga vencida) -> duro (disidentes pedidos)
+            let etapa;
+            if (hayBM) etapa = "duro";
+            else if (conced) etapa = (_isoHoyC > _isoD(dP)) ? "espera" : "amable2";
+            else etapa = (_isoHoyC > _isoD(dL)) ? "espera" : "plazo";
+            const via = String(c.tipo_via || "").trim();
+            for (const pr of pisosC) {
+              const viv = String(pr[2] || "").trim();
+              if (_SET_HECHO.has(String(pr[42] || "").trim())) continue;   // disidente
+              let pendTxt;
+              if (es08) { const fc = _pend(pr[43]), fp = _pend(pr[44]); if (!fc && !fp) continue; pendTxt = _p5PendienteCycp(fc, fp); }
+              else { if (await _pisoVerde(pr[1] || "", viv)) continue; pendTxt = "la documentación de su vivienda"; }
+              const kp = _nd(pr[1]) + "|" + _nd(viv);
+              const bot = _botPorPiso[kp] || null;
+              const mv = _mailsVec[kp] || {};
+              const az = _azDe(pr[51]);
+              const enW = String(pr[47] || "").trim().toUpperCase() === "BOT_WHATSAPP";
+              const conMail = !enW && _RE_MAILN.test(String(pr[46] || ""));
+              const movil = _esMovil(pr[0]);
+              const canal = enW ? "bot" : (conMail ? "mail" : (movil ? "wa" : "nada"));
+              const ult = (f) => (mv[f] || []).slice().sort().pop() || "";
+              const nom = String(pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
+              const v = { nombre: nom, via, comunidad: c.direccion || c.comunidad || "", piso: viv, fL: _fmtD(dL), fP: _fmtD(dP), conced, pend: pendTxt, es08 };
+              const base = { comunidad: pr[1] || "", vivienda: viv, nombre: nom, telefono: pr[0] || "", canal, fecha: _fmtD(dIni), ts: dIni.getTime(), dias, flag: false };
+              // 2) Inicio de la cadena
+              const inicio = es08
+                ? _max(bot && _mk(bot[32]), ult("08_CYCP_VECINO"), az.M4)
+                : _max(bot && _mk(bot[9]), ult("05_DOC_VECINO"), az.INI);
+              // Legado: antes de la v19.102 el inicio manual (WhatsApp, M4) no dejaba registro. En las
+              //   comunidades que empezaron la 05 antes del 07/10/2026 o pasaron a 08 antes del 10/10/2026
+              //   se da por hecho; desde ahi, solo cuenta lo registrado.
+              const inicioOk = !!inicio || (es08 ? _isoD(dIni) < (process.env.AVISOS_LEGADO_08 || "2026-10-10") : _isoD(dIni) < (process.env.AVISOS_LEGADO_05 || "2026-10-07"));
+              if (!inicioOk) {
+                const _waIni = (canal === "wa" || (es08 && canal === "bot" && movil)) ? _subAv(es08 ? _msgWaM4 : _msgIni05, v) : "";
+                _avisosArr.push(Object.assign({ tipo: "inicio", es08, mailFase: canal === "mail" ? (es08 ? "08_CYCP_VECINO" : "05_DOC_VECINO") : "", waMsg: _waIni, registra: _waIni ? (es08 ? "M4" : "INI") : "", campo: "az:" + (es08 ? "M4" : "INI") }, base));
+                continue;
               }
-              if (_SET_HECHO.has(String(_pr[42] || "").trim())) continue; // disidente
-              if (!_pend(_pr[43]) && !_pend(_pr[44])) continue;        // contrato y pago entregados
-              const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
-              const _pendTxt = _p5PendienteCycp(_pend(_pr[43]), _pend(_pr[44]));
-              const _txt = String(_msgWaM3 || "")
-                .replace(/\{\{1\}\}/g, _p5NombreWa(_nom)).replace(/\{nombre\}/g, _p5NombreWa(_nom))
-                .replace(/\{tipo_via\}/g, _via ? (_via + " ") : "")
-                .replace(/\{comunidad\}/g, c.direccion || c.comunidad || "")
-                .replace(/\{piso\}/g, _pr[2] || "").replace(/\{vivienda\}/g, _pr[2] || "")
-                .replace(/\{fecha_limite\}/g, _fmtD(_dL)).replace(/\{fecha_prorroga\}/g, _fmtD(_dP))
-                .replace(/\{fecha_limite_vigente\}/g, _amp ? _fmtD(_dP) : _fmtD(_dL))
-                .replace(/\{prorroga_nota\}/g, _amp ? " (fecha ampliada por la pr\u00f3rroga concedida a su comunidad)" : "")
-                .replace(/\{vence_el\}/g, _p5VenceEl(_amp ? _fmtD(_dP) : _fmtD(_dL)))
-                .replace(/\{pendiente\}/g, _pendTxt)
-                .replace(/\{consecuencia\}/g, _p5Consecuencia(_amp ? _fmtD(_dP) : _fmtD(_dL), _pendTxt, null, true));
-              _avisosArr.push({ tipo: "cycp", dias: _dias, flag: false, waMsg: _txt, fecha: _fmtD(_dA), ts: _dA.getTime(), mailFase: _esMail3 ? "08_REC_M3_VECINO" : "",
-                comunidad: _pr[1] || "", vivienda: _pr[2] || "", nombre: _nom, telefono: _pr[0] || "" });
+              // 3) Avisos
+              if (es08) {
+                if (etapa !== "amable2" && etapa !== "duro") continue;
+                if (dias < _diaM3) continue;
+                const marca = _max(_mk(pr[50]), ult("08_REC_M3_VECINO"));
+                if (etapa === "amable2" && marca) continue;
+                if (etapa === "duro" && marca && marca >= BM) continue;
+                _avisosArr.push(Object.assign({ tipo: "cycp", duro: etapa === "duro", mailFase: canal === "mail" ? "08_REC_M3_VECINO" : "", waMsg: (canal === "bot" || canal === "wa") ? _subAv(_msgWaM3, v) : "", campo: "aviso_m3" }, base));
+              } else {
+                const m1 = _max(bot && _mk(bot[26]), ult("05_REC_M1_VECINO"), az.M1);
+                const m2 = _max(bot && _mk(bot[31]), ult("05_REC_M2_VECINO"), az.M2);
+                let st = 0;
+                if (etapa === "plazo") { if (dias >= _diaM1 && !m1) st = 1; }
+                else if (etapa === "amable2") { if (dias >= _diaM2 && !m2) st = 2; }
+                else if (etapa === "duro") { if (!m2 || m2 < BM) st = 2; }
+                if (!st) continue;
+                const mudo = !!(bot && String(bot[5] || "").trim() === "pregunta_tipo");
+                const txt = (canal === "bot" && mudo) ? (st === 1 ? _msgWaM1 : _msgWaM2) : (st === 1 ? _msgWaM1n : _msgWaM2n);
+                const conFicha = canal === "bot" && !!bot;
+                _avisosArr.push(Object.assign({ tipo: "m05", subtipo: st, duro: etapa === "duro", mailFase: canal === "mail" ? (st === 1 ? "05_REC_M1_VECINO" : "05_REC_M2_VECINO") : "", waMsg: (canal === "bot" || canal === "wa") ? _subAv(txt, v) : "",
+                  campo: conFicha ? (st === 1 ? "llamado" : "llamado2") : ("az:M" + st), telCheck: conFicha ? (bot[0] || "") : (pr[0] || "") }, base));
+              }
             }
           }
-        } catch (eM3) { console.error("[presupuestos] HOY aviso M3 fase 08:", eM3.message); }
+        } catch (eC) { console.error("[presupuestos] HOY cadena de avisos:", eC.message); }
+
         _avisosArr.sort((a, b) => (a.ts == null ? Infinity : a.ts) - (b.ts == null ? Infinity : b.ts));
       } catch (e) { console.error("[presupuestos] HOY avisos:", e.message); _avisosArr = []; }
 
@@ -13595,7 +13608,7 @@ module.exports = function (app) {
 
       const _notaPorPiso = {};
       try {
-        const _pr = await _leerHoy("pisos!A:AY");   // v19.89: lectura compartida (por cabecera; AY de mas no afecta)
+        const _pr = await _leerHoy("pisos!A:AZ");   // v19.89: lectura compartida (por cabecera; AY de mas no afecta)
         const _prr = _pr.data.values || [];
         const _ph = _prr[0] || [];
         const _ic = _ph.indexOf("comunidad"), _iv = _ph.indexOf("vivienda"), _in = _ph.indexOf("notas_piso");
@@ -13620,25 +13633,22 @@ module.exports = function (app) {
           ? `<textarea class="hoy-piso-notas" data-ccpp-id="${_esc(_ccpp)}" data-vivienda="${_esc(p.vivienda || "")}" data-orig="${_nota}" rows="1" placeholder="(notas del piso)" style="flex:1;min-width:0;margin:0 8px;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${_nota}</textarea>`
           : `<span style="flex:1;min-width:0;margin:0 8px;color:var(--ptl-gray-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nota}</span>`;
         let _campo, _chkTitle, _badge;
-        if (p.tipo === "presentacion") {
-          _campo = (p.subtipo === 2) ? "llamado2" : "llamado"; _chkTitle = "Marcar (recordatorio manual enviado)";
-          // v18.99b — icono circular VERDE de la M (mismo switch de gestión manual). W y M van como letra normal; solo la M pendiente lleva icono.
-          const _icM = (n) => `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;height:16px;min-width:16px;padding:0 4px;border-width:1px;border-style:solid;border-radius:999px;font-size:9px;line-height:1;vertical-align:middle">M${n}</span>`;
-          const _seqW = "0W-" + p.t1 + "W-" + p.t2 + "W";
-          const _cuerpo = (p.subtipo === 2)
-            ? `(${_seqW + (p.xM1 != null ? "-" + p.xM1 + "M" : "")} d\u00edas) - <strong>Recordatorio-${_icM("2")} pendiente</strong>`
-            : `(${_seqW} d\u00edas) - <strong>Recordatorio-${_icM("1")} pendiente</strong>`;
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde inicio doc ${_cuerpo}</span>`;
-        } else if (p.tipo === "mail05") {
-          // v19.102 -- M1/M2 por correo (vecino en M con email): se quita al enviar el correo.
-          _campo = ""; _chkTitle = "";
-          const _icMm = (n) => `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;height:16px;min-width:16px;padding:0 4px;border-width:1px;border-style:solid;border-radius:999px;font-size:9px;line-height:1;vertical-align:middle">M${n}</span>`;
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0" title="Se quita sola al enviar el correo">${p.dias} d\u00edas desde inicio doc (${_esc(p.fecha || "")}) - ${ICONO_MAIL} <strong>Recordatorio-${_icMm(p.subtipo)} pendiente</strong></span>`;
+        // v19.102 -- cadena de avisos unificada (05 y 08): icono de la M, etiqueta amable / duro y camino.
+        const _icMx = (n) => `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;height:16px;min-width:16px;padding:0 4px;border-width:1px;border-style:solid;border-radius:999px;font-size:9px;line-height:1;vertical-align:middle">M${n}</span>`;
+        const _tono = (p) => p.duro ? ` <span style="font-weight:700">(duro)</span>` : ` <span style="font-weight:400">(amable)</span>`;
+        const _camTxt = (p) => p.canal === "mail" ? " \u00b7 por correo" : p.canal === "wa" ? " \u00b7 WhatsApp manual" : p.canal === "nada" ? " \u00b7 sin m\u00f3vil ni correo: llamar" : "";
+        let _telChk = p.telefono || "";
+        if (p.tipo === "inicio") {
+          _campo = p.campo; _chkTitle = "Marcar: ya se le envi\u00f3 (por otra v\u00eda)";
+          const _qu = p.es08 ? "contrato y carta de pago sin enviar" : (p.canal === "bot" ? "presentaci\u00f3n del bot sin enviar" : "documentaci\u00f3n sin pedir");
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde ${p.es08 ? "env\u00edo de contratos" : "inicio doc"} (${_esc(p.fecha || "")}) - <strong>Inicio pendiente</strong>: ${_qu}${_camTxt(p)}</span>`;
+        } else if (p.tipo === "m05") {
+          _campo = p.campo; _chkTitle = "Marcar (recordatorio enviado)"; _telChk = p.telCheck || _telChk;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde inicio doc (${_esc(p.fecha || "")}) - <strong>Recordatorio-${_icMx(p.subtipo)} pendiente</strong>${_tono(p)}${_camTxt(p)}</span>`;
         } else if (p.tipo === "cycp") {
           // v19.19 — Aviso M3 de fase 08 (contrato y carta de pago pendientes).
           _campo = "aviso_m3"; _chkTitle = "Marcar (recordatorio M3 enviado)";
-          const _icM3 = `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;height:16px;min-width:16px;padding:0 4px;border-width:1px;border-style:solid;border-radius:999px;font-size:9px;line-height:1;vertical-align:middle">M3</span>`;
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde env\u00edo de contratos (${_esc(p.fecha || "")}) - <strong>Recordatorio-${_icM3} pendiente</strong></span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde env\u00edo de contratos (${_esc(p.fecha || "")}) - <strong>Recordatorio-${_icMx(3)} pendiente</strong>${_tono(p)}${_camTxt(p)}</span>`;
         } else if (p.tipo === "sin_wa") {
           // v19.99 -- el numero no tiene WhatsApp: boton "Pasar a M" + check (visto, se queda en W)
           _campo = "sin_wa_visto"; _chkTitle = "Visto: dejarlo en W";
@@ -13659,13 +13669,13 @@ module.exports = function (app) {
         const _mailHtml = (p.mailFase && _ccpp)
           ? `<a href="${_esc(urlT(token, "/documentacion/expediente", { id: _ccpp, mailaviso: p.mailFase, piso: p.vivienda || "" }) + "#piso-" + encodeURIComponent(p.vivienda || ""))}" class="hoy-aviso-mail" title="Abrir el correo de recordatorio ya escrito" style="flex:0 0 auto;text-decoration:none;font-size:14px;line-height:1">${ICONO_MAIL}</a>`
           : "";
-        const _waHtml = _mailHtml ? _mailHtml : (_wa && p.tipo !== "sin_wa")   // v19.99: sin WhatsApp, no hay chat que abrir
-          ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
+        const _waHtml = _mailHtml ? _mailHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
+          ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}"${p.registra ? ` class="hoy-wa-registra" data-reg="${_esc(p.registra)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}"` : ""} onclick="if(this.classList.contains('hoy-wa-registra')&&window.__hoyRegistraWa)window.__hoyRegistraWa(this);var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
           : "";
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
           ${_dirHtml}
-          ${_campo ? `<input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-campo="${_campo}" title="${_chkTitle}"${p.flag ? " checked" : ""}>` : `<span style="flex:0 0 13px;width:13px"></span>`}
+          ${_campo ? `<input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(_telChk)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-campo="${_campo}" title="${_chkTitle}"${p.flag ? " checked" : ""}>` : `<span style="flex:0 0 13px;width:13px"></span>`}
           <span class="hoy-piso-num" style="flex:0 0 auto;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
@@ -13784,7 +13794,7 @@ module.exports = function (app) {
         const dm = await _leerDocsManuales();
         const docsPisoHoy = dm.docsPiso || [];
         const sheetsHoy = getSheetsClient();
-        const r = await _leerHoy("pisos!A:AY");   // v19.89: lectura compartida (por cabecera; AY de mas no afecta)
+        const r = await _leerHoy("pisos!A:AZ");   // v19.89: lectura compartida (por cabecera; AY de mas no afecta)
         const rowsP = r.data.values || [];
         if (rowsP.length >= 2) {
           const hdr = rowsP[0];
@@ -15178,6 +15188,16 @@ module.exports = function (app) {
                 } catch(e){ alert('No se pudo pasar a M: ' + e.message); btn.disabled = false; }
               });
             });
+            // v19.102 -- WhatsApp manual de inicio (o M4) abierto desde una tarjeta "Inicio pendiente":
+            //   queda apuntado en el piso (pisos col AZ) y la tarjeta se quita.
+            window.__hoyRegistraWa = function (a) {
+              try {
+                fetch('${urlT(token, "/presupuestos/hoy-bot-llamado")}', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                  body: new URLSearchParams({ campo: 'az:' + (a.dataset.reg || ''), valor: '1', comunidad: a.dataset.com || '', vivienda: a.dataset.viv || '' }).toString() })
+                  .then(function (r) { if (r.ok) { var f = a.closest('.hoy-exp-fila'); if (f) f.remove(); } else { r.text().then(function (t) { alert('Se abri\u00f3 el WhatsApp, pero no se pudo apuntar el env\u00edo: ' + t); }); } })
+                  .catch(function (e) { alert('Se abri\u00f3 el WhatsApp, pero no se pudo apuntar el env\u00edo: ' + e.message); });
+              } catch (e) {}
+            };
             document.querySelectorAll('.hoy-bot-llamado').forEach(function(chk){
               chk.addEventListener('change', async function(){
                 var tel = chk.dataset.tel;
@@ -15191,7 +15211,7 @@ module.exports = function (app) {
                     body: body.toString()
                   });
                   if (!res.ok) { chk.checked = !chk.checked; var tx = await res.text(); alert('No se pudo guardar: ' + tx); }
-                  else if ((campo === 'revisado' || campo === 'revisado_faltan' || campo === 'revisado_ayuda' || campo === 'aviso_m3' || campo === 'sin_wa_visto') && chk.checked) { var _fila = chk.closest('.hoy-exp-fila'); if (_fila) _fila.remove(); }
+                  else if ((campo === 'revisado' || campo === 'revisado_faltan' || campo === 'revisado_ayuda' || campo === 'aviso_m3' || campo === 'sin_wa_visto' || campo.indexOf('az:') === 0) && chk.checked) { var _fila = chk.closest('.hoy-exp-fila'); if (_fila) _fila.remove(); }
                 } catch(e){ chk.checked = !chk.checked; alert('No se pudo guardar: ' + e.message); }
                 finally { chk.disabled = false; }
               });
@@ -16366,6 +16386,43 @@ module.exports = function (app) {
         await sheetsP.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "pisos!AY" + rowP, valueInputOption: "RAW", requestBody: { values: [[_vM3]] } });
         return res.json({ ok: true });
       }
+      // v19.102 (criterio de Guille, 09/10/2026) -- marcas de la cadena de avisos de los vecinos
+      //   sin ficha de bot (o por otro camino): pisos col AZ "aviso_manual", con el formato
+      //   "INI=aaaa-mm-dd;M1=...;M2=...;M4=...". INI/M4 = inicio (documentacion / contrato) enviado;
+      //   M1/M2 = recordatorio enviado. valor "1" pone la fecha de hoy; vacio la quita.
+      if (/^az:(INI|M1|M2|M4)$/.test(campo)) {
+        const clave = campo.slice(3);
+        const _ndAz = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+        const com = String(req.body.comunidad || "").trim().toLowerCase();
+        const viv = String(req.body.vivienda || "").trim().toLowerCase();
+        if (!com || !viv) return _err("comunidad y vivienda requeridas");
+        const sheetsP = getSheetsClient();
+        const rP = await sheetsP.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AZ" });
+        const rowsP = rP.data.values || [];
+        let rowP = -1;
+        for (let i = 1; i < rowsP.length; i++) {
+          const f = rowsP[i] || [];
+          if (_ndAz(f[1]) === _ndAz(com) && String(f[2] || "").trim().toLowerCase() === viv) { rowP = i + 1; break; }
+        }
+        if (rowP < 0) return _err("piso no encontrado");
+        // la pestana pisos llega hasta AY: si falta la columna AZ, se crea con su titulo
+        try {
+          const meta = await sheetsP.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
+          const sh = (meta.data.sheets || []).find(x => x.properties && x.properties.title === "pisos");
+          const cc = (sh && sh.properties.gridProperties && sh.properties.gridProperties.columnCount) || 0;
+          if (sh && cc > 0 && cc < 52) await sheetsP.spreadsheets.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { requests: [{ appendDimension: { sheetId: sh.properties.sheetId, dimension: "COLUMNS", length: 52 - cc } }] } });
+        } catch (e2) { console.error("[presupuestos] hoy-bot-llamado AZ expandir:", e2.message); }
+        if (!String((rowsP[0] || [])[51] || "").trim()) {
+          try { await sheetsP.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "pisos!AZ1", valueInputOption: "RAW", requestBody: { values: [["aviso_manual"]] } }); } catch (e3) {}
+        }
+        const actual = {};
+        String((rowsP[rowP - 1] || [])[51] || "").split(";").forEach(x => { const m = String(x).match(/^\s*([A-Z0-9]+)=(\S+)/); if (m) actual[m[1]] = m[2]; });
+        if (valor === "1") actual[clave] = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+        else delete actual[clave];
+        const txt = Object.keys(actual).map(k => k + "=" + actual[k]).join(";");
+        await sheetsP.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "pisos!AZ" + rowP, valueInputOption: "RAW", requestBody: { values: [[txt]] } });
+        return res.json({ ok: true });
+      }
       if (!tel) return _err("tel requerido");
       // El bot solo usa A:Z; los flags de la caja Avisos se guardan en AA (llamado) y AB (revisado).
       const _col = campo === "sin_wa_visto" ? "AK" : (campo === "revisado" ? "AB" : (campo === "revisado_faltan" ? "AD" : (campo === "revisado_ayuda" ? "AE" : (campo === "llamado2" ? "AF" : "AA"))));   // v19.99: AK = sin WhatsApp visto
@@ -16417,12 +16474,17 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
-      const which = ["m1", "m2", "m3", "m4", "m5"].includes(String(req.body.which || "").trim()) ? String(req.body.which).trim() : "m1";
+      const which = ["m1", "m2", "m3", "m4", "m5", "ini05"].includes(String(req.body.which || "").trim()) ? String(req.body.which).trim() : "m1";
       const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
-      const _defDia = { m1: 5, m2: 21, m3: 11, m4: 0, m5: 0 }[which];   // v19.91
+      const _defDia = { m1: 5, m2: 21, m3: 11, m4: 0, m5: 0, ini05: 0 }[which];   // v19.91
       await guardarAjusteBot("t_wa_" + which, parseDia(req.body.dias, _defDia), true);
       const msg = String(req.body.texto || "").replace(/\r\n/g, "\n").trim();
       await guardarAjusteBot("msg_wa_" + which, msg);
+      // v19.102 -- M1/M2: texto neutro (vecinos en M sin correo o en W que ya contestaron)
+      if ((which === "m1" || which === "m2") && req.body.texto_n != null) {
+        const msgN = String(req.body.texto_n || "").replace(/\r\n/g, "\n").trim();
+        if (msgN) await guardarAjusteBot("msg_wa_" + which + "n", msgN);
+      }
       res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/wa-manual:", e.message);
@@ -16980,6 +17042,7 @@ module.exports = function (app) {
     PLAZO_DOC_INICIAL,
     PLAZO_CYCP_INICIAL,
     leerPlantillaMail,   // v19.36 — documentacion lee los dias de prorroga de las plantillas
+    _WA_MANUAL_INI, // v19.102 — textos de partida de los WhatsApp manuales de la cadena de avisos
     _PLANTILLAS_VECINO_INI, // v19.100 — textos de partida de los correos a un vecino (si la plantilla no existe)
     _migAvisosV1960: () => _migAvisosV1960(),   // v19.60 — para probarla a mano
     SHEET_ID,

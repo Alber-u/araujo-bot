@@ -575,6 +575,8 @@ module.exports = function (app) {
   // sustituidas. Se cachea 5 minutos para no leer el Sheet en cada fila.
   let _m3Cache = { txt: "", ts: 0 };
   let _m4Cache = { txt: "", ts: 0 };   // v19.28 -- texto M4 (envio CyCP), se rellena al leer el M5
+  let _ini05Cache = { txt: "", ts: 0 };   // v19.102 -- inicio de documentacion por WhatsApp manual (fase 05)
+  async function _leerMsgIni05() { await _leerMsgWaM3(); const P = app.locals.presupuestos || {}; return _ini05Cache.txt || ((P._WA_MANUAL_INI && P._WA_MANUAL_INI.ini05) || ""); }
   async function _leerMsgWaM4() { await _leerMsgWaM3(); return _m4Cache.txt || ""; }
   async function _leerMsgWaM3() {
     if (_m3Cache.txt && (Date.now() - _m3Cache.ts) < 300000) return _m3Cache.txt;
@@ -592,6 +594,7 @@ module.exports = function (app) {
       for (let i = 1; i < filas.length; i++) {
         const f = filas[i] || [];
         const k = String(f[0] || "").trim();
+        if (k === "msg_wa_ini05" && String(f[6] || "").trim().toUpperCase() === "SI") { _ini05Cache = { txt: String(f[3] || ""), ts: Date.now() }; continue; }   // v19.102
         if (k !== "msg_wa_m3" && k !== "msg_wa_m4" && k !== "msg_wa_m5") continue;
         if (String(f[6] || "").trim().toUpperCase() !== "SI") continue;   // desactivada
         if (k === "msg_wa_m5") _txtM5 = String(f[3] || "");
@@ -742,7 +745,7 @@ module.exports = function (app) {
     // v19.35 -- Criterio de Guille: el M3 NO va en el menu (es el aviso automatico de
     //   HOY en fase 08, como M1/M2 en fase 05). Menu de fase 08: M4 y M5.
     const _waBtn = (!esCcpp && _wa && _waHref4)
-      ? `<a class="ptl-vec-wa" href="${_waHref}" data-wa4="${esc(_waHref4)}" onclick="return window.__ptlWaMenu ? window.__ptlWaMenu(this, event) : true;" title="Escribir por WhatsApp: elige M4 (env\u00edo CyCP) o M5 (WhatsApp manual)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">${ICONO_WHATSAPP}</a>`
+      ? `<a class="ptl-vec-wa" href="${_waHref}" data-wa4="${esc(_waHref4)}" data-lbl4="${esc(opciones.waLbl4 || "M4 \u00b7 Env\u00edo CyCP")}" data-reg4="${esc(opciones.waReg4 || "M4")}" data-com="${esc(opciones.comPiso || "")}" data-viv="${esc(vivienda || "")}" onclick="return window.__ptlWaMenu ? window.__ptlWaMenu(this, event) : true;" title="Escribir por WhatsApp: elige ${esc(opciones.waLbl4 || "M4 (env\u00edo CyCP)")} o M5 (WhatsApp manual)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">${ICONO_WHATSAPP}</a>`
       : (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">${ICONO_WHATSAPP}</a>` : "";
     // v19.100 -- boton de la carta (correo al vecino): pisos en M en fases 05, 07 y 08. El email
     //   se saca de sus notas al pulsar. Criterio de Guille: un solo boton por piso -- con email en
@@ -786,7 +789,7 @@ module.exports = function (app) {
     </tr>`;
   }
 
-  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias, mailVecino, histMails, avisoM3 }) {
+  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias, mailVecino, histMails, avisoM3, azMap, msgIni05 }) {
     const docsPisoCompletos = docsManuales.piso || [];
     const docsCcppCompletos = docsManuales.ccpp || [];
 
@@ -919,6 +922,9 @@ module.exports = function (app) {
       const m3 = (avisoM3 || {})[String(pp.vivienda || "").trim().toLowerCase()];
       if (m3) l.push({ iso: /^\d{4}-/.test(m3) ? m3 : "", txt: "\uD83D\uDCAC Recordatorio M3 (marcado en HOY)" });
       (_histPorPiso[String(pp.vivienda || "").trim().toLowerCase()] || []).forEach(x => l.push(x));
+      // v19.102 -- WhatsApp manuales y marcas apuntadas en el piso (pisos col AZ)
+      const _NOM_AZ = { INI: "\uD83D\uDCAC Inicio documentaci\u00f3n (WhatsApp manual)", M4: "\uD83D\uDCAC Contrato y carta de pago (M4, manual)", M1: "\uD83D\uDCAC Recordatorio M1 (marcado en HOY)", M2: "\uD83D\uDCAC Recordatorio M2 (marcado en HOY)" };
+      String((azMap || {})[String(pp.vivienda || "").trim().toLowerCase()] || "").split(";").forEach(x => { const m = String(x).match(/^\s*([A-Z0-9]+)=(\d{4}-\d{2}-\d{2})/); if (m && _NOM_AZ[m[1]]) l.push({ iso: m[2], txt: _NOM_AZ[m[1]] }); });
       l.sort((a, c) => String(a.iso || "9").localeCompare(String(c.iso || "9")));
       return l;
     };
@@ -928,14 +934,16 @@ module.exports = function (app) {
       const l = _historial(pp);
       return (l.length ? l.map(x => _fmtH(x.iso) + "  " + x.txt).join("\n") : "Contacto no iniciado") + "\n" + _SEP + "\n" + _SIN_REG;
     };
-    let _nBot = 0, _nMail = 0, _nNada = 0;
+    let _nBot = 0, _nMail = 0, _nWa = 0, _nNada = 0;
     (pisos || []).forEach((pp) => {
       const b = _botDe(pp);
+      const _azP = String((azMap || {})[String(pp.vivienda || "").trim().toLowerCase()] || "");
       if (b && b.J) _nBot++;
       else if ((_histPorPiso[String(pp.vivienda || "").trim().toLowerCase()] || []).length) _nMail++;
+      else if (/(^|;)\s*(INI|M4)=/.test(_azP)) _nWa++;
       else _nNada++;
     });
-    const _resumenVecinos = (pisos || []).length + " vecinos: " + _nBot + " con bot \u00b7 " + _nMail + " por correo \u00b7 " + _nNada + " sin contacto";
+    const _resumenVecinos = (pisos || []).length + " vecinos: " + _nBot + " con bot \u00b7 " + _nMail + " por correo \u00b7 " + _nWa + " por WhatsApp manual \u00b7 " + _nNada + " sin contacto";
     // ----- Fila CCPP virtual -----
     // v17.52: pasar enHoy + ccppId para el botón reloj.
     // v17.13: pasar notas_pto para la nueva columna NOTAS.
@@ -1070,8 +1078,16 @@ module.exports = function (app) {
           // v19.27 -- {pendiente}: en fase 08, contrato y/o carta segun sus estados.
           pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
         }) : "",
-        // v19.28 -- En fase 08, segundo texto (M4 envio CyCP): el boton pregunta cual mandar.
-        waMsg4: ((_es08 || _es07) && String(msgWaM4 || "").trim()) ? _subVarsM3(String(msgWaM4), {
+        // v19.102 -- en fase 05 el menu ofrece "Inicio documentacion" (WhatsApp manual); al abrirlo
+        //   queda apuntado (pisos col AZ: INI). En 07/08, el M4 tambien queda apuntado (M4).
+        waLbl4: _es05 ? "Inicio documentaci\u00f3n" : "M4 \u00b7 Env\u00edo CyCP",
+        waReg4: _es05 ? "INI" : "M4",
+        comPiso: p.comunidad || (comu && (comu.direccion || comu.comunidad)) || "",
+        waMsg4: (_es05 && String(msgIni05 || "").trim()) ? _subVarsM3(String(msgIni05), {
+          nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
+          fechaLimite: _fmtDia(_anclaM3(p), _plazoM3), fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3),
+          ampliada: _p5ProrrogaConcedida(comu), fase08: false, pendiente: "la documentaci\u00f3n de su vivienda",
+        }) : ((_es08 || _es07) && String(msgWaM4 || "").trim()) ? _subVarsM3(String(msgWaM4), {
           nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
           // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
           //   que es justo la fecha que promete el aviso de prórroga.
@@ -1435,14 +1451,23 @@ module.exports = function (app) {
             m.style.cssText = 'position:absolute;z-index:9999;background:#fff;border:1px solid var(--ptl-gray-300);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.2);padding:4px;font-size:12px;min-width:190px';
             m.style.left = Math.max(4, r.left + window.scrollX - 170) + 'px';
             m.style.top = (r.bottom + window.scrollY + 4) + 'px';
-            var ops = [['M4 \u00b7 Env\u00edo CyCP', el.getAttribute('data-wa4')], ['M5 \u00b7 WhatsApp manual', el.href]];
+            var ops = [[el.getAttribute('data-lbl4') || 'M4 \u00b7 Env\u00edo CyCP', el.getAttribute('data-wa4'), el.getAttribute('data-reg4') || 'M4'], ['M5 \u00b7 WhatsApp manual', el.href, '']];
             ops.forEach(function (o) {
               var b = document.createElement('button');
               b.type = 'button'; b.textContent = o[0];
               b.style.cssText = 'display:block;width:100%;text-align:left;border:none;background:none;padding:6px 8px;cursor:pointer;color:#111;font-size:12px;border-radius:4px';
               b.onmouseenter = function () { b.style.background = 'var(--ptl-gray-100)'; };
               b.onmouseleave = function () { b.style.background = 'none'; };
-              b.onclick = function () { m.remove(); window.__ptlWaAbrir(o[1]); };
+              b.onclick = function () {
+                m.remove(); window.__ptlWaAbrir(o[1]);
+                // v19.102 -- el inicio de documentacion (05) y el M4 (07/08) quedan apuntados en el piso
+                if (o[2]) {
+                  fetch(URL_AVISO_AZ, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: new URLSearchParams({ campo: 'az:' + o[2], valor: '1', comunidad: el.getAttribute('data-com') || '', vivienda: el.getAttribute('data-viv') || '' }).toString() })
+                    .then(function (r) { if (!r.ok) r.text().then(function (t) { alert('Se abri\u00f3 el WhatsApp, pero no se pudo apuntar el env\u00edo: ' + t); }); })
+                    .catch(function (e) { alert('Se abri\u00f3 el WhatsApp, pero no se pudo apuntar el env\u00edo: ' + e.message); });
+                }
+              };
               m.appendChild(b);
             });
             document.body.appendChild(m);
@@ -1452,6 +1477,7 @@ module.exports = function (app) {
             return false;
           };
           const URL_GUARDAR     = ${JSON.stringify(urlT(token, "/documentacion/piso/guardar"))};
+          const URL_AVISO_AZ    = ${JSON.stringify(urlT(token, "/presupuestos/hoy-bot-llamado"))};   // v19.102
           // v17.52: endpoints de reloj "Añadir a HOY".
           const URL_EXP_CAMPO   = ${JSON.stringify(urlT(token, "/presupuestos/expediente/campo"))};
           const URL_PISO_TOGGLE = ${JSON.stringify(urlT(token, "/presupuestos/piso/toggle-hoy"))};
@@ -2735,6 +2761,7 @@ module.exports = function (app) {
         const botDatos = await leerBotDatos(comu).catch(() => ({ docsByPiso: {}, tipoByPiso: {}, descByPiso: {} }));
         const _msgWaM3 = await _leerMsgWaM3();   // v18.128 (hoy: M5, WhatsApp manual)
         const _msgWaM4 = await _leerMsgWaM4();   // v19.28 (envio CyCP, fase 08)
+        const _msgIni05 = await _leerMsgIni05();   // v19.102 (inicio de documentacion por WhatsApp manual, fase 05)
         // v19.36 — dias de prorroga de las plantillas (mismo dato que usan los correos)
         let _prorrogaDias = { f05: 0, f08: 0 };
         try {
@@ -2757,7 +2784,7 @@ module.exports = function (app) {
         } catch (_) {}
         // v19.102 (criterio de Guille, 09/10/2026) -- globo del W/M: correos a vecinos de esta
         //   comunidad (mail_historico) y marcas del M3 (pisos col AY).
-        let _histMails = [], _avisoM3 = {};
+        let _histMails = [], _avisoM3 = {}, _azMap = {};
         try {
           const _mh = await _leerCompartido("mail_historico!A:F");
           const _dn = String(comu.direccion || "").trim().toLowerCase();
@@ -2769,18 +2796,20 @@ module.exports = function (app) {
           }
         } catch (_) {}
         try {
-          const _py = await _leerCompartido("pisos!A:AY");
+          const _py = await _leerCompartido("pisos!A:AZ");
           for (let i = 1; i < _py.length; i++) {
             const f = _py[i]; if (!f) continue;
             if (!(mismaDireccion(f[1] || "", comu.direccion) || mismaDireccion(f[1] || "", comu.comunidad))) continue;
             if (String(f[50] || "").trim()) _avisoM3[String(f[2] || "").trim().toLowerCase()] = String(f[50]).trim();
+            if (String(f[51] || "").trim()) _azMap[String(f[2] || "").trim().toLowerCase()] = String(f[51]).trim();   // v19.102
           }
         } catch (_) {}
         cajitaManual = cajitaManualHtml({
-          histMails: _histMails, avisoM3: _avisoM3,
+          histMails: _histMails, avisoM3: _avisoM3, azMap: _azMap,
           mailVecino: _mailVec,
           msgWaM3: _msgWaM3,
           msgWaM4: _msgWaM4,
+          msgIni05: _msgIni05,
           prorrogaDias: _prorrogaDias,
           comu, pisos, expedientes, docsManuales, estadosCcpp, esc: P.esc, fmtTlf, token, botDatos,
         });
