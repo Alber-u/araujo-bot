@@ -2217,51 +2217,10 @@ module.exports = function (app) {
   }
 
   // Guarda una plantilla en mail_plantillas. Si la fila existe, la actualiza; si no, la añade.
-  // v19.100 (criterio de Guille, 07/10/2026) -- Textos de partida de los dos correos a un
-  //   vecino (boton de la carta en la caja de documentacion, pisos en M). Solo se usan para
-  //   rellenar la tarjeta mientras la plantilla no existe en el Sheet. Variables de los M:
-  //   {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}...
-  const _VIDEO_CORREOS = "INSTRUCCIONES VIDEO: https://drive.google.com/file/d/1sgLurK0hTXAt0FJfxyhch14vtGTjVN-d/view?usp=sharing";
-  const _PLANTILLAS_VECINO_INI = {
-    "05_DOC_VECINO": {
-      asunto: "{tipo_via}{comunidad} ({piso}) -Plan 5 individualizaci\u00f3n contadores (DOCUMENTACION)",
-      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nPara tramitar su contrato con EMASESA, le enviamos las INSTRUCCIONES con la SOLICITUD DE EMASESA y un v\u00eddeo explicativo del proceso.\n\n*RECEPCI\u00d3N DE DOCUMENTACI\u00d3N*\n- Fotograf\u00edas o PDF respondiendo a este correo.\n- FECHA L\u00cdMITE: {fecha_limite_vigente}{prorroga_nota}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
-      adjuntos_fijos: "INSTRUCCIONES:||" + _VIDEO_CORREOS + "||",
-    },
-    "08_CYCP_VECINO": {
-      asunto: "{tipo_via}{comunidad} ({piso}) -Plan 5 individualizaci\u00f3n contadores (CONTRATO Y CARTA DE PAGO)",
-      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nPara proceder con la contrataci\u00f3n y el inicio de las obras, le enviamos su CONTRATO DE EMASESA y la CARTA DE PAGO.\n\n*NECESITAMOS*\n- Remita el contrato firmado (LAS 4 HOJAS).\n- Remita el justificante de abono de la Carta de Pago.\n- Si solicit\u00f3 financiar el pago, no abone la carta de pago: nos pondremos en contacto con usted.\n\n*FORMA DE PAGO*\n- En las oficinas de EMASESA, C/ Escuelas P\u00edas 1, en el cajero habilitado.\n- En su cajero, con el c\u00f3digo de barras del documento.\n- Transferencia a LA CAIXA ES11 2100 1683 1002 0003 1492, titular EMPR. METRO. ABAST. SANEA. AGUAS SEVILLA, indicando PLAN 5, nombre, direcci\u00f3n y piso.\n\n*RECEPCI\u00d3N DE DOCUMENTACI\u00d3N*\n- Fotograf\u00edas o PDF respondiendo a este correo.\n- FECHA L\u00cdMITE: {fecha_limite_vigente}{prorroga_nota}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
-      adjuntos_fijos: _VIDEO_CORREOS + "||||",
-    },
-    // v19.102 (criterio de Guille, 09/10/2026) -- recordatorios por correo (M1/M2 en 05, M3 en 08)
-    //   a vecinos en M con correo: los mismos textos que los WhatsApp M1-M3, adaptados al correo.
-    "05_REC_M1_VECINO": {
-      asunto: "{tipo_via}{comunidad} ({piso}) - Plan 5 individualizaci\u00f3n contadores (RECORDATORIO DOCUMENTACION)",
-      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nLe recordamos que necesitamos {pendiente} para tramitar su contrato con EMASESA (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
-      adjuntos_fijos: "",
-    },
-    "05_REC_M2_VECINO": {
-      asunto: "{tipo_via}{comunidad} ({piso}) - Plan 5 individualizaci\u00f3n contadores (RECORDATORIO DOCUMENTACION)",
-      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nA\u00fan no hemos recibido {pendiente} (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
-      adjuntos_fijos: "",
-    },
-    "08_REC_M3_VECINO": {
-      asunto: "{tipo_via}{comunidad} ({piso}) - Plan 5 individualizaci\u00f3n contadores (RECORDATORIO CONTRATO Y CARTA DE PAGO)",
-      mensaje: "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\nA\u00fan no hemos recibido {pendiente} de su vivienda (si necesita ayuda, puede responder a este Mail o escribirnos por WhatsApp al 634-379-632).\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
-      adjuntos_fijos: "",
-    },
-  };
-  // v19.102 (criterio de Guille, 09/10/2026) -- WhatsApp manuales de la cadena de avisos (Flujo bot):
-  //   ini05 = inicio de documentacion por WhatsApp manual (fase 05); m1n / m2n = M1 / M2 NEUTROS
-  //   (vecinos en M sin correo, o en W que ya contestaron: no dicen "le hemos enviado 3 mensajes").
-  //   Textos de partida mientras la fila no exista en bot_plantillas. Misma estructura que M1-M5.
-  const _WA_CABECERA = "Hola {nombre}, somos Instalaciones Araujo.\n\nEstamos gestionando en su comunidad el Plan 5 de EMASESA para la individualizaci\u00f3n de contadores de agua de su vivienda {tipo_via}{comunidad} ({piso}).\n\n";
-  const _WA_COLA = "\n\nEl plazo para entregarnos {pendiente} {vence_el}{prorroga_nota}.\n\n{consecuencia}\n\nComun\u00edquenos cualquier duda que le pueda surgir.";
-  const _WA_MANUAL_INI = {
-    ini05: _WA_CABECERA + "Para tramitar su contrato con EMASESA, le enviamos las INSTRUCCIONES con la SOLICITUD DE EMASESA y un v\u00eddeo explicativo del proceso.\n\n*RECEPCI\u00d3N DE DOCUMENTACI\u00d3N*\n- Fotograf\u00edas o PDF respondiendo a este WhatsApp.\n- FECHA L\u00cdMITE: {fecha_limite_vigente}{prorroga_nota}\n\nComun\u00edquenos cualquier duda que le pueda surgir.",
-    m1n: _WA_CABECERA + "Le recordamos que necesitamos {pendiente} para tramitar su contrato con EMASESA (si necesita ayuda, puede escribirnos por aqu\u00ed mismo)." + _WA_COLA,
-    m2n: _WA_CABECERA + "A\u00fan no hemos recibido {pendiente} (si necesita ayuda, puede escribirnos por aqu\u00ed mismo)." + _WA_COLA,
-  };
+  // v19.103 (criterio de Guille, 09/10/2026) -- SIN TEXTOS DE RESPALDO EN EL CODIGO: todas las
+  //   plantillas (correos a vecinos y WhatsApp manuales) viven SOLO en el Sheet. Si una falta, esta
+  //   vacia o desactivada, no se usa ningun otro texto: la tarjeta o el boton avisa "Falta la
+  //   plantilla ... o esta desactivada". (Antes: _PLANTILLAS_VECINO_INI y _WA_MANUAL_INI.)
   // v19.102 -- recordatorios por correo de cada tarjeta de inicio (VECINO): [fase, titulo, clave de dias]
   const _REC_VECINO = {
     "05_DOC_VECINO":  [["05_REC_M1_VECINO", "RECORDATORIO M1", "m1"], ["05_REC_M2_VECINO", "RECORDATORIO M2", "m2"]],
@@ -9656,16 +9615,10 @@ module.exports = function (app) {
       let texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "";
       // v19.28 -- M5 = WhatsApp manual (antes M4). Mientras no se haya guardado nunca,
       //   su tarjeta se rellena con el texto que tenia el M4 (y si no, el M3).
-      if (which === "m5" && !texto) {
-        const f4 = plantillas.find(x => x.clave === "msg_wa_m4");
-        const f3 = plantillas.find(x => x.clave === "msg_wa_m3");
-        texto = (f4 && String(f4.texto || "").trim() !== "") ? f4.texto : ((f3 && String(f3.texto || "").trim() !== "") ? f3.texto : "");
-      }
-      // v19.102 -- inicio de documentacion por WhatsApp manual: texto de partida si no existe
-      if (which === "ini05" && !texto) texto = _WA_MANUAL_INI.ini05;
+      // v19.103 -- sin respaldo: el M5 ya no se rellena con el M4/M3 ni el inicio con un texto del codigo.
       // v19.102 -- M1/M2: segundo texto, NEUTRO, para vecinos en M sin correo o en W que ya contestaron
       const _fn = (which === "m1" || which === "m2") ? plantillas.find(x => x.clave === "msg_wa_" + which + "n") : null;
-      const _textoN = (which === "m1" || which === "m2") ? ((_fn && String(_fn.texto || "").trim() !== "") ? _fn.texto : _WA_MANUAL_INI[which + "n"]) : null;
+      const _textoN = (which === "m1" || which === "m2") ? ((_fn && String(_fn.texto || "").trim() !== "") ? _fn.texto : "") : null;
       const _desde = (which === "m3") ? "desde el env\u00edo de contratos (fase 08)" : "desde la presentaci\u00f3n";
       // v19.25 -- Titulo con dia y fase (M4: manual, boton de WhatsApp del vecino).
       const _ttlAv = sinDia
@@ -13237,7 +13190,8 @@ module.exports = function (app) {
           const _plr = (_pl.data.values || []);
           for (let i = 1; i < _plr.length; i++) {
             const _k = _plr[i] && String(_plr[i][0] || "").trim();
-            const _rawv = _plr[i] ? String(_plr[i][3] || "") : "";
+            // v19.103 -- un texto desactivado (col G distinta de SI) cuenta como que no existe
+            const _rawv = _plr[i] ? ((/^msg_/.test(_k) && String(_plr[i][6] || "").trim().toUpperCase() !== "SI") ? "" : String(_plr[i][3] || "")) : "";
             const _n = parseFloat(_rawv.replace(",", ".").trim());
             if (_k === "t_presentacion_2" && !isNaN(_n) && _n >= 0) _umbralPresent = _n;
             else if (_k === "t_presentacion_1" && !isNaN(_n) && _n >= 0) _t1Present = _n;
@@ -13254,9 +13208,11 @@ module.exports = function (app) {
             else if (_k === "msg_wa_ini05") _msgIni05 = _rawv;
           }
         } catch (e) {}
-        if (!String(_msgWaM1n).trim()) _msgWaM1n = _WA_MANUAL_INI.m1n;   // v19.102: textos de partida
-        if (!String(_msgWaM2n).trim()) _msgWaM2n = _WA_MANUAL_INI.m2n;
-        if (!String(_msgIni05).trim()) _msgIni05 = _WA_MANUAL_INI.ini05;
+        // v19.103 -- plantillas de correo de la cadena: si faltan o estan desactivadas, la tarjeta lo dice
+        const _mailPlOk = {};
+        for (const _fpl of ["05_DOC_VECINO", "05_REC_M1_VECINO", "05_REC_M2_VECINO", "08_CYCP_VECINO", "08_REC_M3_VECINO"]) {
+          try { const _x = await leerPlantillaMail(_fpl); _mailPlOk[_fpl] = !!(_x && _x.activo !== false && String(_x.mensaje || "").trim()); } catch (e) { _mailPlOk[_fpl] = false; }
+        }
         const _exp = await _leerHoy("bot_expedientes!A:AK");   // v19.89: lectura compartida (v19.99: hasta AK, sin WhatsApp)
         const _erows = (_exp.data.values || []);
         // v18.99d — nombres MAESTROS desde la pestaña "pisos" (donde el usuario los edita).
@@ -13377,7 +13333,7 @@ module.exports = function (app) {
           }
           const _tipoViaRaw = (_tipoViaMap[String(r[1] || "").trim().toLowerCase()] || "").trim(); const _tipoViaM = _tipoViaRaw ? (_tipoViaRaw + " ") : "";
           const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _p5NombreWa(_base.nombre)).replace(/\{nombre\}/g, _p5NombreWa(_base.nombre)).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)).replace(/\{prorroga_nota\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? " (fecha ampliada por la prórroga concedida a su comunidad)" : "")).replace(/\{vence_el\}/g, _p5VenceEl((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM))).replace(/\{pendiente\}/g, "la documentaci\u00f3n de su vivienda").replace(/\{consecuencia\}/g, _p5Consecuencia((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM), "la documentaci\u00f3n de su vivienda"));
-          const _waM3 = _subVars(_msgWaM5 || _msgWaM4 || _msgWaM3);
+          const _waM3 = _subVars(_msgWaM5);   // v19.103: solo el M5 (sin respaldo M4/M3)
           // v19.99 (criterio de Guille) -- Sin WhatsApp: Twilio dijo que este numero no tiene
           //   WhatsApp (col AJ, la pone el bot) y no esta marcado como visto (col AK). Solo si el
           //   piso sigue en W (si ya esta en M no hace falta) y con este mismo telefono (arriba).
@@ -13560,8 +13516,12 @@ module.exports = function (app) {
               //   se da por hecho; desde ahi, solo cuenta lo registrado.
               const inicioOk = !!inicio || (es08 ? _isoD(dIni) < (process.env.AVISOS_LEGADO_08 || "2026-10-10") : _isoD(dIni) < (process.env.AVISOS_LEGADO_05 || "2026-10-07"));
               if (!inicioOk) {
-                const _waIni = (canal === "wa" || (es08 && canal === "bot" && movil)) ? _subAv(es08 ? _msgWaM4 : _msgIni05, v) : "";
-                _avisosArr.push(Object.assign({ tipo: "inicio", es08, mailFase: canal === "mail" ? (es08 ? "08_CYCP_VECINO" : "05_DOC_VECINO") : "", waMsg: _waIni, registra: _waIni ? (es08 ? "M4" : "INI") : "", campo: "az:" + (es08 ? "M4" : "INI") }, base));
+                const _usaWa = (canal === "wa" || (es08 && canal === "bot" && movil));
+                const _tIni = es08 ? _msgWaM4 : _msgIni05;
+                const _waIni = (_usaWa && String(_tIni).trim()) ? _subAv(_tIni, v) : "";
+                const _mfI = es08 ? "08_CYCP_VECINO" : "05_DOC_VECINO";
+                const _faltaI = canal === "mail" ? (_mailPlOk[_mfI] ? "" : (es08 ? "08-INICIO CYCP (VECINO)" : "05-INICIO DOC (VECINO)")) : ((_usaWa && !String(_tIni).trim()) ? (es08 ? "Aviso M4" : "Inicio doc") : "");
+                _avisosArr.push(Object.assign({ tipo: "inicio", es08, mailFase: (canal === "mail" && !_faltaI) ? _mfI : "", waMsg: _waIni, registra: _waIni ? (es08 ? "M4" : "INI") : "", campo: "az:" + (es08 ? "M4" : "INI"), falta: _faltaI }, base));
                 continue;
               }
               // 3) Avisos
@@ -13571,7 +13531,8 @@ module.exports = function (app) {
                 const marca = _max(_mk(pr[50]), ult("08_REC_M3_VECINO"));
                 if (etapa === "amable2" && marca) continue;
                 if (etapa === "duro" && marca && marca >= BM) continue;
-                _avisosArr.push(Object.assign({ tipo: "cycp", duro: etapa === "duro", mailFase: canal === "mail" ? "08_REC_M3_VECINO" : "", waMsg: (canal === "bot" || canal === "wa") ? _subAv(_msgWaM3, v) : "", campo: "aviso_m3" }, base));
+                const _faltaM3 = canal === "mail" ? (_mailPlOk["08_REC_M3_VECINO"] ? "" : "08-RECORDATORIO M3 (VECINO)") : ((canal === "bot" || canal === "wa") && !String(_msgWaM3).trim() ? "Aviso M3" : "");
+                _avisosArr.push(Object.assign({ tipo: "cycp", duro: etapa === "duro", mailFase: (canal === "mail" && !_faltaM3) ? "08_REC_M3_VECINO" : "", waMsg: ((canal === "bot" || canal === "wa") && !_faltaM3) ? _subAv(_msgWaM3, v) : "", campo: "aviso_m3", falta: _faltaM3 }, base));
               } else {
                 const m1 = _max(bot && _mk(bot[26]), ult("05_REC_M1_VECINO"), az.M1);
                 const m2 = _max(bot && _mk(bot[31]), ult("05_REC_M2_VECINO"), az.M2);
@@ -13583,7 +13544,10 @@ module.exports = function (app) {
                 const mudo = !!(bot && String(bot[5] || "").trim() === "pregunta_tipo");
                 const txt = (canal === "bot" && mudo) ? (st === 1 ? _msgWaM1 : _msgWaM2) : (st === 1 ? _msgWaM1n : _msgWaM2n);
                 const conFicha = canal === "bot" && !!bot;
-                _avisosArr.push(Object.assign({ tipo: "m05", subtipo: st, duro: etapa === "duro", mailFase: canal === "mail" ? (st === 1 ? "05_REC_M1_VECINO" : "05_REC_M2_VECINO") : "", waMsg: (canal === "bot" || canal === "wa") ? _subAv(txt, v) : "",
+                const _mfR = st === 1 ? "05_REC_M1_VECINO" : "05_REC_M2_VECINO";
+                const _faltaR = canal === "mail" ? (_mailPlOk[_mfR] ? "" : "05-RECORDATORIO M" + st + " (VECINO)")
+                  : ((canal === "bot" || canal === "wa") && !String(txt).trim() ? ("Aviso M" + st + ((canal === "bot" && mudo) ? "" : " (texto neutro)")) : "");
+                _avisosArr.push(Object.assign({ tipo: "m05", subtipo: st, duro: etapa === "duro", falta: _faltaR, mailFase: (canal === "mail" && !_faltaR) ? _mfR : "", waMsg: ((canal === "bot" || canal === "wa") && !_faltaR) ? _subAv(txt, v) : "",
                   campo: conFicha ? (st === 1 ? "llamado" : "llamado2") : ("az:M" + st), telCheck: conFicha ? (bot[0] || "") : (pr[0] || "") }, base));
               }
             }
@@ -13672,6 +13636,8 @@ module.exports = function (app) {
         const _waHtml = _mailHtml ? _mailHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}"${p.registra ? ` class="hoy-wa-registra" data-reg="${_esc(p.registra)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}"` : ""} onclick="if(this.classList.contains('hoy-wa-registra')&&window.__hoyRegistraWa)window.__hoyRegistraWa(this);var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
           : "";
+        // v19.103 -- plantilla que falta o esta desactivada: no se ofrece ningun texto alternativo
+        if (p.falta) _badge += `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto;width:auto" title="Cr\u00e9ala o act\u00edvala (Plantillas mail o Flujo bot) y recarga">\u26A0 Falta la plantilla ${_esc(p.falta)} o est\u00e1 desactivada</span>`;
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
           ${_dirHtml}
@@ -15500,7 +15466,6 @@ module.exports = function (app) {
         if (p) return p;
         // v19.100 -- Correos a un vecino: si aun no existen, la tarjeta sale con los textos
         //   aprobados por Guille (07/10/2026); no se escribe nada hasta pulsar Guardar.
-        if (_PLANTILLAS_VECINO_INI[f]) return Object.assign({ fase: f, activo: true, dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "" }, _PLANTILLAS_VECINO_INI[f]);
         // Plantilla no creada todavía: fila vacía para que el usuario la rellene
         return {
           fase: f,
@@ -15531,7 +15496,7 @@ module.exports = function (app) {
       const _recVec = {};
       for (const _rf of _REC_VECINO_TODAS) {
         const _x = await leerPlantillaMail(_rf).catch(() => null);
-        _recVec[_rf] = _x || Object.assign({ fase: _rf, activo: true, cco: "" }, _PLANTILLAS_VECINO_INI[_rf] || {});
+        _recVec[_rf] = _x || { fase: _rf, activo: true, asunto: "", mensaje: "", cco: "" };   // v19.103: sin texto de respaldo
       }
       // v19.53 — dias de los WhatsApp M1-M3 (Plantillas del bot) para la ventana de Tiempos
       const _waDias = { m1: 5, m2: 21, m3: 11 };   // v19.91: repuestos al dia
@@ -17042,8 +17007,6 @@ module.exports = function (app) {
     PLAZO_DOC_INICIAL,
     PLAZO_CYCP_INICIAL,
     leerPlantillaMail,   // v19.36 — documentacion lee los dias de prorroga de las plantillas
-    _WA_MANUAL_INI, // v19.102 — textos de partida de los WhatsApp manuales de la cadena de avisos
-    _PLANTILLAS_VECINO_INI, // v19.100 — textos de partida de los correos a un vecino (si la plantilla no existe)
     _migAvisosV1960: () => _migAvisosV1960(),   // v19.60 — para probarla a mano
     SHEET_ID,
     getSheetsClient,

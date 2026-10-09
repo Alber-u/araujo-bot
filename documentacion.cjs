@@ -576,7 +576,7 @@ module.exports = function (app) {
   let _m3Cache = { txt: "", ts: 0 };
   let _m4Cache = { txt: "", ts: 0 };   // v19.28 -- texto M4 (envio CyCP), se rellena al leer el M5
   let _ini05Cache = { txt: "", ts: 0 };   // v19.102 -- inicio de documentacion por WhatsApp manual (fase 05)
-  async function _leerMsgIni05() { await _leerMsgWaM3(); const P = app.locals.presupuestos || {}; return _ini05Cache.txt || ((P._WA_MANUAL_INI && P._WA_MANUAL_INI.ini05) || ""); }
+  async function _leerMsgIni05() { await _leerMsgWaM3(); return _ini05Cache.txt || ""; }   // v19.103: sin texto de respaldo
   async function _leerMsgWaM4() { await _leerMsgWaM3(); return _m4Cache.txt || ""; }
   async function _leerMsgWaM3() {
     if (_m3Cache.txt && (Date.now() - _m3Cache.ts) < 300000) return _m3Cache.txt;
@@ -601,12 +601,13 @@ module.exports = function (app) {
         else if (k === "msg_wa_m4") _txtM4 = String(f[3] || "");
         else _txtM3 = String(f[3] || "");
       }
-      const _pers = _txtM5.trim() ? _txtM5 : (_txtM4.trim() ? _txtM4 : _txtM3);
-      _m4Cache = { txt: _txtM5.trim() ? _txtM4 : "", ts: Date.now() };   // M4 como envio CyCP solo cuando ya existe M5
-      if (_pers.trim()) {
-        _m3Cache = { txt: _pers, ts: Date.now() };
-        return _m3Cache.txt;
-      }
+      // v19.103 (criterio de Guille) -- sin respaldo: el boton personal usa SOLO el M5 y el envio
+      //   CyCP SOLO el M4. Si falta o esta desactivado, el boton avisa en vez de usar otro texto.
+      const _pers = _txtM5;
+      _m4Cache = { txt: _txtM4, ts: Date.now() };
+      _ini05Cache.ts = Date.now();
+      _m3Cache = { txt: _pers, ts: Date.now() };
+      return _m3Cache.txt;
     } catch (e) { console.warn("[documentacion] no se pudo leer msg_wa_m3:", e.message); }
     _m3Cache = { txt: "", ts: Date.now() };
     return "";
@@ -744,9 +745,11 @@ module.exports = function (app) {
     const _waHref4 = _waTxt4 ? ("https://web.whatsapp.com/send?phone=" + _wa + "&text=" + encodeURIComponent(_waTxt4)) : "";
     // v19.35 -- Criterio de Guille: el M3 NO va en el menu (es el aviso automatico de
     //   HOY en fase 08, como M1/M2 en fase 05). Menu de fase 08: M4 y M5.
-    const _waBtn = (!esCcpp && _wa && _waHref4)
-      ? `<a class="ptl-vec-wa" href="${_waHref}" data-wa4="${esc(_waHref4)}" data-lbl4="${esc(opciones.waLbl4 || "M4 \u00b7 Env\u00edo CyCP")}" data-reg4="${esc(opciones.waReg4 || "M4")}" data-com="${esc(opciones.comPiso || "")}" data-viv="${esc(vivienda || "")}" onclick="return window.__ptlWaMenu ? window.__ptlWaMenu(this, event) : true;" title="Escribir por WhatsApp: elige ${esc(opciones.waLbl4 || "M4 (env\u00edo CyCP)")} o M5 (WhatsApp manual)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">${ICONO_WHATSAPP}</a>`
-      : (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">${ICONO_WHATSAPP}</a>` : "";
+    // v19.103 -- sin texto de respaldo: el menu sale en 05/07/08 y el boton sin texto avisa
+    const _waTxtOk = !!_waTxt.trim();
+    const _waBtn = (!esCcpp && _wa && opciones.conMenu)
+      ? `<a class="ptl-vec-wa" href="${_waHref}" data-wa4="${esc(_waHref4)}" data-lbl4="${esc(opciones.waLbl4 || "M4 \u00b7 Env\u00edo CyCP")}" data-reg4="${esc(opciones.waReg4 || "M4")}" data-falta4="${esc(_waHref4 ? "" : (opciones.waReg4 === "INI" ? "Inicio doc" : "Aviso M4"))}" data-falta5="${_waTxtOk ? "" : "Aviso M5"}" data-com="${esc(opciones.comPiso || "")}" data-viv="${esc(vivienda || "")}" onclick="return window.__ptlWaMenu ? window.__ptlWaMenu(this, event) : true;" title="Escribir por WhatsApp: elige ${esc(opciones.waLbl4 || "M4 (env\u00edo CyCP)")} o M5 (WhatsApp manual)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">${ICONO_WHATSAPP}</a>`
+      : (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="if(${_waTxtOk ? "false" : "true"}){alert('Falta la plantilla Aviso M5 o est\u00e1 desactivada (Flujo bot).');return false;}var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">${ICONO_WHATSAPP}</a>` : "";
     // v19.100 -- boton de la carta (correo al vecino): pisos en M en fases 05, 07 y 08. El email
     //   se saca de sus notas al pulsar. Criterio de Guille: un solo boton por piso -- con email en
     //   las notas sale solo la carta (se le escribe por correo); sin email, solo el WhatsApp.
@@ -1081,6 +1084,7 @@ module.exports = function (app) {
         // v19.102 -- en fase 05 el menu ofrece "Inicio documentacion" (WhatsApp manual); al abrirlo
         //   queda apuntado (pisos col AZ: INI). En 07/08, el M4 tambien queda apuntado (M4).
         waLbl4: _es05 ? "Inicio documentaci\u00f3n" : "M4 \u00b7 Env\u00edo CyCP",
+        conMenu: _es05 || _es07 || _es08,   // v19.103
         waReg4: _es05 ? "INI" : "M4",
         comPiso: p.comunidad || (comu && (comu.direccion || comu.comunidad)) || "",
         waMsg4: (_es05 && String(msgIni05 || "").trim()) ? _subVarsM3(String(msgIni05), {
@@ -1108,7 +1112,8 @@ module.exports = function (app) {
           if (String(p.bot_piso_activo || "").toUpperCase() === "BOT_WHATSAPP") return null;
           const _pl = _es05 ? (mailVecino && mailVecino.f05) : ((_es07 || _es08) ? (mailVecino && mailVecino.f08) : null);
           const _okPl = (x) => !!(x && x.activo !== false && String(x.mensaje || "").trim());
-          if (!_okPl(_pl)) return null;
+          // v19.103 -- sin plantilla (o desactivada): el boton de la carta sigue saliendo y avisa
+          if (!_okPl(_pl)) return { fase: _es05 ? "05_DOC_VECINO" : "08_CYCP_VECINO", falta: _es05 ? "05-INICIO DOC (VECINO)" : "08-INICIO CYCP (VECINO)", rec: {} };
           const _dV = {
             nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
             fechaLimite: _es07 ? _fmtDia(_hoyIsoM4 + "T12:00:00", (_Pm3.PLAZO_CYCP_INICIAL || 10)) : _fmtDia(_anclaM3(p), _plazoM3),
@@ -1382,8 +1387,10 @@ module.exports = function (app) {
             if (!m) { alert('Escribe el email del vecino en sus notas.'); return false; }
             if (typeof window.ptlAbrirMailPrellenado !== 'function') { alert('No encuentro el compositor de correo de la ficha.'); return false; }
             var d; try { d = JSON.parse(el.dataset.mail || '{}'); } catch (e) { d = {}; }
+            if (d.falta && !recFase) { alert('Falta la plantilla ' + d.falta + ' o est\u00e1 desactivada (Plantillas mail).'); return false; }   // v19.103
             // v19.102 -- recordatorio por correo pedido desde un aviso de HOY
-            if (recFase) { if (!d.rec || !d.rec[recFase]) { alert('No encuentro la plantilla ' + recFase + ' (o est\u00e1 desactivada).'); return false; } d = d.rec[recFase]; }
+            if (recFase === d.fase && !d.falta) recFase = '';   // aviso "Inicio pendiente" por correo: el propio correo de inicio
+            if (recFase) { if (!d.rec || !d.rec[recFase]) { alert('Falta la plantilla ' + ({ '05_DOC_VECINO': '05-INICIO DOC (VECINO)', '08_CYCP_VECINO': '08-INICIO CYCP (VECINO)', '05_REC_M1_VECINO': '05-RECORDATORIO M1 (VECINO)', '05_REC_M2_VECINO': '05-RECORDATORIO M2 (VECINO)', '08_REC_M3_VECINO': '08-RECORDATORIO M3 (VECINO)' }[recFase] || recFase) + ' o est\u00e1 desactivada (Plantillas mail).'); return false; } d = d.rec[recFase]; }
             var adj = (d.adjuntos || []).slice();
             if (d.contrato) {
               var sw = fila.querySelector('.ptl-bot-switch-piso');
@@ -1451,7 +1458,7 @@ module.exports = function (app) {
             m.style.cssText = 'position:absolute;z-index:9999;background:#fff;border:1px solid var(--ptl-gray-300);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.2);padding:4px;font-size:12px;min-width:190px';
             m.style.left = Math.max(4, r.left + window.scrollX - 170) + 'px';
             m.style.top = (r.bottom + window.scrollY + 4) + 'px';
-            var ops = [[el.getAttribute('data-lbl4') || 'M4 \u00b7 Env\u00edo CyCP', el.getAttribute('data-wa4'), el.getAttribute('data-reg4') || 'M4'], ['M5 \u00b7 WhatsApp manual', el.href, '']];
+            var ops = [[el.getAttribute('data-lbl4') || 'M4 \u00b7 Env\u00edo CyCP', el.getAttribute('data-wa4'), el.getAttribute('data-reg4') || 'M4', el.getAttribute('data-falta4')], ['M5 \u00b7 WhatsApp manual', el.href, '', el.getAttribute('data-falta5')]];
             ops.forEach(function (o) {
               var b = document.createElement('button');
               b.type = 'button'; b.textContent = o[0];
@@ -1459,7 +1466,9 @@ module.exports = function (app) {
               b.onmouseenter = function () { b.style.background = 'var(--ptl-gray-100)'; };
               b.onmouseleave = function () { b.style.background = 'none'; };
               b.onclick = function () {
-                m.remove(); window.__ptlWaAbrir(o[1]);
+                m.remove();
+                if (o[3]) { alert('Falta la plantilla ' + o[3] + ' o est\u00e1 desactivada (Flujo bot).'); return; }   // v19.103
+                window.__ptlWaAbrir(o[1]);
                 // v19.102 -- el inicio de documentacion (05) y el M4 (07/08) quedan apuntados en el piso
                 if (o[2]) {
                   fetch(URL_AVISO_AZ, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
@@ -2776,8 +2785,7 @@ module.exports = function (app) {
         let _mailVec = { f05: null, f08: null };
         try {
           const _PP = app.locals.presupuestos || {};
-          const _ini = _PP._PLANTILLAS_VECINO_INI || {};
-          const _lee = async (f) => { const x = _PP.leerPlantillaMail ? await _PP.leerPlantillaMail(f).catch(() => null) : null; return x || (_ini[f] ? Object.assign({ activo: true, cco: "" }, _ini[f]) : null); };
+          const _lee = async (f) => { const x = _PP.leerPlantillaMail ? await _PP.leerPlantillaMail(f).catch(() => null) : null; return x || null; };   // v19.103: sin texto de respaldo
           _mailVec = { f05: await _lee("05_DOC_VECINO"), f08: await _lee("08_CYCP_VECINO"),
             // v19.102 -- recordatorios por correo (avisos de HOY con la carta)
             r1: await _lee("05_REC_M1_VECINO"), r2: await _lee("05_REC_M2_VECINO"), r3: await _lee("08_REC_M3_VECINO") };
