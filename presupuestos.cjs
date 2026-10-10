@@ -10871,7 +10871,7 @@ module.exports = function (app) {
     if (has("fecha_cycp_completa") || has("fecha_envio_contratos_pagos")) return "08_CYCP";
     if (has("fecha_documentacion_completa") || has("fecha_visita_emasesa")) return "06_VISITA_EMASESA";
     if (has("fecha_envio_pto")) return "04_ACEPTACION_PTO";
-    if (has("fecha_visita_pto")) return "03_ENVIO_PTO";
+    if (has("fecha_visita") || has("fecha_visita_pto")) return "03_ENVIO_PTO";   // v19.104: en el modelo la columna es fecha_visita
     return "01_CONTACTO";
   }
 
@@ -10913,7 +10913,10 @@ module.exports = function (app) {
         try {
           const _sh = getSheetsClient();
           const _r = await _sh.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `comunidades!BK${comu._rowIndex}` });
-          _fasePrevia = normalizarFase((((_r.data.values || [])[0] || [])[0]) || "");
+          // v19.104 -- BK vacia (expedientes rechazados antes de existir la columna): NO se normaliza,
+          //   porque normalizarFase("") devuelve 01_CONTACTO y nunca se llegaba a deducir por las fechas.
+          const _bkRaw = String((((_r.data.values || [])[0] || [])[0]) || "").trim();
+          _fasePrevia = _bkRaw ? normalizarFase(_bkRaw) : "";
         } catch (_) { _fasePrevia = ""; }
         const destino = (_fasePrevia && _fasePrevia !== "ZZ_DESCARTADO" && _fasePrevia !== "ZZ_RECHAZADO")
           ? _fasePrevia
@@ -13459,6 +13462,9 @@ module.exports = function (app) {
             if (fz !== "05_DOCUMENTACION" && fz !== "08_CYCP") continue;
             const es08 = fz === "08_CYCP";
             if (es08 && String(c.fecha_cycp_completa || "").trim()) continue;
+            // v19.105 (criterio de Guille, 10/10/2026) -- contrato resuelto: el expediente se cierra y no se
+            //   avisa a ningun vecino (ni inicio pendiente ni recordatorios).
+            if (/^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_contrato_resuelto || "").trim())) continue;
             const k1 = _nd(c.direccion), k2 = _nd(c.comunidad);
             const pisosC = [];
             for (let i = 1; i < _piRowsAll.length; i++) { const pr = _piRowsAll[i]; if (!pr || !String(pr[2] || "").trim()) continue; const kc = _nd(pr[1]); if (kc && (kc === k1 || kc === k2)) pisosC.push(pr); }
