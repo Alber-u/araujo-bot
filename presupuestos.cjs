@@ -40,6 +40,36 @@ function _p5ProrrogaOmitida(c) {
   if (!/^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_ultimatum_ampliado || "").trim())) return false;
   try { return !!JSON.parse(c.mails_enviados || "{}")["fecha_ultimatum_ampliado__SKIP"]; } catch (e) { return false; }
 }
+// v19.106 (criterio de Guille, 12/10/2026) -- FECHA DE LA PRORROGA ENVIADA. Antes la fecha
+//   ampliada se recalculaba siempre con la casilla de dias de la plantilla de prorroga, asi
+//   que cambiar la casilla movia la fecha de las prorrogas ya comunicadas. Ahora:
+//   1) al enviar la prorroga se guarda la fecha que dice el correo enviado en mails_enviados
+//      (clave fecha_ultimatum_ampliado__HASTA);
+//   2) las prorrogas enviadas antes de v19.106 la sacan del propio correo de prorroga que
+//      consta en Comunicaciones ("...ampliamos el plazo hasta el dd/mm/aaaa"), el primero
+//      enviado desde el dia sellado en fecha_ultimatum_ampliado;
+//   3) solo si no hay prorroga concedida (aun no se ha enviado) se calcula con la casilla.
+//   _p5ProrrogaHasta devuelve "" si no hay prorroga concedida o no se encuentra su correo.
+const _P5_HASTA_KEY = "fecha_ultimatum_ampliado__HASTA";
+const _p5ProrrHist = { ts: 0, porId: new Map(), porDir: new Map() };
+function _p5NormDir(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim().toLowerCase(); }
+function _p5HastaDeTexto(t) {
+  const s = String(t || "");
+  let m = s.match(/ampli\w*[^.\n]{0,120}?hasta el (\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  if (!m) m = s.match(/hasta el (\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  if (!m) return "";
+  return m[3] + "-" + String(m[2]).padStart(2, "0") + "-" + String(m[1]).padStart(2, "0");
+}
+function _p5ProrrogaHasta(c) {
+  if (!_p5ProrrogaConcedida(c)) return "";
+  let je = {}; try { je = JSON.parse(c.mails_enviados || "{}") || {}; } catch (e) { je = {}; }
+  const h = String(je[_P5_HASTA_KEY] || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(h)) return h;
+  const bl = String(c.fecha_ultimatum_ampliado || "").slice(0, 10);
+  const lista = _p5ProrrHist.porId.get(String(c.ccpp_id || "").trim()) || _p5ProrrHist.porDir.get(_p5NormDir(c.direccion || c.comunidad)) || [];
+  const e = lista.filter(x => x.f >= bl).sort((a, b) => (a.f < b.f ? -1 : a.f > b.f ? 1 : 0))[0];
+  return e ? e.h : "";
+}
 // v19.27 -- {consecuencia}: frase final de los avisos con plazo. Antes (o el mismo
 //   dia) del vencimiento: "Pasada esa fecha, ..."; despues: "Al haber vencido el
 //   plazo, si no recibimos <objeto> cuanto antes, ...". <objeto> es lo pendiente
@@ -3048,6 +3078,134 @@ module.exports = function (app) {
 
   // v17.29: lee TODO mail_historico (sin filtrar por CCPP) para construir
   // índices globales como el de F1 (calcular badge "👎 Retrasado").
+  // v19.106 -- Carga (cada 2 minutos como mucho) las fechas de los correos de prorroga ya
+  //   enviados, sacadas del texto de cada correo, para las prorrogas anteriores a v19.106
+  //   (ver _p5ProrrogaHasta). Solo correos que salieron (no los que entran) cuyo asunto
+  //   dice PRORROGA o con la plantilla de prorroga.
+  async function _cargarProrrogasHist(force) {
+    if (!force && _p5ProrrHist.ts && (Date.now() - _p5ProrrHist.ts) < 120000) return;
+    try {
+      const r = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_MAIL_HISTORICO });
+      const rows = (r.data && r.data.values) || [];
+      const porId = new Map(), porDir = new Map();
+      for (let i = 1; i < rows.length; i++) {
+        const x = rows[i]; if (!x) continue;
+        const tipo = String(x[8] || "");
+        if (tipo.startsWith("manual_entrad") || tipo === "entrante") continue;
+        const asunto = String(x[5] || ""), fase = String(x[3] || "");
+        if (/^\s*(re|rv|fw|fwd)\s*:/i.test(asunto)) continue;
+        if (!/PR[OÓ]RROGA/i.test(asunto) && !/_ULT_AVISO$/.test(fase)) continue;
+        const f = String(x[0] || "").slice(0, 10);
+        const h = _p5HastaDeTexto(x[6]);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !h) continue;
+        const e = { f, h };
+        const id = String(x[1] || "").trim();
+        if (id) { if (!porId.has(id)) porId.set(id, []); porId.get(id).push(e); }
+        const d = _p5NormDir(x[2]);
+        if (d) { if (!porDir.has(d)) porDir.set(d, []); porDir.get(d).push(e); }
+      }
+      _p5ProrrHist.porId = porId; _p5ProrrHist.porDir = porDir; _p5ProrrHist.ts = Date.now();
+    } catch (e) { console.warn("[presupuestos] prorrogas del historico:", e.message); }
+  }
+  // v19.106 -- Fecha ampliada de una comunidad: la de la prorroga enviada si la hay; si no
+  //   (aun no se ha concedido), la que daria la casilla de dias sobre la fecha limite.
+  //   Devuelve ISO o "".
+  async function _fechaProrrogaIso(comu, es08) {
+    await _cargarProrrogasHist();
+    const h = _p5ProrrogaHasta(comu);
+    if (h) return h;
+    const base = es08 ? _fechaTopeCycp(comu) : await _fechaLimiteDocBot(comu);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(base || ""))) return "";
+    const pl = await leerPlantillaMail(es08 ? "08_ULT_AVISO" : "05_ULT_AVISO").catch(() => null);
+    const n = parseInt(pl && pl.dias_primer_envio, 10);
+    if (!(Number.isFinite(n) && n > 0)) return "";
+    const d = new Date(String(base) + "T00:00:00"); d.setDate(d.getDate() + n);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  // v19.106 (criterio de Guille, 12/10/2026) -- {{resumen_comunicaciones}} para la
+  //   RESOLUCIÓN DE CONTRATO (05 y 08): la cadena del protocolo, solo con lo que consta
+  //   de verdad (correos que salieron, con su fecha real; nunca WhatsApp) y el plazo de
+  //   cada paso. Una línea por paso: "- dd/mm/aaaa: qué (plazo dd/mm/aaaa)."
+  //   05: solicitud del listado (05-INICIO DOC; "recibido" = día común) · solicitud de la
+  //       documentación a los vecinos (día común; plazo + 20) · prórroga (si se concedió)
+  //       · disidentes (si se enviaron).
+  //   08: solicitud de los contratos y justificantes a los vecinos (envío de contratos;
+  //       plazo + 10) · prórroga · disidentes.
+  //   Un paso que no consta (no enviado, "Continuar sin enviar") no sale.
+  //   Devuelve { lineas: [..], fechas: Set(ISO de los correos usados), cero: ISO del día común }.
+  const _p5Dmy = (iso) => { const s = String(iso || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? (s.slice(8, 10) + "/" + s.slice(5, 7) + "/" + s.slice(0, 4)) : ""; };
+  const _p5Mas = (iso, n) => { const d = new Date(String(iso).slice(0, 10) + "T00:00:00"); if (isNaN(d.getTime())) return ""; d.setDate(d.getDate() + n); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  async function _resumenComunicaciones(comu) {
+    const es08 = normalizarFase(comu.fase_presupuesto) === "08_CYCP";
+    const hist = (await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion || comu.comunidad))
+      .filter(m => { const t = String(m.tipo || ""); return !(t.startsWith("manual_entrad") || t === "entrante"); })
+      .map(m => Object.assign({}, m, { _f: String(m.fecha || "").slice(0, 10) }))
+      .filter(m => /^\d{4}-\d{2}-\d{2}$/.test(m._f))
+      .sort((a, b) => (a._f < b._f ? -1 : a._f > b._f ? 1 : 0));
+    const esRe = (m) => /^\s*(re|rv|fw|fwd)\s*:/i.test(String(m.asunto || ""));
+    let je = {}; try { je = JSON.parse(comu.mails_enviados || "{}") || {}; } catch (e) { je = {}; }
+    const lineas = [], fechas = new Set();
+    let cero = "";
+    if (!es08) {
+      const ini = hist.find(m => !esRe(m) && (String(m.fase) === "05_ACEPTACION_PTO" || /\(INICIO DOCUMENTACI[OÓ]N\)/i.test(String(m.asunto || ""))));
+      try { cero = String(await _fechaContactoBot(comu) || "").slice(0, 10); } catch (e) { cero = ""; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(cero)) {
+        const v = hist.find(m => String(m.fase) === "05_DOC_VECINO");
+        cero = v ? v._f : "";
+      }
+      if (ini) { lineas.push("- " + _p5Dmy(ini._f) + ": solicitud del listado de vecinos" + (cero ? " (recibido " + _p5Dmy(cero) + ")." : ".")); fechas.add(ini._f); }
+      if (cero) {
+        let lim = ""; try { lim = String(await _fechaLimiteDocBot(comu) || "").slice(0, 10); } catch (e) { lim = ""; }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(lim)) lim = _p5Mas(cero, PLAZO_DOC_INICIAL);
+        lineas.push("- " + _p5Dmy(cero) + ": solicitud de la documentación a los vecinos (plazo " + _p5Dmy(lim) + ").");
+      }
+    } else {
+      cero = String(comu.fecha_envio_contratos_pagos || "").slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(cero)) {
+        lineas.push("- " + _p5Dmy(cero) + ": solicitud de los Contratos firmados y los Justificantes de pago a los vecinos (plazo " + _p5Dmy(_fechaTopeCycp(comu)) + ").");
+      } else cero = "";
+    }
+    // Prórroga: solo si se concedió de verdad y se sabe su fecha (la que dijo el correo).
+    await _cargarProrrogasHist();
+    const bl = String(comu.fecha_ultimatum_ampliado || "").slice(0, 10);
+    const hasta = _p5ProrrogaHasta(comu);
+    if (_p5ProrrogaConcedida(comu) && hasta) {
+      const pm = hist.find(m => m._f >= bl && !esRe(m) && (/_ULT_AVISO$/.test(String(m.fase)) || /PR[OÓ]RROGA/i.test(String(m.asunto || ""))));
+      const f = pm ? pm._f : bl;
+      lineas.push("- " + _p5Dmy(f) + ": ampliación del plazo, por cortesía (plazo " + _p5Dmy(hasta) + ").");
+      fechas.add(f);
+    }
+    // Disidentes: solo si se enviaron (no "Continuar sin enviar").
+    const bm = String(comu.fecha_disidentes_solicitados || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(bm) && !je["fecha_disidentes_solicitados__SKIP"]) {
+      const dm = hist.find(m => m._f >= bm && !esRe(m) && (/_ULT_RESOLUCION$/.test(String(m.fase)) || /DISIDENTES\)/i.test(String(m.asunto || ""))));
+      let pl = "";
+      if (dm) { const mm = String(dm.mensaje || "").match(/plazo de \d+ d[ií]as \((\d{1,2})\/(\d{1,2})\/(\d{4})\)/i); if (mm) pl = mm[3] + "-" + String(mm[2]).padStart(2, "0") + "-" + String(mm[1]).padStart(2, "0"); }
+      const f = dm ? dm._f : bm;
+      if (!pl) {
+        const pv = await leerPlantillaMail(es08 ? "08_ULT_RESOLVER" : "05_ULT_RESOLVER").catch(() => null);
+        const n = parseInt(pv && pv.dias_primer_envio, 10);
+        if (Number.isFinite(n) && n > 0) pl = _p5Mas(f, n);
+      }
+      lineas.push("- " + _p5Dmy(f) + ": solicitud del nombramiento como \"DISIDENTES\" de los vecinos faltantes" + (pl ? " (plazo " + _p5Dmy(pl) + ")." : "."));
+      fechas.add(f);
+    }
+    return { lineas, fechas, cero, hist, esRe };
+  }
+  // v19.106 -- Correos escritos a mano a la comunidad (no de plantilla) desde el día común:
+  //   el resumen no los recoge. La ventana de resolución avisa para que Guille decida si
+  //   alguno daba un plazo (expediente sacado del protocolo) y pida el texto a medida.
+  async function _correosFueraProtocolo(comu) {
+    const r = await _resumenComunicaciones(comu);
+    if (!r.cero) return [];
+    const d = _destinatariosCcpp(comu);
+    const mails = String((d.to || "") + "," + (d.cc || "")).toLowerCase().split(/[,;\s]+/).filter(x => x.includes("@"));
+    // Solo los de después de la fecha límite inicial: antes es conversación normal del plazo.
+    const _limIni = _p5Mas(r.cero, normalizarFase(comu.fase_presupuesto) === "08_CYCP" ? PLAZO_CYCP_INICIAL : PLAZO_DOC_INICIAL);
+    return r.hist.filter(m => m._f > _limIni && (String(m.fase) === "00_MANUAL" || String(m.tipo) === "manual_externo"))
+      .filter(m => !mails.length || mails.some(e => String(m.destinatario || "").toLowerCase().includes(e)))
+      .map(m => ({ fecha: m._f, asunto: String(m.asunto || "") }));
+  }
   async function leerMailHistoricoCompleto() {
     const sheets = getSheetsClient();
     let rows = [];
@@ -3786,39 +3944,15 @@ module.exports = function (app) {
       }
       t = t.replace(/\{\{fecha_limite_doc_vecinos\}\}/g, val);
     }
-    // {{fecha_limite_ultimatum}} → plazo del vecino (contacto+20) + 20 días = DD/MM/AAAA.
-    //   Es la fecha hasta la que se amplía en el ULTIMÁTUM AVISO. Si el bot aún no
-    //   contactó, texto de respaldo. (Determinista, no necesita estado guardado.)
-    if (/\{\{fecha_limite_ultimatum\}\}/.test(t)) {
-      let valU;
-      try {
-        const limU = await _fechaLimiteDocBot(comu);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(limU))) {
-          valU = "20 días naturales tras el vencimiento del plazo anterior";
-        } else {
-          const _plAmpU = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
-          const _Xu = (function(){ const n = parseInt(_plAmpU && _plAmpU.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })(); // prórroga (casilla Ampliación)
-          const dU = new Date(limU + "T00:00:00"); dU.setDate(dU.getDate() + _Xu); // = contacto + 20 fijo + prórroga
-          valU = _fmtFechaLimite(dU);
-        }
-      } catch (e) { valU = "20 días naturales tras el vencimiento del plazo anterior"; }
-      t = t.replace(/\{\{fecha_limite_ultimatum\}\}/g, valU);
-    }
-    // v18.122: {{fecha_limite_ultimatum_limpia}} = misma fecha que arriba pero SIN "(hace X dias)".
-    if (/\{\{fecha_limite_ultimatum_limpia\}\}/.test(t)) {
-      let valUL;
-      try {
-        const limUL = await _fechaLimiteDocBot(comu);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(limUL))) {
-          valUL = "20 días naturales tras el vencimiento del plazo anterior";
-        } else {
-          const _plAmpUL = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
-          const _XuL = (function(){ const n = parseInt(_plAmpUL && _plAmpUL.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
-          const dUL = new Date(limUL + "T00:00:00"); dUL.setDate(dUL.getDate() + _XuL);
-          valUL = _fmtFechaLimpia(dUL);
-        }
-      } catch (e) { valUL = "20 días naturales tras el vencimiento del plazo anterior"; }
-      t = t.replace(/\{\{fecha_limite_ultimatum_limpia\}\}/g, valUL);
+    // {{fecha_limite_ultimatum}} / {{fecha_limite_ultimatum_limpia}} → fecha ampliada de la
+    //   fase 05. v19.106: la de la prórroga ENVIADA si ya se concedió (guardada al enviarla o,
+    //   si es anterior, la de su correo); si aún no, fecha límite + casilla de días. Sin
+    //   texto de respaldo: si no hay fecha, queda vacía.
+    if (/\{\{fecha_limite_ultimatum(_limpia)?\}\}/.test(t)) {
+      let _isoU = "";
+      try { _isoU = await _fechaProrrogaIso(comu, false); } catch (e) { _isoU = ""; }
+      t = t.replace(/\{\{fecha_limite_ultimatum\}\}/g, _isoU ? _fmtFechaLimite(_isoU) : "");
+      t = t.replace(/\{\{fecha_limite_ultimatum_limpia\}\}/g, _isoU ? _fmtFechaLimpia(_isoU) : "");
     }
     // {{fecha_limite_disidentes}} → día de envío + 5 = DD/MM/AAAA (equivale a {{FECHA+5}}).
     if (/\{\{fecha_limite_disidentes\}\}/.test(t)) {
@@ -3867,33 +4001,12 @@ module.exports = function (app) {
       const iso = _fechaTopeCycp(comu);
       t = t.replace(/\{\{fecha_limite_cycp\}\}/g, _fmtFechaLimite(iso));
     }
-    // {{fecha_limite_ultimatum_cycp}} → tope inicial (env+10) + prórroga (casilla). Para 08-AVISO.
-    if (/\{\{fecha_limite_ultimatum_cycp\}\}/.test(t)) {
-      let val = "";
-      try {
-        const iso = _fechaTopeCycp(comu);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-          const _p = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
-          const _x = (function(){ const n = parseInt(_p && _p.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
-          const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + _x);
-          val = _fmtFechaLimite(d);
-        }
-      } catch (e) { val = ""; }
-      t = t.replace(/\{\{fecha_limite_ultimatum_cycp\}\}/g, val);
-    }
-    // v18.122: {{fecha_limite_ultimatum_cycp_limpia}} = misma fecha SIN "(hace X dias)".
-    if (/\{\{fecha_limite_ultimatum_cycp_limpia\}\}/.test(t)) {
-      let valL = "";
-      try {
-        const isoL = _fechaTopeCycp(comu);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(isoL)) {
-          const _pL = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
-          const _xL = (function(){ const n = parseInt(_pL && _pL.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
-          const dL = new Date(isoL + "T00:00:00"); dL.setDate(dL.getDate() + _xL);
-          valL = _fmtFechaLimpia(dL);
-        }
-      } catch (e) { valL = ""; }
-      t = t.replace(/\{\{fecha_limite_ultimatum_cycp_limpia\}\}/g, valL);
+    // {{fecha_limite_ultimatum_cycp}} / _limpia → igual que las de la 05, en la 08 (v19.106).
+    if (/\{\{fecha_limite_ultimatum_cycp(_limpia)?\}\}/.test(t)) {
+      let _isoC = "";
+      try { _isoC = await _fechaProrrogaIso(comu, true); } catch (e) { _isoC = ""; }
+      t = t.replace(/\{\{fecha_limite_ultimatum_cycp\}\}/g, _isoC ? _fmtFechaLimite(_isoC) : "");
+      t = t.replace(/\{\{fecha_limite_ultimatum_cycp_limpia\}\}/g, _isoC ? _fmtFechaLimpia(_isoC) : "");
     }
     // v19.15 — La frase " y fue ampliada por cortesía hasta el <fecha>" estaba
     //   escrita FIJA en las 4 plantillas de disidentes/resolución, así que salía
@@ -3935,6 +4048,12 @@ module.exports = function (app) {
       } catch (e) { _frC = ""; _frL = ""; }
       t = t.replace(/\{\{prorroga_frase_limpia\}\}/g, _frL);
       t = t.replace(/\{\{prorroga_frase\}\}/g, _frC);
+    }
+    // v19.106 -- {{resumen_comunicaciones}}: lista de la cadena del protocolo (ver _resumenComunicaciones).
+    if (/\{\{resumen_comunicaciones\}\}/.test(t)) {
+      let _rc = "";
+      try { _rc = (await _resumenComunicaciones(comu)).lineas.join("\n"); } catch (e) { _rc = ""; console.warn("[presupuestos] resumen_comunicaciones:", e.message); }
+      t = t.replace(/\{\{resumen_comunicaciones\}\}/g, _rc);
     }
     // {{fecha_limite_disidentes_cycp}} → día de envío + resolución (casilla). Para 08-RESOLUCIÓN.
     if (/\{\{fecha_limite_disidentes_cycp\}\}/.test(t)) {
@@ -4412,7 +4531,9 @@ module.exports = function (app) {
     const pAmpliar    = _plz(pl && pl.ampliar,    _defAmp); // prórroga (casilla)
     const pDisidentes = _plz(pl && pl.disidentes, 20); // días desde AMPLIAR (BL)
     const pResolver   = _plz(pl && pl.resolver,    _defRes); // días desde DISIDENTES (BM)
-    const pRecordatorio = _plz(pl && pl.recordatorio, _defRec); // días desde AMPLIAR (BL) hasta el recordatorio
+    // v19.106 -- casilla Recordatorio a 0 = sin recordatorio de prorroga (antes el 0 se
+    //   tomaba como "sin dato" y salia a los 10 dias).
+    const pRecordatorio = (function () { const n = parseInt(pl && pl.recordatorio, 10); return Number.isFinite(n) ? (n > 0 ? n : 0) : _defRec; })();
     let _recEnviado = false;
     try { const _jeR = JSON.parse(c.mails_enviados || "{}"); _recEnviado = !!_jeR[_flagRec]; } catch (_) {}
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
@@ -4428,8 +4549,12 @@ module.exports = function (app) {
     //   de su fecha limite, igual que el M3 (dia 11). El recordatorio va a mitad de
     //   la prorroga y no cambia.
     const _SIG = 1;
-    const _diaRecordar   = _plazoIni + pRecordatorio;                     // 30 / 15
-    const _diaDisidentes = _plazoIni + pAmpliar + _SIG;                   // 41 / 21
+    const _diaRecordar   = pRecordatorio > 0 ? (_plazoIni + pRecordatorio) : Infinity;   // 30 / 15 (sin recordatorio: nunca)
+    // v19.106 -- Con la prorroga ya enviada, los disidentes tocan el dia siguiente a la fecha
+    //   que dijo su correo (no a la que daria hoy la casilla).
+    const _hastaPr = _p5ProrrogaHasta(c);
+    const _dHasta = (_hastaPr && contactoIso) ? (function () { const a = new Date(String(contactoIso).slice(0, 10) + "T00:00:00"), b = new Date(_hastaPr + "T00:00:00"); return (isNaN(a.getTime()) || isNaN(b.getTime())) ? null : Math.round((b - a) / 86400000); })() : null;
+    const _diaDisidentes = (_dHasta != null) ? (_dHasta + _SIG) : (_plazoIni + pAmpliar + _SIG);   // 31 / 16 con 10 / 5 días
     const _diaResolver   = _plazoIni + pAmpliar + pResolver + _SIG * 2;   // 47 / 27 (solo informativo)
     // Texto comun de los badges: por dónde va el expediente, no cuánto hace que pulsé.
     const _porDonde = (hito) => (dC != null) ? `día ${dC} de ${hito}` : "sin fecha";
@@ -4609,8 +4734,16 @@ module.exports = function (app) {
     const _n = (v, d) => { const x = parseInt(v, 10); return (isNaN(x) || x < 0) ? d : x; };
     const plazoIni = es08 ? PLAZO_CYCP_INICIAL : PLAZO_DOC_INICIAL;
     const dAmp = _n(pl.ampliar, plazoIni);
-    const dRec = _n(pl.recordatorio, 10);
-    const dDis = _n(pl.disidentes, dAmp);
+    const dRec = _n(pl.recordatorio, 10);   // v19.106: 0 = sin recordatorio de prorroga
+    // v19.106 -- Los disidentes tocan al dia siguiente de acabar la prorroga: con la prorroga
+    //   ya enviada, la fecha que dijo su correo; si no, plazo + casilla de la prorroga (antes
+    //   se leia la casilla de la plantilla de disidentes, que no es la duracion de la prorroga).
+    await _cargarProrrogasHist();
+    const _hastaL = _p5ProrrogaHasta(comu);
+    const _ceroL = es08 ? ceroFase : cero;
+    const dDis = (_hastaL && /^\d{4}-\d{2}-\d{2}$/.test(_ceroL))
+      ? Math.round((new Date(_hastaL + "T00:00:00") - new Date(_ceroL + "T00:00:00")) / 86400000) - plazoIni
+      : dAmp;
     const dRes = _n(pl.resolver, 5);
     const base = new Date(anclaHoy + "T00:00:00");
     if (isNaN(base.getTime())) return "";
@@ -4644,6 +4777,7 @@ module.exports = function (app) {
       const env = JSON.parse(comu.mails_enviados || "{}");
       recEnv = sello(env[es08 ? "08_ULT_RECORDATORIO" : "05_ULT_RECORDATORIO"]);
     } catch (e) { recEnv = ""; }
+    const _recReal = recEnv;   // v19.106: recordatorio que salio de verdad (no el "omitido")
     // v19.13 — Pasos marcados con "Continuar sin enviar": la columna se selló
     //   igual, pero el correo nunca salió. Se pintan en ámbar con "omitido el".
     let _omit = {};
@@ -4783,7 +4917,8 @@ module.exports = function (app) {
         fechas: segDoc, tope: maxSeg },
       // v19.56 — decisiones al dia SIGUIENTE de cada vencimiento (+1)
       { nom: "Prórroga",     via: "ML", plt: claveUlt, dia: plazoIni + 1,           real: sello(comu.fecha_ultimatum_ampliado) },
-      { nom: "Recordatorio", via: "ML", plt: claveUlt, dia: plazoIni + dRec,        real: recEnv },
+      // v19.106 -- con la casilla Recordatorio a 0 no hay recordatorio (salvo que ya saliera uno).
+      ...((dRec > 0 || _recReal) ? [{ nom: "Recordatorio", via: "ML", plt: claveUlt, dia: plazoIni + dRec, real: recEnv }] : []),
       // v19.31 -- Sin prorroga, disidentes tocan el mismo dia del vencimiento.
       { nom: "Disidentes",   via: "ML", plt: (es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION"), dia: plazoIni + (_omit["Prórroga"] ? 0 : dDis) + 1, real: sello(comu.fecha_disidentes_solicitados) },
       // v19.17 — La Resolución es la única que NO cuelga del día cero: su fecha la
@@ -5924,6 +6059,7 @@ module.exports = function (app) {
             const { totalFilas: _tfF, pend: _pdF } = _contarFaltanBot(_estCcF, _dCcF, _pisosF, _dPiF, comu.fase_presupuesto, _botIdxF[_normDirBot(comu.direccion || comu.comunidad || "")] || null);
             _cfgF = Object.assign({}, _cfgF || {}, { completo: _tfF > 0 && _pdF === 0 });
           } catch (eC) {}
+          await _cargarProrrogasHist();   // v19.106
           _badgeFichaDoc = _badgeUltimatumHoy(comu, _contactoF, _plazosF, _cfgF, true, _retSeg) || "";
         } catch (e) { _badgeFichaDoc = ""; }
         if (!_badgeFichaDoc) _badgeFichaDoc = renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha));
@@ -8663,7 +8799,7 @@ module.exports = function (app) {
     const _segDr = _n05(_seg05.dias_recurrente, 5);
     const _segMx = _n05(_seg05.max_envios, 3);
     const _pAmp = _n05(segTextos && segTextos.aviso && segTextos.aviso.dias_primer_envio, 20);
-    const _pRec = _n05(segTextos && segTextos.aviso && segTextos.aviso.dias_recurrente, 10);
+    const _pRec = _n05z(segTextos && segTextos.aviso && segTextos.aviso.dias_recurrente, 10);   // v19.106: 0 = sin recordatorio
     const _pDis = _pAmp; // disidentes = mismo plazo que Ampliación (prórroga = X)
     const _pRes = _n05(_res05.dias_primer_envio, 5);
     // v19.53 — Ventana de Tiempos de fase 05 al dia con el proceso real (dos caminos en la
@@ -8681,7 +8817,7 @@ module.exports = function (app) {
     _tramo05.push([PLAZO_DOC_INICIAL + 1, ["contacto +" + (PLAZO_DOC_INICIAL + 1), "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]]);
     _tramo05.push([waDias.m2, ["contacto +" + waDias.m2, "M2 (2º aviso)", "sale al decidir: al conceder la prórroga, amable con la fecha ampliada; al pedir disidentes, DURO. Mientras no se decide, espera", "🔔 M2"]]);
     _tramo05.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows.push(x[2]));
-    _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_DOC_INICIAL + _pAmp + 1) + "<br>⚠️ Recordar prórroga"]);
+    if (_pRec > 0) _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_DOC_INICIAL + _pAmp + 1) + "<br>⚠️ Recordar prórroga"]);
     _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pAmp + 1), "M2 (otra vez)", "vuelve a salir en Avisos, ya DURO, cuando se piden los disidentes, a quien siga sin entregar: tras un aviso amable siempre llega uno duro", "🔔 M2"]);
     _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pAmp + 1), "05-ULTIMÁTUM DOC (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
     _esqRows.push([_B("SIN prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + 1), "05-ULTIMÁTUM DOC (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
@@ -8695,10 +8831,10 @@ module.exports = function (app) {
     const _seg08 = (plantillas || []).find(p => p.fase === "08_SEGUIMIENTO_CYCP") || {};
     const _res08 = (plantillas || []).find(p => p.fase === "08_ULT_RESOLVER") || {};
     const _segDi8 = _n05(_seg08.dias_primer_envio, 5);
-    const _segDr8 = _n05(_seg08.dias_recurrente, 5);
+    const _segDr8 = _n05z(_seg08.dias_recurrente, 5);   // v19.106: admite 0 (un solo envío)
     const _segMx8 = _n05(_seg08.max_envios, 3);
     const _pAmp8 = _n05(segTextos && segTextos.aviso8 && segTextos.aviso8.dias_primer_envio, 10);
-    const _pRec8 = _n05(segTextos && segTextos.aviso8 && segTextos.aviso8.dias_recurrente, 10);
+    const _pRec8 = _n05z(segTextos && segTextos.aviso8 && segTextos.aviso8.dias_recurrente, 10);   // v19.106: 0 = sin recordatorio
     const _pDis8 = _pAmp8;
     const _pRes8 = _n05(_res08.dias_primer_envio, 5);
     // v19.53 — Ventana de Tiempos de fase 08 al dia con el proceso real.
@@ -8706,7 +8842,7 @@ module.exports = function (app) {
     for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP (correo)", "automático (cron)", "👍 CyCP solicitados · hace " + dia + " d"]); }
     { const _p8 = [[PLAZO_CYCP_INICIAL + 1, [String(PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "M3 (2º aviso)", "aviso en la caja Avisos de HOY a cada vecino al que le falte contrato o pago, por su camino; sale al decidir: al conceder la prórroga, amable con la fecha ampliada; al pedir disidentes, DURO. Mientras no se decide, espera", "🔔 M3"]]];
       _p8.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows8.push(x[2])); }
-    _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_CYCP_INICIAL + _pAmp8 + 1) + "<br>⚠️ Recordar prórroga"]);
+    if (_pRec8 > 0) _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_CYCP_INICIAL + _pAmp8 + 1) + "<br>⚠️ Recordar prórroga"]);
     _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8 + 1), "M3 (otra vez)", "vuelve a salir en Avisos, ya DURO, cuando se piden los disidentes, a quien siga sin entregar: tras un aviso amable siempre llega uno duro", "🔔 M3"]);
     _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8 + 1), "08-ULTIMÁTUM CYCP (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
     _esqRows8.push([_B("SIN prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
@@ -8865,7 +9001,7 @@ module.exports = function (app) {
         const _ccoUlt2 = esc((_ccoUltPart[1] || "").trim());
         const _ccoUlt3 = esc((_ccoUltPart[2] || "").trim());
         const _pAmpliar = (segTextos && segTextos.aviso && parseInt(segTextos.aviso.dias_primer_envio,10) > 0) ? parseInt(segTextos.aviso.dias_primer_envio,10) : 20;
-        const _pRecord  = (segTextos && segTextos.aviso && parseInt(segTextos.aviso.dias_recurrente,10) > 0) ? parseInt(segTextos.aviso.dias_recurrente,10) : 10;
+        const _pRecord  = (segTextos && segTextos.aviso && parseInt(segTextos.aviso.dias_recurrente,10) >= 0) ? parseInt(segTextos.aviso.dias_recurrente,10) : 10;   // v19.106: 0 = sin recordatorio
         const _pDisid   = (segTextos && segTextos.resolucion && parseInt(segTextos.resolucion.dias_primer_envio,10) > 0) ? parseInt(segTextos.resolucion.dias_primer_envio,10) : 20;
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
@@ -8903,7 +9039,7 @@ module.exports = function (app) {
               <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía al conceder la prórroga con «¿Conceder prórroga?» y con «Recordar prórroga»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días de prórroga (sobre los 20 días iniciales)</label>
-                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día ${PLAZO_DOC_INICIAL + (+_pRecord || 0)}; solo si se concedió la prórroga)</label>
+                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="0" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (${(+_pRecord > 0) ? ("día " + (PLAZO_DOC_INICIAL + (+_pRecord || 0)) + "; solo si se concedió la prórroga") : "0 = sin recordatorio"})</label>
               </div>
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required class="ptl-input-full">${_txtAviso}</textarea>
             </label>
@@ -8987,7 +9123,7 @@ module.exports = function (app) {
         const _ccoUlt2 = esc((_ccoUltPart[1] || "").trim());
         const _ccoUlt3 = esc((_ccoUltPart[2] || "").trim());
         const _pAmpliar = (segTextos && segTextos.aviso8 && parseInt(segTextos.aviso8.dias_primer_envio,10) > 0) ? parseInt(segTextos.aviso8.dias_primer_envio,10) : 10;
-        const _pRecord  = (segTextos && segTextos.aviso8 && parseInt(segTextos.aviso8.dias_recurrente,10) > 0) ? parseInt(segTextos.aviso8.dias_recurrente,10) : 10;
+        const _pRecord  = (segTextos && segTextos.aviso8 && parseInt(segTextos.aviso8.dias_recurrente,10) >= 0) ? parseInt(segTextos.aviso8.dias_recurrente,10) : 10;   // v19.106: 0 = sin recordatorio
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
@@ -9021,7 +9157,7 @@ module.exports = function (app) {
               <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía al conceder la prórroga con «¿Conceder prórroga?» y con «Recordar prórroga»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días de prórroga (sobre los 10 días iniciales)</label>
-                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día ${PLAZO_CYCP_INICIAL + (+_pRecord || 0)}; solo si se concedió la prórroga)</label>
+                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="0" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (${(+_pRecord > 0) ? ("día " + (PLAZO_CYCP_INICIAL + (+_pRecord || 0)) + "; solo si se concedió la prórroga") : "0 = sin recordatorio"})</label>
               </div>
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required class="ptl-input-full">${_txtAviso}</textarea>
             </label>
@@ -10476,7 +10612,7 @@ module.exports = function (app) {
           try {
             const _je8 = JSON.parse(comu.mails_enviados || "{}");
             let _t8 = false;
-            ["fecha_ultimatum_ampliado__SKIP", "fecha_disidentes_solicitados__SKIP", "fecha_contrato_resuelto__SKIP"].forEach(k => { if (k in _je8) { delete _je8[k]; _t8 = true; } });
+            ["fecha_ultimatum_ampliado__SKIP", "fecha_disidentes_solicitados__SKIP", "fecha_contrato_resuelto__SKIP", _P5_HASTA_KEY].forEach(k => { if (k in _je8) { delete _je8[k]; _t8 = true; } });
             if (_t8) comu.mails_enviados = JSON.stringify(_je8);
           } catch (_) {}
         }
@@ -11010,9 +11146,19 @@ module.exports = function (app) {
       // Estado actual de envíos
       const enviados = parsearMailJson(comu.mails_enviados);
       const ultimo = parsearMailJson(comu.mails_ultimo_envio);
+      // v19.106 -- En la RESOLUCIÓN: correos escritos a mano a la comunidad que no están en el
+      //   resumen de comunicaciones (expediente sacado del protocolo).
+      let _avisoManual = "";
+      if (fase === "05_ULT_RESOLVER" || fase === "08_ULT_RESOLVER") {
+        try {
+          const _fm = await _correosFueraProtocolo(comu);
+          if (_fm.length) _avisoManual = "\u26a0 " + (_fm.length === 1 ? "Hay 1 correo manual a la comunidad, después de la fecha límite, que no está" : ("Hay " + _fm.length + " correos manuales a la comunidad, después de la fecha límite, que no están")) + " en el resumen de comunicaciones: " + _fm.map(x => _p5Dmy(x.fecha).slice(0, 5)).join(", ") + ". Si alguno dio un plazo, añádelo a la lista o pide el texto a medida.";
+        } catch (e) { _avisoManual = ""; }
+      }
       res.json({
         ok: true,
         fase,
+        aviso_manual: _avisoManual,   // v19.106
         plantilla: {
           asunto,
           mensaje,
@@ -11981,10 +12127,14 @@ module.exports = function (app) {
   //   el paso se cumplió de verdad. Se apunta aparte, en mails_enviados, con la
   //   clave "<CAMPO>__SKIP", para no tocar el formato de las columnas de fecha
   //   (las lee medio programa). La columna se sella igual que siempre.
-  async function _sellarUltimatum(comu, campoFecha, omitido) {
+  async function _sellarUltimatum(comu, campoFecha, omitido, extra) {
     const _hoy = new Date().toISOString().slice(0, 10);
     let _je = {}; try { _je = JSON.parse(comu.mails_enviados || "{}"); } catch (_) { _je = {}; }
     let _tocaJe = false;
+    // v19.106 -- datos extra para mails_enviados (la fecha que dijo el correo de prorroga).
+    if (extra && typeof extra === "object") {
+      for (const k of Object.keys(extra)) { if (extra[k] && _je[k] !== extra[k]) { _je[k] = extra[k]; _tocaJe = true; } }
+    }
     if (String(campoFecha).startsWith("@flag:")) {
       const _k = String(campoFecha).slice(6);
       if (!_je[_k]) { _je[_k] = _hoy; _tocaJe = true; }
@@ -12103,10 +12253,19 @@ module.exports = function (app) {
         message_id: msgId,
       });
 
+      // v19.106 -- Prorroga enviada: se guarda la fecha que dice el correo que ha salido
+      //   (si el texto no la trae, la de la casilla), para que no cambie si luego se
+      //   cambian los dias de la plantilla. Solo la primera vez (el recordatorio no la pisa).
+      let _extraSello = null;
+      if (campoFecha === "fecha_ultimatum_ampliado" && !String(comu.fecha_ultimatum_ampliado || "").trim()) {
+        let _hst = _p5HastaDeTexto(mensajeF);
+        if (!_hst) { try { _hst = await _fechaProrrogaIso(comu, fasePermitida === "08_CYCP"); } catch (_) { _hst = ""; } }
+        if (_hst) _extraSello = { [_P5_HASTA_KEY]: _hst };
+      }
       // Sellar la MARCA de fecha (solo la primera vez; no se pisa si ya estaba).
       let sello = "ok";
       try {
-        await _sellarUltimatum(comu, campoFecha);
+        await _sellarUltimatum(comu, campoFecha, false, _extraSello);
       } catch (errSello) {
         sello = "omitido";
         console.warn("[presupuestos][ultimatum] no se pudo sellar " + campoFecha + " (¿falta la columna en el Sheet?):", errSello.message);
@@ -13243,6 +13402,7 @@ module.exports = function (app) {
         // v18.122 — mapa comunidad -> tipo_via (columna K=10 de "comunidades"), para {tipo_via} en los avisos WA.
         const _tipoViaMap = {};
         const _ampliadaMap = {};   // v18.129 — comunidades con prorroga concedida
+        const _hastaMapAv = {};    // v19.106 — fecha de la prorroga ENVIADA (ISO), por nombre y direccion
         try {
           for (const _c of (comus || [])) {
             const _k = String((_c && (_c.comunidad || _c.direccion)) || "").trim().toLowerCase();
@@ -13264,9 +13424,11 @@ module.exports = function (app) {
         } catch (e) {}
         // v19.29 -- prorroga concedida de verdad (sellada y no omitida), con los objetos.
         try {
+          await _cargarProrrogasHist();   // v19.106
           for (const _c of (await _comunidadesHoy()) || []) {   // v19.89: lectura compartida
             if (!_p5ProrrogaConcedida(_c)) continue;
-            [_c.comunidad, _c.direccion].forEach(x => { const k = String(x || "").trim().toLowerCase(); if (k) _ampliadaMap[k] = true; });
+            const _hP = _p5ProrrogaHasta(_c);   // v19.106: fecha que dijo el correo de prorroga
+            [_c.comunidad, _c.direccion].forEach(x => { const k = String(x || "").trim().toLowerCase(); if (k) { _ampliadaMap[k] = true; if (_hP) _hastaMapAv[k] = _hP; } });
           }
         } catch (e) {}
         // v19.92 -- M1/M2 son avisos de fase 05: fase de cada comunidad (por nombre y direccion).
@@ -13331,7 +13493,8 @@ module.exports = function (app) {
           if (!isNaN(_dCont.getTime())) {
             const _dl = new Date(_dCont.getTime()); _dl.setDate(_dl.getDate() + PLAZO_DOC_INICIAL);
             _flimM = String(_dl.getDate()).padStart(2, "0") + "/" + String(_dl.getMonth() + 1).padStart(2, "0") + "/" + _dl.getFullYear();
-            const _dp = new Date(_dCont.getTime()); _dp.setDate(_dp.getDate() + PLAZO_DOC_INICIAL + _prorroga05);
+            const _hK = _hastaMapAv[String(r[1] || "").trim().toLowerCase()];   // v19.106
+            const _dp = _hK ? new Date(_hK + "T00:00:00") : new Date(_dCont.getTime()); if (!_hK) _dp.setDate(_dp.getDate() + PLAZO_DOC_INICIAL + _prorroga05);
             _fprorr = String(_dp.getDate()).padStart(2, "0") + "/" + String(_dp.getMonth() + 1).padStart(2, "0") + "/" + _dp.getFullYear();
           }
           const _tipoViaRaw = (_tipoViaMap[String(r[1] || "").trim().toLowerCase()] || "").trim(); const _tipoViaM = _tipoViaRaw ? (_tipoViaRaw + " ") : "";
@@ -13484,7 +13647,8 @@ module.exports = function (app) {
             const plazo = es08 ? PLAZO_CYCP_INICIAL : PLAZO_DOC_INICIAL;
             const prorr = es08 ? _prorroga08 : _prorroga05;
             const dL = new Date(dIni.getTime()); dL.setDate(dL.getDate() + plazo);
-            const dP = new Date(dIni.getTime()); dP.setDate(dP.getDate() + plazo + prorr);
+            const _hC = _p5ProrrogaHasta(c);   // v19.106: con la prorroga enviada, su fecha
+            const dP = _hC ? new Date(_hC + "T00:00:00") : new Date(dIni.getTime()); if (!_hC) dP.setDate(dP.getDate() + plazo + prorr);
             const conced = _p5ProrrogaConcedida(c);
             const BM = String(c.fecha_disidentes_solicitados || "").slice(0, 10);
             const hayBM = /^\d{4}-\d{2}-\d{2}$/.test(BM);
@@ -13729,6 +13893,7 @@ module.exports = function (app) {
       // Plazos del ultimátum (editables): se leen de los "días" de cada plantilla.
       // Por defecto: Ampliar 20 (desde contacto), Recordatorio 10 y Disidentes 20
       // (desde Ampliar), Resolver 5 (desde Disidentes). Lectura cacheada.
+      await _cargarProrrogasHist();   // v19.106: fechas de las prorrogas ya enviadas (badges)
       const _plAvisoHoy    = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
       const _plResolHoy    = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
       const _plResolverHoy = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
@@ -15096,6 +15261,7 @@ module.exports = function (app) {
                 document.getElementById('ptl-ult-cco').value=String((data.plantilla&&data.plantilla.cco)||'').split('||').map(function(x){return x.trim();}).filter(Boolean).join(', ');
                 (function(){ var partes=String((data.plantilla&&data.plantilla.adjuntos_fijos)||'').split('||').map(function(x){return x.trim();}).filter(Boolean); for(var i=0;i<3;i++){ var l=document.getElementById('ptl-ult-adj'+(i+1)+'lbl'), u=document.getElementById('ptl-ult-adj'+(i+1)+'url'); if(!l||!u)continue; var pp=partes[i]||''; if(!pp){l.value='';u.value='';continue;} var ix=pp.indexOf('http'); if(ix===-1){l.value=pp;u.value='';}else{u.value=pp.slice(ix).trim(); var lbl=pp.slice(0,ix).trim(); if(lbl.charAt(lbl.length-1)===':')lbl=lbl.slice(0,-1).trim(); l.value=lbl;} } })();
                 if(!(data.destinatario&&data.destinatario.email)){ var a=document.getElementById('ptl-ult-aviso'); a.style.display='block'; a.textContent='⚠ Esta CCPP no tiene email configurado. Añade uno en la ficha antes de enviar.'; }
+                if(data.aviso_manual){ var a2=document.getElementById('ptl-ult-aviso'); a2.style.display='block'; a2.textContent=(a2.textContent&&a2.style.display==='block'&&!(data.destinatario&&data.destinatario.email) ? a2.textContent+' · ' : '')+data.aviso_manual; }
               }catch(e){ alert('Error cargando plantilla: '+e.message); _ultCerrar(); return; }
               var _sinProrroga=async function(abrirDisidentes, boton, textoBoton){
               if(!confirm(_esProrroga
@@ -15601,7 +15767,7 @@ module.exports = function (app) {
         if (msgResol.length < 1 || msgResol.length > 5000) return sendError(res, "El texto de ULTIMÁTUM RESOLUCIÓN debe tener entre 1 y 5000 caracteres");
         const _clp = (v, def) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(365, Math.max(1, n)) : def; };
         const _pA = _clp(req.body.plazo_ampliar, 20);       // Ampliar: días desde contacto
-        const _pR = _clp(req.body.plazo_recordatorio, 10);  // Recordatorio: días desde Ampliar
+        const _pR = (function (v) { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(365, Math.max(0, n)) : 10; })(req.body.plazo_recordatorio);  // Recordatorio: días desde el plazo inicial; v19.106: 0 = sin recordatorio
         const _pD = _pA;                                    // Disidentes = mismo plazo que Ampliación (prórroga)
         datos.mensaje = "{{bloque_ultimatum}}"; // el contenedor siempre lleva el interruptor
         await guardarPlantillaMail(datos);
@@ -15617,7 +15783,7 @@ module.exports = function (app) {
         if (msgResol.length < 1 || msgResol.length > 5000) return sendError(res, "El texto de ULTIMÁTUM RESOLUCIÓN debe tener entre 1 y 5000 caracteres");
         const _clp = (v, def) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(365, Math.max(1, n)) : def; };
         const _pA = _clp(req.body.plazo_ampliar, 10);       // Ampliar (prórroga)
-        const _pR = _clp(req.body.plazo_recordatorio, 10);  // Recordatorio
+        const _pR = (function (v) { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(365, Math.max(0, n)) : 10; })(req.body.plazo_recordatorio);  // Recordatorio; v19.106: 0 = sin recordatorio
         const _pD = _pA;                                    // Disidentes = mismo plazo que Ampliación
         datos.mensaje = "{{bloque_ultimatum}}";
         await guardarPlantillaMail(datos);
@@ -17013,6 +17179,8 @@ module.exports = function (app) {
     PLAZO_DOC_INICIAL,
     PLAZO_CYCP_INICIAL,
     leerPlantillaMail,   // v19.36 — documentacion lee los dias de prorroga de las plantillas
+    prorrogaHasta: _p5ProrrogaHasta,                 // v19.106 — fecha de la prórroga enviada
+    cargarProrrogasHist: (f) => _cargarProrrogasHist(f),
     _migAvisosV1960: () => _migAvisosV1960(),   // v19.60 — para probarla a mano
     SHEET_ID,
     getSheetsClient,

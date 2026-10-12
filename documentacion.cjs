@@ -1019,6 +1019,9 @@ module.exports = function (app) {
     // v19.36 — Dias de prorroga: los de la plantilla (casilla de dias de 05/08_ULT_AVISO),
     //   como los correos. Si no llegan, el plazo inicial (20 / 10).
     const _prorrogaM3 = (Number(prorrogaDias && (_es08 ? prorrogaDias.f08 : prorrogaDias.f05)) > 0) ? Number(_es08 ? prorrogaDias.f08 : prorrogaDias.f05) : _plazoM3;
+    // v19.106 -- con la prorroga ya enviada, la fecha que dijo su correo (no la de la casilla).
+    const _hastaM3 = String((prorrogaDias && prorrogaDias.hasta) || "").slice(0, 10);
+    const _fProrrM3 = (p) => /^\d{4}-\d{2}-\d{2}$/.test(_hastaM3) ? (_hastaM3.slice(8, 10) + "/" + _hastaM3.slice(5, 7) + "/" + _hastaM3.slice(0, 4)) : _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3);
     const _fmtDia = (iso, dias) => {
       const d = new Date(iso);
       if (isNaN(d.getTime())) return "";
@@ -1075,7 +1078,7 @@ module.exports = function (app) {
           // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
           //   que es justo la fecha que promete el aviso de prórroga.
           fechaLimite: _fmtDia(_anclaM3(p), _plazoM3),
-          fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3),
+          fechaProrroga: _fProrrM3(p),
           ampliada: _p5ProrrogaConcedida(comu),   // v19.29: omitida = sin prorroga
           fase08: _es08,   // v19.66: la frase dura del M3 habla de la Carta de pago
           // v19.27 -- {pendiente}: en fase 08, contrato y/o carta segun sus estados.
@@ -1089,7 +1092,7 @@ module.exports = function (app) {
         comPiso: p.comunidad || (comu && (comu.direccion || comu.comunidad)) || "",
         waMsg4: (_es05 && String(msgIni05 || "").trim()) ? _subVarsM3(String(msgIni05), {
           nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
-          fechaLimite: _fmtDia(_anclaM3(p), _plazoM3), fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3),
+          fechaLimite: _fmtDia(_anclaM3(p), _plazoM3), fechaProrroga: _fProrrM3(p),
           ampliada: _p5ProrrogaConcedida(comu), fase08: false, pendiente: "la documentaci\u00f3n de su vivienda",
         }) : ((_es08 || _es07) && String(msgWaM4 || "").trim()) ? _subVarsM3(String(msgWaM4), {
           nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
@@ -1097,7 +1100,7 @@ module.exports = function (app) {
           //   que es justo la fecha que promete el aviso de prórroga.
           // v19.68 — en fase 07: hoy + 10 (plazo de CyCP), sin prorroga.
           fechaLimite: _es07 ? _fmtDia(_hoyIsoM4 + "T12:00:00", (_Pm3.PLAZO_CYCP_INICIAL || 10)) : _fmtDia(_anclaM3(p), _plazoM3),
-          fechaProrroga: _es07 ? "" : _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3),
+          fechaProrroga: _es07 ? "" : _fProrrM3(p),
           ampliada: _es07 ? false : _p5ProrrogaConcedida(comu),   // v19.29: omitida = sin prorroga
           fase08: _es08,   // v19.66: la frase dura del M3 habla de la Carta de pago
           // v19.27 -- {pendiente}: en fase 08, contrato y/o carta segun sus estados.
@@ -1117,7 +1120,7 @@ module.exports = function (app) {
           const _dV = {
             nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
             fechaLimite: _es07 ? _fmtDia(_hoyIsoM4 + "T12:00:00", (_Pm3.PLAZO_CYCP_INICIAL || 10)) : _fmtDia(_anclaM3(p), _plazoM3),
-            fechaProrroga: _es07 ? "" : _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3),
+            fechaProrroga: _es07 ? "" : _fProrrM3(p),
             ampliada: _es07 ? false : _p5ProrrogaConcedida(comu),
             fase08: _es08,
             pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
@@ -2779,6 +2782,9 @@ module.exports = function (app) {
             const _a5 = await _PP.leerPlantillaMail("05_ULT_AVISO").catch(() => null);
             const _a8 = await _PP.leerPlantillaMail("08_ULT_AVISO").catch(() => null);
             _prorrogaDias = { f05: parseFloat(String((_a5 && _a5.dias_primer_envio) || "").replace(",", ".")) || 0, f08: parseFloat(String((_a8 && _a8.dias_primer_envio) || "").replace(",", ".")) || 0 };
+            // v19.106 -- fecha de la prorroga ya enviada (la que dijo su correo)
+            if (_PP.cargarProrrogasHist) await _PP.cargarProrrogasHist();
+            if (_PP.prorrogaHasta) _prorrogaDias.hasta = _PP.prorrogaHasta(comu) || "";
           }
         } catch (_) {}
         // v19.100 -- plantillas de los correos a un vecino en M (boton de la carta)
@@ -3439,7 +3445,11 @@ module.exports = function (app) {
         try { const pl = P.leerPlantillaMail ? await P.leerPlantillaMail("08_ULT_AVISO") : null; pr = parseFloat(String((pl && pl.dias_primer_envio) || "").replace(",", ".")) || 0; } catch (e) {}
         dias += (pr > 0 ? pr : plazo);
       }
-      const dL = new Date(ancla + "T12:00:00"); dL.setDate(dL.getDate() + dias);
+      let dL = new Date(ancla + "T12:00:00"); dL.setDate(dL.getDate() + dias);
+      // v19.106 -- con la prorroga ya enviada, la fecha que dijo su correo
+      if (!est.primero && _p5ProrrogaConcedida(comu) && P.prorrogaHasta) {
+        try { if (P.cargarProrrogasHist) await P.cargarProrrogasHist(); const _h = P.prorrogaHasta(comu); if (_h) dL = new Date(_h + "T12:00:00"); } catch (e) {}
+      }
       const fechaLimite = String(dL.getDate()).padStart(2, "0") + "/" + String(dL.getMonth() + 1).padStart(2, "0") + "/" + dL.getFullYear();
       const soloContrato = String(comu.est_ccpp_pago || "").trim().toUpperCase() === "FFCC";
       const envio = await bot.enviarContratoPiso({ comunidad: dir, vivienda, tipoVia: String(comu.tipo_via || "").trim(), fechaLimite, soloContrato });
