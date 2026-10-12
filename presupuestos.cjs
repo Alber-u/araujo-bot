@@ -3872,6 +3872,32 @@ module.exports = function (app) {
       return minFpc;
     } catch (e) { console.error("[presupuestos] _fechaContactoBot:", e.message); return ""; }
   }
+  // v19.107 (criterio de Guille, 12/10/2026) -- el mismo aviso en la 05 (presentacion) y en la 08
+  //   (contrato) al mandar algo por el bot: si es el primero de la comunidad, desde cuando cuenta el
+  //   plazo; si no, cuando empezo y la fecha limite vigente. Una sola funcion para las dos fases.
+  function _textoPlazoBot(o) {
+    const _f = (iso) => { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? (m[3] + "/" + m[2] + "/" + m[1]) : String(iso || ""); };
+    if (o.primero) return "Es el primero de la comunidad: el plazo de " + o.dias + " d\u00edas cuenta desde hoy. Fecha l\u00edmite: " + _f(o.limite) + ".";
+    return "El plazo de la comunidad empez\u00f3 el " + _f(o.inicio) + ". Fecha l\u00edmite vigente: " + _f(o.limite) + (o.prorroga ? " (con pr\u00f3rroga)" : "") + ".";
+  }
+  // v19.107 -- texto de plazo de la 05 tras mandar una presentacion. antesBot = primer WhatsApp del bot
+  //   a la comunidad ANTES del envio (vacio = este es el primero).
+  async function _plazoTxt05(comu, antesBot) {
+    try {
+      const _hoyB = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+      const _ini = antesBot || _hoyB;
+      const _dL = new Date(_ini + "T12:00:00"); _dL.setDate(_dL.getDate() + PLAZO_DOC_INICIAL);
+      let _lim = _dL.toISOString().slice(0, 10), _pr = false;
+      if (antesBot && _p5ProrrogaConcedida(comu)) {
+        _pr = true;
+        try { await _cargarProrrogasHist(); } catch (e) {}
+        const _h = _p5ProrrogaHasta(comu);
+        if (_h) _lim = _h;
+        else { let _dp = 0; try { const _pl = await leerPlantillaMail("05_ULT_AVISO"); _dp = parseFloat(String((_pl && _pl.dias_primer_envio) || "").replace(",", ".")) || 0; } catch (e) {} _dL.setDate(_dL.getDate() + _dp); _lim = _dL.toISOString().slice(0, 10); }
+      }
+      return _textoPlazoBot({ primero: !antesBot, dias: PLAZO_DOC_INICIAL, inicio: _ini, limite: _lim, prorroga: _pr });
+    } catch (e) { console.error("[presupuestos] _plazoTxt05:", e.message); return ""; }
+  }
   async function sustituirVariablesAsync(texto, comu) {
     // {{bloque_seguimiento}} → elige el sub-texto según el bot ANTES de resolver el resto:
     //   - Sin contacto del bot en la CCPP → plantilla 05_SEG_ESPERA (falta listado, sin fecha).
@@ -9792,7 +9818,7 @@ module.exports = function (app) {
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos",
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-w" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">W</span>A pisos (automáticos)`) +
-        presentcard() + twcard("contrato_cycp", "Twilio - contrato CyCP (fase 08, bot\u00f3n W)") + sleepcard() + plazocard() + wakecard() +
+        presentcard() + sleepcard() + plazocard() + wakecard() + twcard("contrato_cycp", "Twilio - contrato CyCP (fase 08, bot\u00f3n W)") +   /* v19.107: el contrato (fase 08) despues de los de la 05 */
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">M</span>A pisos (manuales)`) +
         wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m3", "Aviso M3", 11) + wamanualcard("ini05", "Inicio doc", 0, true) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
@@ -10499,6 +10525,8 @@ module.exports = function (app) {
       // v18.78: si se activa el bot (M->W) y se pidio, enviar la presentacion a
       // ESE piso (lo hace bot-whatsapp.cjs via app.locals; no reenvia si ya hay ficha).
       let presentacion = null;
+      let _antesBot = "";   // v19.107: primer WhatsApp del bot a la comunidad ANTES de este envio
+      if (modo === "BOT_WHATSAPP" && enviarPresentacion) { try { _antesBot = await _fechaContactoBot(comu); } catch (e) {} }
       if (modo === "BOT_WHATSAPP" && enviarPresentacion) {
         const bot = app.locals.botWhatsapp;
         if (bot && typeof bot.enviarPresentacionPiso === "function") {
@@ -10520,6 +10548,8 @@ module.exports = function (app) {
           presentacion = { ok: false, estado: "bot_no_disponible" };
         }
       }
+      // v19.107 -- aviso de plazo (el mismo que en la 08)
+      if (presentacion && presentacion.estado === "enviado") presentacion.plazoTxt = await _plazoTxt05(comu, _antesBot);
       res.json({ ok: true, modo, presentacion });
     } catch (e) {
       console.error("[presupuestos] /piso/modo-bot:", e.message);
@@ -13532,6 +13562,29 @@ module.exports = function (app) {
             _avisosArr.push(Object.assign({ tipo: "ayuda", dias: 0, flag: false, waMsg: _waM3, mensaje: _ayuda, fecha: _fA.txt, ts: _fA.ts }, _base));
           }
         }
+        // v19.107 (criterio de Guille, 12/10/2026) -- "Completo · revisar" tambien en fase 08, igual que en
+        //   la 05: piso con todo lo que se le pide (contrato; y el pago si no es FFCC ni financiado) y algo en
+        //   REVISAR. Sin check: la tarjeta se va al pasar las pastillas de REV a OK (eso es revisarlo).
+        try {
+          const _ffccCom08 = {};
+          for (const _c of (await _comunidadesHoy()) || []) {
+            const _ff = String(_c.est_ccpp_pago || "").trim().toUpperCase() === "FFCC";
+            [_c.comunidad, _c.direccion].forEach(x => { const k = String(x || "").trim().toLowerCase(); if (k) _ffccCom08[k] = _ff; });
+          }
+          for (let i = 1; i < _piRowsAll.length; i++) {
+            const _pr = _piRowsAll[i]; if (!_pr) continue;
+            const _ck = String(_pr[1] || "").trim().toLowerCase(); const _vv = String(_pr[2] || "").trim();
+            if (!_ck || !_vv || _faseComAv[_ck] !== "08_CYCP") continue;
+            if (String(_pr[42] || "").trim().toUpperCase() === "OK") continue;   // disidente
+            const _ar = String(_pr[43] || "").trim().toUpperCase(), _as = String(_pr[44] || "").trim().toUpperCase();
+            const _contOk = _ar === "OK" || _ar === "REVISAR";
+            const _pagoOk = !!_ffccCom08[_ck] || _as !== "F";
+            if (!_contOk || !_pagoOk || (_ar !== "REVISAR" && _as !== "REVISAR")) continue;
+            const _qu = [_ar === "REVISAR" ? "contrato" : "", _as === "REVISAR" ? "pago" : ""].filter(Boolean).join(" y ");
+            _avisosArr.push({ tipo: "completo08", dias: 0, flag: false, waMsg: "", que: _qu, fecha: "", ts: Infinity,
+              comunidad: _pr[1] || "", vivienda: _vv, nombre: _pisosNombre[_ck + "|" + _vv.toLowerCase()] || "", telefono: _pr[0] || "" });
+          }
+        } catch (e) { console.error("[presupuestos] HOY completo 08:", e.message); }
         // v19.102 (criterio de Guille, 09/10/2026) -- Avisos por CORREO a vecinos en M con
         //   email en sus notas: la misma dinamica que los M1/M2 del bot, con el boton de la carta.
         //   El correo enviado (mail_historico, por su plantilla y el piso del asunto) hace de
@@ -13788,6 +13841,9 @@ module.exports = function (app) {
           _campo = "sin_wa_visto"; _chkTitle = "Visto: dejarlo en W";
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}<strong>Sin WhatsApp</strong> \u00b7 ${_esc(_fmtTel(p.telefono))}</span>`
             + (_ccpp ? `<button type="button" class="ptl-btn ptl-btn-sm hoy-sinwa-m" data-ccpp-id="${_esc(_ccpp)}" data-viv="${_esc(p.vivienda || "")}" data-tel="${_esc(p.telefono || "")}" style="flex:0 0 auto;padding:1px 8px;font-size:11px;line-height:1.3">Pasar a M</button>` : "");
+        } else if (p.tipo === "completo08") {
+          // v19.107 -- fase 08: se quita al pasar las pastillas de REV a OK (sin check)
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 1 auto;width:auto;min-width:0">Completo \u00b7 revisar ${_esc(p.que || "")} (fase 08)</span>`;
         } else if (p.tipo === "ayuda") {
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
@@ -17165,6 +17221,8 @@ module.exports = function (app) {
     urlT,
     esc,
     normalizarFase,
+    _textoPlazoBot,   // v19.107: aviso de plazo al mandar por el bot (05 y 08)
+    _plazoTxt05, _fechaContactoBot,   // v19.107
     renderCabeceraComun,
     // Helpers para módulo documentación (plantilla de pisos)
     fmtTlf,

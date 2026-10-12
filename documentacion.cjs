@@ -443,6 +443,13 @@ module.exports = function (app) {
       fila[29] = "F";            // col AD: piso_nif_toma_datos
       fila[47] = "MANUAL";       // col AV: bot_piso_activo -> todo piso nace en MANUAL (v17.54)
       fila[49] = "BOT";          // col AX: acordeón BOT por defecto en altas nuevas (v17.71)
+      // v19.107 (criterio de Guille, 12/10/2026): piso dado de alta con la comunidad ya en 08 (o 09):
+      //   Contrato y Pago en F, como los que existian al pasar a 08 (inicializarEstadosFase). Si no,
+      //   el bot no le pide el justificante y no sale el aviso "Completo · revisar".
+      try {
+        const _fz = (P.normalizarFase ? P.normalizarFase(comu.fase_presupuesto) : String(comu.fase_presupuesto || ""));
+        if (_fz === "08_CYCP" || _fz === "09_TRAMITADA") { fila[43] = "F"; fila[44] = "F"; }   // cols AR (contrato) y AS (pago)
+      } catch (e) {}
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: RANGO_EXPEDIENTES,
@@ -2275,7 +2282,7 @@ module.exports = function (app) {
               if (!data.ok) { alert(data.error || 'Error guardando'); return; }
               if (_enviarPres && data.presentacion) {
                 var _p = data.presentacion;
-                if (_p.estado === 'enviado') alert('Presentación enviada al teléfono nuevo.');
+                if (_p.estado === 'enviado') alert('Presentación enviada al teléfono nuevo.' + (_p.plazoTxt ? '\\n\\n' + _p.plazoTxt : ''));
                 else if (_p.estado === 'ya_presentado') alert('Ese teléfono ya tenía ficha en el bot; no se reenvía la presentación.');
                 else alert('Teléfono guardado, pero NO se pudo enviar la presentación (' + (_p.estado || 'desconocido') + (_p.error ? ': ' + _p.error : '') + ').');
               }
@@ -2525,7 +2532,7 @@ module.exports = function (app) {
             if (!btn.dataset.contratoBot) btn.dataset.contratoBot = hoyTxt;
             btn.title = 'Contrato enviado por bot: ' + btn.dataset.contratoBot + ' (pulsa para reenviarlo o pasar a M)';
             var av = (env.avisos && env.avisos.length) ? ('\\n\\nOJO: ' + env.avisos.join('; ') + '.') : '';
-            alert((SOLO_CONTRATO ? 'Contrato enviado' : 'Contrato y carta de pago enviados') + ' por el bot al ' + viv + ' (fecha l\u00edmite ' + (data.fechaLimite || '') + ').' + (data.primero ? '\\n\\nEs el primero de la comunidad: el plazo de 10 d\u00edas cuenta desde hoy.' : '') + av);
+            alert((SOLO_CONTRATO ? 'Contrato enviado' : 'Contrato y carta de pago enviados') + ' por el bot al ' + viv + '.' + (data.plazoTxt ? '\\n\\n' + data.plazoTxt : ' (fecha l\u00edmite ' + (data.fechaLimite || '') + ').') + av);
           }
           async function _cambiarModoPiso08(btn, nuevo) {
             var body = new URLSearchParams({ ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: btn.dataset.vivienda || '', modo: nuevo });
@@ -2580,7 +2587,7 @@ module.exports = function (app) {
                 if (typeof repintarAbiertos === 'function') repintarAbiertos();
                 if (enviarPres && data.presentacion) {
                   var _p = data.presentacion;
-                  if (_p.estado === 'enviado') alert('Presentacion enviada al vecino.');
+                  if (_p.estado === 'enviado') alert('Presentacion enviada al vecino.' + (_p.plazoTxt ? '\\n\\n' + _p.plazoTxt : ''));
                   else if (_p.estado === 'ya_presentado') alert('Este vecino ya tenia ficha; no se reenvia la presentacion.');
                   else alert('Piso activado, pero NO se pudo enviar la presentacion (' + (_p.estado || 'desconocido') + (_p.error ? ': ' + _p.error : '') + ').');
                 }
@@ -2893,11 +2900,14 @@ module.exports = function (app) {
       if (String(req.body.enviar_presentacion || "") === "1" && result.piso && result.piso.telefono) {
         const bot = app.locals.botWhatsapp;
         if (bot && typeof bot.enviarPresentacionPiso === "function") {
+          let _antesBot = "";   // v19.107
+          try { if (P._fechaContactoBot) _antesBot = await P._fechaContactoBot(comu); } catch (e) {}
           try {
             result.presentacion = await bot.enviarPresentacionPiso(result.piso.telefono, {
               comunidad: comu.direccion || comu.comunidad, vivienda: result.piso.vivienda, nombre: result.piso.nombre || "",
             });
           } catch (eP) { result.presentacion = { ok: false, estado: "error", error: eP.message }; }
+          try { if (result.presentacion && result.presentacion.estado === "enviado" && P._plazoTxt05) result.presentacion.plazoTxt = await P._plazoTxt05(comu, _antesBot); } catch (e) {}
         } else {
           result.presentacion = { ok: false, estado: "bot_no_disponible" };
         }
@@ -3465,7 +3475,14 @@ module.exports = function (app) {
           }
         } catch (eAz) { console.error("[documentacion] enviar-contrato: no se pudo mover el plazo de la 08:", eAz.message); }
       }
-      return res.json({ ok: true, envio, fechaLimite, primero: !!(envio && envio.ok && est.primero) });
+      // v19.107 -- el mismo aviso de plazo que en la 05 (presupuestos.cjs, _textoPlazoBot)
+      let plazoTxt = "";
+      try {
+        if (P._textoPlazoBot) plazoTxt = P._textoPlazoBot({ primero: !!est.primero, dias: plazo, inicio: ancla,
+          limite: dL.getFullYear() + "-" + String(dL.getMonth() + 1).padStart(2, "0") + "-" + String(dL.getDate()).padStart(2, "0"),
+          prorroga: !est.primero && _p5ProrrogaConcedida(comu) });
+      } catch (e) {}
+      return res.json({ ok: true, envio, fechaLimite, plazoTxt, primero: !!(envio && envio.ok && est.primero) });
     } catch (e) {
       console.error("[documentacion] piso/enviar-contrato:", e.message);
       return res.status(500).json({ error: e.message });
