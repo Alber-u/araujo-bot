@@ -3216,7 +3216,7 @@ async function handleArchivos(ctx) {
             "Hemos recibido toda tu documentaci\u00f3n. Nuestro equipo la est\u00e1 revisando y te avisar\u00e1 si hay que corregir algo.\n\nSi quieres reenviar algo, mand\u00e1melo por aqu\u00ed.");
         }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          "Tu expediente est\u00e1 completo \u2705\n\nNuestro equipo lo est\u00e1 revisando. Te avisaremos cuando est\u00e9 todo en orden.");
+          "Tu expediente est\u00e1 completo \u2705\n\nNuestro equipo lo revisar\u00e1 y, si falta algo, le avisaremos. Gracias.");   // v19.108: sin "por aqui"
       }
         }
         // Si el archivo no encaja como reintento, seguir con flujo normal
@@ -3587,7 +3587,7 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
           }
           if (expedienteSucio) {
             return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-              "Hemos recibido tu documentacion, pero nuestro equipo esta revisando algunos documentos que necesitan atencion.\n\nTe avisaremos si hay que repetir algo.");
+              "Hemos recibido tu documentacion. Nuestro equipo la revisara y, si falta algo, te avisaremos. Gracias.");   // v19.108: sin "por aqui"
           }
           if (opcionalesPendientes.length > 0) {
             return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
@@ -3596,7 +3596,7 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
               "\n\nNo es obligatorio, pero si recomendable.\n\nNuestro equipo lo esta revisando.");
           }
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            "Tu expediente esta completo y en revision.\n\nNuestro equipo lo esta revisando.\nSi detectamos que falta algo, te avisaremos por aqui.");
+            "Tu expediente esta completo y en revision.\n\nNuestro equipo lo revisara y, si falta algo, te avisaremos. Gracias.");   // v19.108: sin "por aqui"
         }
 
         if (quiereEnviarMas) {
@@ -3607,7 +3607,7 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
         // Respuesta generica final — coherente con el estado real
         if (expedienteSucio) {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            "Tu expediente esta recibido, pero nuestro equipo todavia esta revisando algunos documentos.\n\nTe avisaremos cuando este todo en orden.\nSi necesitas anadir algo mas, puedes enviarlo por aqui.");
+            "Tu expediente esta recibido. Nuestro equipo lo revisara y, si falta algo, te avisaremos.\nSi necesitas anadir algo mas, puedes enviarlo por aqui.");   // v19.108: sin "por aqui"
         }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
           "Tu expediente ya esta completo.\n\nNuestro equipo lo esta revisando.\nSi necesitas anadir algun documento mas, puedes enviarlo por aqui.");
@@ -4258,7 +4258,7 @@ function _textoPendiente08(st) {
   return "*NECESITAMOS*\n" + l.join("\n");
 }
 function _textoTodoRecibido08() {
-  return "Hemos recibido toda la documentaci\u00f3n que le ped\u00edamos. La revisaremos y, si falta algo, se lo diremos por aqu\u00ed. Gracias.";
+  return "Hemos recibido toda la documentaci\u00f3n que le ped\u00edamos. La revisaremos y, si falta algo, le avisaremos. Gracias.";   // v19.108: sin "por aqui"
 }
 async function _clasificarDoc08(jpegBuf) {
   if (!jpegBuf) return null;
@@ -4437,7 +4437,7 @@ async function manejarFase08(req, res) {
     } catch (e) { console.error("[fase08] pastillas:", telefono, e.message); }
     try { await notificarEquipo("revisar_documento", { nombre: piso.nombre, comunidad: piso.comunidad, vivienda: piso.vivienda, telefono, documento: n === 1 ? "1 archivo (contrato / justificante)" : n + " archivos (contrato / justificante)", motivo: "Recibido por el bot en fase 08" }); } catch (e) {}
     return responderYLog(res, telefono, msgOriginal || "[archivo]", "archivo_fase08",
-      "\u2705 Hemos recibido " + (n === 1 ? "su archivo" : "sus " + n + " archivos") + ". Los revisaremos y, si falta algo, se lo diremos por aqu\u00ed. Gracias.");
+      "\u2705 Hemos recibido " + (n === 1 ? "su archivo" : "sus " + n + " archivos") + ". Los revisaremos y, si falta algo, le avisaremos. Gracias.");   // v19.108: sin "por aqui" (Guille avisa por su WhatsApp)
   }
   // Solo texto (v19.108: ya no hay hojas que juntar ni LISTO)
   const st = _estado08(piso, comu, ficha);
