@@ -4251,8 +4251,7 @@ function _estado08(piso, comu, ficha) {
 function _textoPendiente08(st) {
   const l = [];
   if (st.contratoPend) {
-    if (st.nHojas > 0) l.push("- El contrato firmado: llevamos " + st.nHojas + " de " + _HOJAS_CONTRATO + " hojas. Env\u00edenos las que falten y escriba LISTO cuando termine.");
-    else l.push("- El contrato firmado (LAS 4 HOJAS): un PDF o una foto de cada hoja. Si lo manda en fotos, escriba LISTO al terminar.");
+    l.push("- El contrato firmado (LAS 4 HOJAS), en fotos o en PDF.");   // v19.108
   }
   if (st.pagoPend) l.push("- El justificante de abono de la Carta de pago.");
   if (!l.length) return "";
@@ -4312,6 +4311,22 @@ async function _finalizarContrato08(ctx) {
   return { total };
 }
 // Un archivo recibido en fase 08. Devuelve la frase para el vecino.
+// v19.108 -- guarda un archivo de fase 08 tal cual llega (mismo formato y contenido) en la carpeta del piso.
+async function _guardarArchivo08(ctx, mediaUrl, mimeType, idx) {
+  const { piso, comu, telefono } = ctx;
+  const resp = await axios.get(mediaUrl, { responseType: "arraybuffer", auth: { username: process.env.TWILIO_ACCOUNT_SID, password: process.env.TWILIO_AUTH_TOKEN } });
+  const buf = Buffer.from(resp.data);
+  if (buf.length > MAX_FILE_SIZE) return false;
+  const mime = String(mimeType || "application/octet-stream").split(";")[0].trim().toLowerCase();
+  const ext = mime.includes("pdf") ? ".pdf" : (mime === "image/jpeg" || mime === "image/jpg") ? ".jpg" : mime.startsWith("image/") ? "." + mime.slice(6).replace(/[^a-z0-9]/g, "") : (mime.split("/")[1] ? "." + mime.split("/")[1].replace(/[^a-z0-9]/g, "").slice(0, 5) : "");
+  const carpetaId = ctx.carpetaId || await getOrCreateCarpetaVivienda({ comunidad: piso.comunidad, vivienda: piso.vivienda, telefono });
+  ctx.carpetaId = carpetaId;
+  const sello = new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 17);   // con milisegundos: fotos del mismo segundo no repiten nombre
+  const nombre = "08-DOC " + (comu && comu.tipoVia ? comu.tipoVia + " " : "") + piso.comunidad + " (" + piso.vivienda + ")_" + sello + (idx ? "-" + (idx + 1) : "") + ext;
+  const subido = await uploadToDrive(buf, nombre, mime, carpetaId);
+  await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "documento_fase08", nombre, subido.webViewLink || "", "bot_fase08", "REVISAR", "recibido por el bot en fase 08 (sin clasificar: contrato o justificante)");
+  return true;
+}
 async function _procesarArchivo08(ctx, mediaUrl, mimeType) {
   const { piso, comu, ficha, telefono } = ctx;
   const resp = await axios.get(mediaUrl, { responseType: "arraybuffer", auth: { username: process.env.TWILIO_ACCOUNT_SID, password: process.env.TWILIO_AUTH_TOKEN } });
@@ -4402,32 +4417,29 @@ async function manejarFase08(req, res) {
   if (!piso || !ficha) return silencio();
   const ctx = { piso, comu, ficha, telefono, carpetaId: null };
   if (numMedia > 0) {
-    const frases = [];
+    // v19.108 (criterio de Guille, 12/10/2026): cada archivo se guarda TAL CUAL llega (sin juntar hojas,
+    //   sin convertir y sin IA). Las pastillas que estaban pendientes pasan a REVISAR y Guille revisa.
+    let n = 0;
     for (let i = 0; i < numMedia; i++) {
       const url = req.body["MediaUrl" + i];
       if (!url) continue;
-      try { frases.push(await _procesarArchivo08(ctx, url, req.body["MediaContentType" + i] || "application/octet-stream")); }
-      catch (e) { console.error("[fase08] archivo:", telefono, e.message); frases.push("No hemos podido guardar uno de los archivos. Por favor, vuelva a enviarlo."); }
+      try { if (await _guardarArchivo08(ctx, url, req.body["MediaContentType" + i] || "application/octet-stream", i)) n++; }
+      catch (e) { console.error("[fase08] archivo:", telefono, e.message); }
     }
-    const st = _estado08(piso, comu, ficha);
-    // si el contrato va por hojas, la frase de la hoja ya dice cuantas lleva: no se repite abajo
-    const pend = _textoPendiente08(st.nHojas > 0 ? Object.assign({}, st, { contratoPend: false }) : st);
-    const enCurso = st.nHojas > 0 && st.contratoPend;
-    const resp = frases.join("\n") + (pend ? "\n\n" + pend : (enCurso ? "" : "\n\n" + _textoTodoRecibido08()));
-    return responderYLog(res, telefono, msgOriginal || "[archivo]", "archivo_fase08", resp.trim());
-  }
-  // Solo texto
-  if (/^\s*listo\b/i.test(msgOriginal)) {
-    if (ficha.hojas.length) {
-      ctx.carpetaId = await getOrCreateCarpetaVivienda({ comunidad: piso.comunidad, vivienda: piso.vivienda, telefono });
-      const r = await _finalizarContrato08(ctx);
+    if (!n) return responderYLog(res, telefono, msgOriginal || "[archivo]", "archivo_fase08", "No hemos podido guardar el archivo. Por favor, vuelva a enviarlo (m\u00e1ximo 10 MB).");
+    try {
       const st = _estado08(piso, comu, ficha);
-      const aviso = r.total < _HOJAS_CONTRATO ? (" Nos ha enviado " + r.total + " hoja" + (r.total === 1 ? "" : "s") + " y el contrato tiene " + _HOJAS_CONTRATO + ": si le falta alguna, env\u00edela por aqu\u00ed.") : "";
-      return responderYLog(res, telefono, msgOriginal, "texto_fase08", ("\u2705 Hemos recibido el contrato firmado." + aviso + "\n\n" + (_textoPendiente08(st) || _textoTodoRecibido08())).trim());
-    }
-    const st = _estado08(piso, comu, ficha);
-    return responderYLog(res, telefono, msgOriginal, "texto_fase08", ("Todav\u00eda no hemos recibido ninguna hoja del contrato.\n\n" + (_textoPendiente08(st) || _textoTodoRecibido08())).trim());
+      let algo = false;
+      if (st.contratoPend) { await _escribirCeldaPiso08(piso.fila, "AR", "REVISAR"); piso.contrato = "REVISAR"; algo = true; }
+      if (st.pagoPend) { await _escribirCeldaPiso08(piso.fila, "AS", "REVISAR"); piso.pago = "REVISAR"; algo = true; }
+      // nada pendiente (ya estaba en REV u OK): se vuelve a marcar el contrato para que salga el aviso de revisar
+      if (!algo && piso.contrato === "OK" && piso.pago !== "REVISAR") { await _escribirCeldaPiso08(piso.fila, "AR", "REVISAR"); piso.contrato = "REVISAR"; }
+    } catch (e) { console.error("[fase08] pastillas:", telefono, e.message); }
+    try { await notificarEquipo("revisar_documento", { nombre: piso.nombre, comunidad: piso.comunidad, vivienda: piso.vivienda, telefono, documento: n === 1 ? "1 archivo (contrato / justificante)" : n + " archivos (contrato / justificante)", motivo: "Recibido por el bot en fase 08" }); } catch (e) {}
+    return responderYLog(res, telefono, msgOriginal || "[archivo]", "archivo_fase08",
+      "\u2705 Hemos recibido " + (n === 1 ? "su archivo" : "sus " + n + " archivos") + ". Los revisaremos y, si falta algo, se lo diremos por aqu\u00ed. Gracias.");
   }
+  // Solo texto (v19.108: ya no hay hojas que juntar ni LISTO)
   const st = _estado08(piso, comu, ficha);
   let extra = "";
   try {
