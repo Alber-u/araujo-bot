@@ -896,7 +896,7 @@ module.exports = function (app) {
     //   el programa tiene registradas con ese vecino, por fecha, y un aviso de lo que no puede
     //   saber (WhatsApp manuales y llamadas). La fila de la comunidad lleva el resumen de vecinos.
     const _RE_MAILH = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}/;
-    const _NOM_MAILV = { "05_DOC_VECINO": "05-INICIO DOC (VECINO)", "05_REC_M1_VECINO": "Recordatorio M1", "05_REC_M2_VECINO": "Recordatorio M2", "08_CYCP_VECINO": "08-INICIO CYCP (VECINO)", "08_REC_M3_VECINO": "Recordatorio M3", "00_MANUAL": "Correo manual" };
+    const _NOM_MAILV = { "05_DOC_VECINO": "05-INICIO DOC (VECINO)", "05_REC_M1_VECINO": "Recordatorio M1", "05_REC_M2_VECINO": "Recordatorio M2", "08_CYCP_VECINO": "08-INICIO CYCP (VECINO)", "08_REC_M1_VECINO": "Recordatorio M1 (fase 08)", "08_REC_M3_VECINO": "Recordatorio M3", "00_MANUAL": "Correo manual" };
     const _emailDe = (pp) => ((String((pp && pp.notas_piso) || "").match(_RE_MAILH) || [])[0] || "").toLowerCase();
     const _histPorPiso = {};
     (histMails || []).forEach((m) => {
@@ -933,7 +933,7 @@ module.exports = function (app) {
       if (m3) l.push({ iso: /^\d{4}-/.test(m3) ? m3 : "", txt: "\uD83D\uDCAC Recordatorio M3 (marcado en HOY)" });
       (_histPorPiso[String(pp.vivienda || "").trim().toLowerCase()] || []).forEach(x => l.push(x));
       // v19.102 -- WhatsApp manuales y marcas apuntadas en el piso (pisos col AZ)
-      const _NOM_AZ = { INI: "\uD83D\uDCAC Inicio documentaci\u00f3n (WhatsApp manual)", M4: "\uD83D\uDCAC Contrato y carta de pago (M4, manual)", M1: "\uD83D\uDCAC Recordatorio M1 (marcado en HOY)", M2: "\uD83D\uDCAC Recordatorio M2 (marcado en HOY)" };
+      const _NOM_AZ = { INI: "\uD83D\uDCAC Inicio documentaci\u00f3n (WhatsApp manual)", M4: "\uD83D\uDCAC Contrato y carta de pago (M4, manual)", M1: "\uD83D\uDCAC Recordatorio M1 (marcado en HOY)", M2: "\uD83D\uDCAC Recordatorio M2 (marcado en HOY)", C1: "\uD83D\uDCAC Recordatorio M1 fase 08 (marcado en HOY)" };
       String((azMap || {})[String(pp.vivienda || "").trim().toLowerCase()] || "").split(";").forEach(x => { const m = String(x).match(/^\s*([A-Z0-9]+)=(\d{4}-\d{2}-\d{2})/); if (m && _NOM_AZ[m[1]]) l.push({ iso: m[2], txt: _NOM_AZ[m[1]] }); });
       l.sort((a, c) => String(a.iso || "9").localeCompare(String(c.iso || "9")));
       return l;
@@ -1136,7 +1136,7 @@ module.exports = function (app) {
           // v19.102 -- recordatorios por correo (M1/M2 en 05, M3 en 08), con los mismos datos.
           //   Los abre el aviso de HOY (?mailaviso=FASE&piso=...). Sin adjuntos.
           const _rec = {};
-          const _recPl = _es05 ? [["05_REC_M1_VECINO", mailVecino && mailVecino.r1], ["05_REC_M2_VECINO", mailVecino && mailVecino.r2]] : (_es08 ? [["08_REC_M3_VECINO", mailVecino && mailVecino.r3]] : []);
+          const _recPl = _es05 ? [["05_REC_M1_VECINO", mailVecino && mailVecino.r1], ["05_REC_M2_VECINO", mailVecino && mailVecino.r2]] : (_es08 ? [["08_REC_M1_VECINO", mailVecino && mailVecino.r1c], ["08_REC_M3_VECINO", mailVecino && mailVecino.r3]] : []);
           _recPl.forEach(([f, x]) => { if (_okPl(x)) _rec[f] = { fase: f, asunto: _subVarsM3(x.asunto || "", _dV), cuerpo: _subVarsM3(x.mensaje || "", _dV), cco: String(x.cco || "").split("||").map(y => y.trim()).filter(Boolean).join(", "), adjuntos: [], contrato: false }; });
           return { fase: _es05 ? "05_DOC_VECINO" : "08_CYCP_VECINO", asunto: _subVarsM3(_pl.asunto || "", _dV), cuerpo: _subVarsM3(_pl.mensaje || "", _dV), cco: String(_pl.cco || "").split("||").map(x => x.trim()).filter(Boolean).join(", "), adjuntos: _adj, contrato: !_es05, rec: _rec };
         })(),
@@ -1400,7 +1400,7 @@ module.exports = function (app) {
             if (d.falta && !recFase) { alert('Falta la plantilla ' + d.falta + ' o est\u00e1 desactivada (Plantillas mail).'); return false; }   // v19.103
             // v19.102 -- recordatorio por correo pedido desde un aviso de HOY
             if (recFase === d.fase && !d.falta) recFase = '';   // aviso "Inicio pendiente" por correo: el propio correo de inicio
-            if (recFase) { if (!d.rec || !d.rec[recFase]) { alert('Falta la plantilla ' + ({ '05_DOC_VECINO': '05-INICIO DOC (VECINO)', '08_CYCP_VECINO': '08-INICIO CYCP (VECINO)', '05_REC_M1_VECINO': '05-RECORDATORIO M1 (VECINO)', '05_REC_M2_VECINO': '05-RECORDATORIO M2 (VECINO)', '08_REC_M3_VECINO': '08-RECORDATORIO M3 (VECINO)' }[recFase] || recFase) + ' o est\u00e1 desactivada (Plantillas mail).'); return false; } d = d.rec[recFase]; }
+            if (recFase) { if (!d.rec || !d.rec[recFase]) { alert('Falta la plantilla ' + ({ '05_DOC_VECINO': '05-INICIO DOC (VECINO)', '08_CYCP_VECINO': '08-INICIO CYCP (VECINO)', '05_REC_M1_VECINO': '05-RECORDATORIO M1 (VECINO)', '05_REC_M2_VECINO': '05-RECORDATORIO M2 (VECINO)', '08_REC_M1_VECINO': '08-RECORDATORIO M1 (VECINO)', '08_REC_M3_VECINO': '08-RECORDATORIO M3 (VECINO)' }[recFase] || recFase) + ' o est\u00e1 desactivada (Plantillas mail).'); return false; } d = d.rec[recFase]; }
             var adj = (d.adjuntos || []).slice();
             if (d.contrato) {
               var sw = fila.querySelector('.ptl-bot-switch-piso');
@@ -2801,7 +2801,7 @@ module.exports = function (app) {
           const _lee = async (f) => { const x = _PP.leerPlantillaMail ? await _PP.leerPlantillaMail(f).catch(() => null) : null; return x || null; };   // v19.103: sin texto de respaldo
           _mailVec = { f05: await _lee("05_DOC_VECINO"), f08: await _lee("08_CYCP_VECINO"),
             // v19.102 -- recordatorios por correo (avisos de HOY con la carta)
-            r1: await _lee("05_REC_M1_VECINO"), r2: await _lee("05_REC_M2_VECINO"), r3: await _lee("08_REC_M3_VECINO") };
+            r1: await _lee("05_REC_M1_VECINO"), r2: await _lee("05_REC_M2_VECINO"), r3: await _lee("08_REC_M3_VECINO"), r1c: await _lee("08_REC_M1_VECINO") };   // v19.110
         } catch (_) {}
         // v19.102 (criterio de Guille, 09/10/2026) -- globo del W/M: correos a vecinos de esta
         //   comunidad (mail_historico) y marcas del M3 (pisos col AY).
