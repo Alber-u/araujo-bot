@@ -4543,7 +4543,7 @@ module.exports = function (app) {
       return `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm ${_cls}" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;cursor:pointer">⚠️ ${txt}</button>`;
     };
     // v18.122 — colores centralizados en estilo-visual.cjs (.ptl-badge-*).
-    const _COLB = { verde:"ptl-ubadge-verde", naranja:"ptl-ubadge-naranja", ambar:"ptl-ubadge-ambar", rojo:"ptl-ubadge-rojo", gris:"ptl-ubadge-gris" };
+    const _COLB = { verde:"ptl-ubadge-verde", naranja:"ptl-ubadge-naranja", ambar:"ptl-ubadge-ambar", rojo:"ptl-ubadge-rojo", gris:"ptl-ubadge-gris", rojoF:"ptl-ubtn-rojo" };   // v19.109: rojoF = rojo fuerte (como el boton Resolver)
     // v19.18 — Estos badges no caben en los 125px de una columna y salían
     //   cortados ("Disidentes solicitados · día 2...") y encima sin title, así
     //   que el ratón por encima no enseñaba el texto completo. No se pueden
@@ -4586,7 +4586,17 @@ module.exports = function (app) {
     const _porDonde = (hito) => (dC != null) ? `día ${dC} de ${hito}` : "sin fecha";
     // 1) Contrato resuelto (BN)
     // v19.32 -- Sin "dia X de 45/25": ese total es el calendario con prorroga.
-    if (BN) return est("rojo", `📛 ${_txtNeutro}`);
+    // v19.109 (criterio de Guille, 13/10/2026) -- con la fecha tope de pago de la compensacion: envio de la
+    //   resolucion + 15 dias (la misma que {{FECHA+15}} del correo). Pasada esa fecha, rojo fuerte para
+    //   reclamar; el programa no sabe si han pagado: se quita al pasar el expediente a ZZ-DESCARTADO.
+    if (BN) {
+      const _dP = new Date(BN + "T00:00:00");
+      if (isNaN(_dP.getTime())) return est("rojo", `📛 ${_txtNeutro}`);
+      _dP.setDate(_dP.getDate() + 15);
+      const _pTxt = String(_dP.getDate()).padStart(2, "0") + "/" + String(_dP.getMonth() + 1).padStart(2, "0");
+      if (hoy0 > _dP) return est("rojoF", `📛 Pago vencido ${_pTxt} · reclamar`);
+      return est("rojo", `📛 ${_txtNeutro} · pago ${_pTxt}`);
+    }
     // v19.32 -- Todo entregado: no se propone ningun paso de ultimatum; toca que
     //   Guille pase de fase con el boton de la ficha (FIN DOC / FIN CYCP).
     if (cfg.completo) return est("verde", "\u2713 Todo entregado \u00b7 pasar de fase");
@@ -14498,7 +14508,7 @@ module.exports = function (app) {
             const ac = (h.match(/data-accion="([a-z]+)/) || [])[1] || "";
             const t = h.replace(/<[^>]*>/g, " ");
             if (/Todo entregado/.test(t)) return 1;
-            if (/Contrato resuelto/.test(t)) return 2;
+            if (/Contrato resuelto|Pago vencido/.test(t)) return 2;   // v19.109
             if (ac === "resolver") return 3;
             if (/Disidentes/.test(t) && !ac) return 4;
             if (ac === "disidentes") return 5;
