@@ -272,6 +272,7 @@ module.exports = function (app) {
     // v19.102 -- recordatorios por correo a un vecino en M (avisos de HOY con el boton de la carta)
     if (fase === "05_REC_M1_VECINO")       return "05-RECORDATORIO M1 (VECINO)";
     if (fase === "05_REC_M2_VECINO")       return "05-RECORDATORIO M2 (VECINO)";
+    if (fase === "08_REC_M1_VECINO")       return "08-RECORDATORIO M1 (VECINO)";   // v19.110
     if (fase === "08_REC_M3_VECINO")       return "08-RECORDATORIO M3 (VECINO)";
     const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
     if (def) return `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
@@ -2254,9 +2255,9 @@ module.exports = function (app) {
   // v19.102 -- recordatorios por correo de cada tarjeta de inicio (VECINO): [fase, titulo, clave de dias]
   const _REC_VECINO = {
     "05_DOC_VECINO":  [["05_REC_M1_VECINO", "RECORDATORIO M1", "m1"], ["05_REC_M2_VECINO", "RECORDATORIO M2", "m2"]],
-    "08_CYCP_VECINO": [["08_REC_M3_VECINO", "RECORDATORIO M3", "m3"]],
+    "08_CYCP_VECINO": [["08_REC_M1_VECINO", "RECORDATORIO M1", "m1c"], ["08_REC_M3_VECINO", "RECORDATORIO M3", "m3"]],   // v19.110: M1 de la 08
   };
-  const _REC_VECINO_TODAS = ["05_REC_M1_VECINO", "05_REC_M2_VECINO", "08_REC_M3_VECINO"];
+  const _REC_VECINO_TODAS = ["05_REC_M1_VECINO", "05_REC_M2_VECINO", "08_REC_M1_VECINO", "08_REC_M3_VECINO"];
   async function guardarPlantillaMail(datos) {
     const sheets = getSheetsClient();
     const fila = [
@@ -8822,7 +8823,7 @@ module.exports = function (app) {
     };
     waDias = waDias || { m1: 5, m2: 21, m3: 11 };   // v19.91: repuestos al dia
     // Config única: qué fases muestran CCO y cuáles adjuntos en la tarjeta.
-    const _FASES_CCO = ["01_CONTACTO","03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","05_FIN_DOC","08_INICIO_CYCP","08_FIN_CYCP","05_DOC_VECINO","08_CYCP_VECINO","05_REC_M1_VECINO","05_REC_M2_VECINO","08_REC_M3_VECINO"];
+    const _FASES_CCO = ["01_CONTACTO","03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","05_FIN_DOC","08_INICIO_CYCP","08_FIN_CYCP","05_DOC_VECINO","08_CYCP_VECINO","05_REC_M1_VECINO","05_REC_M2_VECINO","08_REC_M1_VECINO","08_REC_M3_VECINO"];
     const _FASES_ADJ = ["03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","08_INICIO_CYCP","05_ULTIMATUM_DOC","08_ULTIMATUM_CYCP","05_DOC_VECINO","08_CYCP_VECINO"];
     // Plazos reales para el esquema de tiempos (se leen de las plantillas)
     const _n05 = (v, d) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : d; };
@@ -8876,7 +8877,8 @@ module.exports = function (app) {
     // v19.53 — Ventana de Tiempos de fase 08 al dia con el proceso real.
     const _esqRows8 = [["0", "08-INICIO CYCP (correo a la comunidad)", "envío manual; a cada vecino, su contrato y carta con el WhatsApp " + _B("M4") + (" (botón " + ICONO_WHATSAPP + ")"), "👍 CyCP solicitados · hace 0 d"]];
     for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP (correo)", "automático (cron)", "👍 CyCP solicitados · hace " + dia + " d"]); }
-    { const _p8 = [[PLAZO_CYCP_INICIAL + 1, [String(PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "M3 (2º aviso)", "aviso en la caja Avisos de HOY a cada vecino al que le falte contrato o pago, por su camino; sale al decidir: al conceder la prórroga, amable con la fecha ampliada; al pedir disidentes, DURO. Mientras no se decide, espera", "🔔 M3"]]];
+    { const _p8 = [[(waDias && waDias.m1c != null ? waDias.m1c : 5), [String(waDias && waDias.m1c != null ? waDias.m1c : 5), "M1 (WhatsApp o correo)", "aviso en la caja Avisos de HOY a todo vecino con el contrato o la carta pendientes, cada uno por su camino (bot, correo o WhatsApp manual); una vez", "\uD83D\uDD14 M1"]],   /* v19.110 */
+      [PLAZO_CYCP_INICIAL + 1, [String(PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "M3 (2º aviso)", "aviso en la caja Avisos de HOY a cada vecino al que le falte contrato o pago, por su camino; sale al decidir: al conceder la prórroga, amable con la fecha ampliada; al pedir disidentes, DURO. Mientras no se decide, espera", "🔔 M3"]]];
       _p8.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows8.push(x[2])); }
     if (_pRec8 > 0) _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_CYCP_INICIAL + _pAmp8 + 1) + "<br>⚠️ Recordar prórroga"]);
     _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8 + 1), "M3 (otra vez)", "vuelve a salir en Avisos, ya DURO, cuando se piden los disidentes, a quien siga sin entregar: tras un aviso amable siempre llega uno duro", "🔔 M3"]);
@@ -9791,11 +9793,11 @@ module.exports = function (app) {
       // v19.102 -- M1/M2: segundo texto, NEUTRO, para vecinos en M sin correo o en W que ya contestaron
       const _fn = (which === "m1" || which === "m2") ? plantillas.find(x => x.clave === "msg_wa_" + which + "n") : null;
       const _textoN = (which === "m1" || which === "m2") ? ((_fn && String(_fn.texto || "").trim() !== "") ? _fn.texto : "") : null;
-      const _desde = (which === "m3") ? "desde el env\u00edo de contratos (fase 08)" : "desde la presentaci\u00f3n";
+      const _desde = (which === "m3" || which === "m1c") ? "desde el env\u00edo de contratos (fase 08)" : "desde la presentaci\u00f3n";
       // v19.25 -- Titulo con dia y fase (M4: manual, boton de WhatsApp del vecino).
       const _ttlAv = sinDia
         ? (titulo + (which === "m4" ? " (env\u00edo CyCP \u00b7 fase 08)" : which === "ini05" ? " (WhatsApp manual \u00b7 fase 05)" : " (WhatsApp manual)"))
-        : (titulo + " (d\u00eda " + a.val + " \u00b7 fase " + (which === "m3" ? "08" : "05") + ")");
+        : (titulo + " (d\u00eda " + a.val + " \u00b7 fase " + ((which === "m3" || which === "m1c") ? "08" : "05") + ")");
       const id = "fbf-wa" + which + "-" + (_i++);
       return `
         <div class="ptl-card ptl-acordeon" data-clave="t_wa_${which}">
@@ -9830,7 +9832,7 @@ module.exports = function (app) {
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-w" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">W</span>A pisos (automáticos)`) +
         presentcard() + sleepcard() + plazocard() + wakecard() + twcard("contrato_cycp", "Twilio - contrato CyCP (fase 08, bot\u00f3n W)") +   /* v19.107: el contrato (fase 08) despues de los de la 05 */
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">M</span>A pisos (manuales)`) +
-        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m3", "Aviso M3", 11) + wamanualcard("ini05", "Inicio doc", 0, true) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
+        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m1c", "Aviso M1", 5) + wamanualcard("m3", "Aviso M3", 11) +   /* v19.110: M1 de la fase 08 */ wamanualcard("ini05", "Inicio doc", 0, true) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -11609,7 +11611,7 @@ module.exports = function (app) {
       const adjuntos = String(req.body.adjuntos || "").trim();
       // v19.100 -- correo a un vecino desde su plantilla: se registra con esa fase (sale con su
       //   nombre en Comunicaciones) y sale de la cuenta de la plantilla, si la tiene.
-      const _faseV = ["05_DOC_VECINO", "08_CYCP_VECINO", "05_REC_M1_VECINO", "05_REC_M2_VECINO", "08_REC_M3_VECINO"].includes(String(req.body.fase_plantilla || "").trim()) ? String(req.body.fase_plantilla).trim() : "";
+      const _faseV = ["05_DOC_VECINO", "08_CYCP_VECINO", "05_REC_M1_VECINO", "05_REC_M2_VECINO", "08_REC_M1_VECINO", "08_REC_M3_VECINO"].includes(String(req.body.fase_plantilla || "").trim()) ? String(req.body.fase_plantilla).trim() : "";
       if (!id) return res.status(400).send("Falta id");
       if (!destinatario) return res.status(400).send("Falta destinatario");
       if (!asunto) return res.status(400).send("Falta asunto");
@@ -13386,6 +13388,7 @@ module.exports = function (app) {
         let _t1Present = 2; // v18.98 — 1er reenvío de presentación (para el "0-t1-t2")
         let _diaM1 = 5, _diaM2 = 21, _msgWaM1 = "", _msgWaM2 = "", _msgWaM3 = ""; // v18.99 — avisos manuales
         let _diaM3 = 11, _msgWaM4 = "", _msgWaM5 = ""; // v19.19/28 — M3 fase 08; M4 envio CyCP; M5 WhatsApp manual
+        let _diaM1c = 5, _msgWaM1c = "";   // v19.110 — M1 de la fase 08 (a mitad del plazo de los contratos)
         let _msgWaM1n = "", _msgWaM2n = "", _msgIni05 = "";   // v19.102 — M1/M2 neutros e inicio de documentacion por WhatsApp manual
         try {
           const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
@@ -13403,6 +13406,8 @@ module.exports = function (app) {
             else if (_k === "msg_wa_m2") _msgWaM2 = _rawv;
             else if (_k === "msg_wa_m3") _msgWaM3 = _rawv;
             else if (_k === "t_wa_m3" && !isNaN(_n) && _n >= 0) _diaM3 = _n;
+            else if (_k === "t_wa_m1c" && !isNaN(_n) && _n >= 0) _diaM1c = _n;   // v19.110
+            else if (_k === "msg_wa_m1c") _msgWaM1c = _rawv;
             else if (_k === "msg_wa_m4") _msgWaM4 = _rawv;
             else if (_k === "msg_wa_m5") _msgWaM5 = _rawv;
             else if (_k === "msg_wa_m1n") _msgWaM1n = _rawv;
@@ -13412,7 +13417,7 @@ module.exports = function (app) {
         } catch (e) {}
         // v19.103 -- plantillas de correo de la cadena: si faltan o estan desactivadas, la tarjeta lo dice
         const _mailPlOk = {};
-        for (const _fpl of ["05_DOC_VECINO", "05_REC_M1_VECINO", "05_REC_M2_VECINO", "08_CYCP_VECINO", "08_REC_M3_VECINO"]) {
+        for (const _fpl of ["05_DOC_VECINO", "05_REC_M1_VECINO", "05_REC_M2_VECINO", "08_CYCP_VECINO", "08_REC_M1_VECINO", "08_REC_M3_VECINO"]) {
           try { const _x = await leerPlantillaMail(_fpl); _mailPlOk[_fpl] = !!(_x && _x.activo !== false && String(_x.mensaje || "").trim()); } catch (e) { _mailPlOk[_fpl] = false; }
         }
         const _exp = await _leerHoy("bot_expedientes!A:AK");   // v19.89: lectura compartida (v19.99: hasta AK, sin WhatsApp)
@@ -13619,7 +13624,7 @@ module.exports = function (app) {
           for (let i = 1; i < _mhr.length; i++) {
             const _m = _mhr[i]; if (!_m) continue;
             const _fz = String(_m[3] || "").trim();
-            if (!/^(05_DOC_VECINO|05_REC_M1_VECINO|05_REC_M2_VECINO|08_CYCP_VECINO|08_REC_M3_VECINO)$/.test(_fz)) continue;
+            if (!/^(05_DOC_VECINO|05_REC_M1_VECINO|05_REC_M2_VECINO|08_CYCP_VECINO|08_REC_M1_VECINO|08_REC_M3_VECINO)$/.test(_fz)) continue;
             const _iso = String(_m[0] || "").slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(_iso)) continue;
             const _kc = _dirPorId[String(_m[1] || "").trim()] || _ndM(_m[2]);
             const _lista = _pisosPorCom[_kc] || [];
@@ -13759,6 +13764,18 @@ module.exports = function (app) {
               }
               // 3) Avisos
               if (es08) {
+                // v19.110 (criterio de Guille, 13/10/2026) -- M1 de la fase 08: recordatorio amable al vecino a
+                //   mitad del plazo de los contratos (como el M1 de la 05), por su camino; una vez por vecino.
+                if (etapa === "plazo") {
+                  if (dias < _diaM1c) continue;
+                  // solo comunidades que pasan a 08 desde la v19.110 (Diego Puerta 1 y Tarfia 53 van por el canal manual)
+                  if (_isoD(dIni) < (process.env.AVISOS_LEGADO_M1C || "2026-10-13")) continue;
+                  if (_max(az.C1, ult("08_REC_M1_VECINO"))) continue;
+                  const _faltaC1 = canal === "mail" ? (_mailPlOk["08_REC_M1_VECINO"] ? "" : "08-RECORDATORIO M1 (VECINO)") : ((canal === "bot" || canal === "wa") && !String(_msgWaM1c).trim() ? "Aviso M1 (fase 08)" : "");
+                  _avisosArr.push(Object.assign({ tipo: "m08", subtipo: 1, duro: false, falta: _faltaC1, mailFase: (canal === "mail" && !_faltaC1) ? "08_REC_M1_VECINO" : "",
+                    waMsg: ((canal === "bot" || canal === "wa") && !_faltaC1) ? _subAv(_msgWaM1c, v) : "", campo: "az:C1", telCheck: pr[0] || "" }, base));
+                  continue;
+                }
                 if (etapa !== "amable2" && etapa !== "duro") continue;
                 if (dias < _diaM3) continue;
                 const marca = _max(_mk(pr[50]), ult("08_REC_M3_VECINO"));
@@ -13842,6 +13859,10 @@ module.exports = function (app) {
         } else if (p.tipo === "m05") {
           _campo = p.campo; _chkTitle = "Marcar (recordatorio enviado)"; _telChk = p.telCheck || _telChk;
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde inicio doc (${_esc(p.fecha || "")}) - <strong>Recordatorio-${_icMx(p.subtipo)} pendiente</strong>${_tono(p)}${_camTxt(p)}</span>`;
+        } else if (p.tipo === "m08") {
+          // v19.110 -- M1 de la fase 08 (mitad del plazo de los contratos)
+          _campo = p.campo; _chkTitle = "Marcar (recordatorio enviado)"; _telChk = p.telCheck || _telChk;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde env\u00edo de contratos (${_esc(p.fecha || "")}) - <strong>Recordatorio-${_icMx(1)} pendiente</strong>${_tono(p)}${_camTxt(p)}</span>`;
         } else if (p.tipo === "cycp") {
           // v19.19 — Aviso M3 de fase 08 (contrato y carta de pago pendientes).
           _campo = "aviso_m3"; _chkTitle = "Marcar (recordatorio M3 enviado)";
@@ -15737,12 +15758,12 @@ module.exports = function (app) {
         _recVec[_rf] = _x || { fase: _rf, activo: true, asunto: "", mensaje: "", cco: "" };   // v19.103: sin texto de respaldo
       }
       // v19.53 — dias de los WhatsApp M1-M3 (Plantillas del bot) para la ventana de Tiempos
-      const _waDias = { m1: 5, m2: 21, m3: 11 };   // v19.91: repuestos al dia
+      const _waDias = { m1: 5, m2: 21, m3: 11, m1c: 5 };   // v19.91: repuestos al dia (v19.110: m1c = M1 de la 08)
       try {
         const _rbp = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_plantillas!A:G" });
         for (const r of (_rbp.data.values || [])) {
           const k2 = String(r[0] || "").trim(); const n2 = parseInt(String(r[3] || "").trim(), 10);
-          if (k2 === "t_wa_m1" && n2 >= 0) _waDias.m1 = n2; else if (k2 === "t_wa_m2" && n2 >= 0) _waDias.m2 = n2; else if (k2 === "t_wa_m3" && n2 >= 0) _waDias.m3 = n2;
+          if (k2 === "t_wa_m1" && n2 >= 0) _waDias.m1 = n2; else if (k2 === "t_wa_m2" && n2 >= 0) _waDias.m2 = n2; else if (k2 === "t_wa_m3" && n2 >= 0) _waDias.m3 = n2; else if (k2 === "t_wa_m1c" && n2 >= 0) _waDias.m1c = n2;
         }
       } catch (_) {}
       sendHtml(res, pageHtml("Plantillas mail",
@@ -16593,7 +16614,7 @@ module.exports = function (app) {
       //   sin ficha de bot (o por otro camino): pisos col AZ "aviso_manual", con el formato
       //   "INI=aaaa-mm-dd;M1=...;M2=...;M4=...". INI/M4 = inicio (documentacion / contrato) enviado;
       //   M1/M2 = recordatorio enviado. valor "1" pone la fecha de hoy; vacio la quita.
-      if (/^az:(INI|M1|M2|M4)$/.test(campo)) {
+      if (/^az:(INI|M1|M2|M4|C1)$/.test(campo)) {   // v19.110: C1 = M1 de la fase 08
         const clave = campo.slice(3);
         const _ndAz = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
         const com = String(req.body.comunidad || "").trim().toLowerCase();
@@ -16677,9 +16698,9 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
-      const which = ["m1", "m2", "m3", "m4", "m5", "ini05"].includes(String(req.body.which || "").trim()) ? String(req.body.which).trim() : "m1";
+      const which = ["m1", "m2", "m3", "m4", "m5", "ini05", "m1c"].includes(String(req.body.which || "").trim()) ? String(req.body.which).trim() : "m1";   // v19.110: m1c
       const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
-      const _defDia = { m1: 5, m2: 21, m3: 11, m4: 0, m5: 0, ini05: 0 }[which];   // v19.91
+      const _defDia = { m1: 5, m2: 21, m3: 11, m4: 0, m5: 0, ini05: 0, m1c: 5 }[which];   // v19.91 (v19.110: m1c)
       await guardarAjusteBot("t_wa_" + which, parseDia(req.body.dias, _defDia), true);
       const msg = String(req.body.texto || "").replace(/\r\n/g, "\n").trim();
       await guardarAjusteBot("msg_wa_" + which, msg);
