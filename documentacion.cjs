@@ -1574,7 +1574,8 @@ module.exports = function (app) {
           const RANK_BOT = {F:3,INCORRECTO:2,REVISAR:1,OK:0};
           function normEstadoBot(v){ v=String(v||'').trim().toUpperCase(); if(v==='OK')return 'OK'; if(v==='REVISAR')return 'REVISAR'; if(v==='INCORRECTO'||v==='REPETIR')return 'INCORRECTO'; if(v==='VACIO')return 'VACIO'; return 'F'; }
           function peorBot(a,b){ return RANK_BOT[a]>=RANK_BOT[b]?a:b; }
-          function indexBotDocs(dp){ const idx={}; const arr=(dp&&Array.isArray(dp.botDocs))?dp.botDocs:[]; arr.forEach(function(r){ const c=String(r.code||'').trim(); if(!c)return; if(!idx[c]||String(r.fecha||'')>=String(idx[c].fecha||'')) idx[c]={estado:r.estado,url:r.url,fecha:r.fecha||''}; }); var desc=(dp&&Array.isArray(dp.descartadosBot))?dp.descartadosBot:[]; desc.forEach(function(c){ c=String(c||'').trim(); if(c && !idx[c]) idx[c]={estado:'VACIO',url:'',fecha:''}; }); return idx; }
+          function finalManualBot(x){ return !!(x && x.manual && /^(OK|VACIO)$/i.test(String(x.estado||'').trim())); }
+          function indexBotDocs(dp){ const idx={}; const arr=(dp&&Array.isArray(dp.botDocs))?dp.botDocs:[]; arr.forEach(function(r){ const c=String(r.code||'').trim(); if(!c)return; var cur=idx[c]; if(cur && finalManualBot(cur) && !r.manual) return; if(!cur||String(r.fecha||'')>=String(cur.fecha||'')) idx[c]={estado:r.estado,url:r.url||(cur&&cur.url)||'',fecha:r.fecha||'',manual:!!r.manual}; }); var desc=(dp&&Array.isArray(dp.descartadosBot))?dp.descartadosBot:[]; desc.forEach(function(c){ c=String(c||'').trim(); if(c && !idx[c]) idx[c]={estado:'VACIO',url:'',fecha:''}; }); return idx; }
           function estadoSwitchBot(code, idx){
             if(code==='empadronamiento') return idx[code] ? normEstadoBot(idx[code].estado) : 'VACIO';
             const faces=BOT_FACE_CODES[code];
@@ -1582,6 +1583,7 @@ module.exports = function (app) {
               let acc='OK', algo=false, fFaces='';
               faces.forEach(function(grp){ let st='F', fe=''; for(var i=0;i<grp.length;i++){ if(idx[grp[i]]){ st=normEstadoBot(idx[grp[i]].estado); fe=idx[grp[i]].fecha||''; algo=true; break; } } acc=peorBot(acc,st); if(fe>fFaces) fFaces=fe; });
               var ov=idx[code]; // override agregado (manual)
+              if(finalManualBot(ov)) return normEstadoBot(ov.estado); // v19.112: la pastilla dada por buena manda
               if(ov && (!algo || String(ov.fecha||'')>=fFaces)) return normEstadoBot(ov.estado); // último manda: override solo gana si es igual o más reciente que las caras
               return algo?acc:'F';
             }
@@ -1776,8 +1778,8 @@ module.exports = function (app) {
                   var rr2=await fetch('/documentacion/bot/marcar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd2.toString()});
                   var data2=await rr2.json(); if(!data2.ok) throw new Error(data2.error||'Error');
                   if(dp){ dp.botDocs=Array.isArray(dp.botDocs)?dp.botDocs:[]; var now=new Date().toISOString(); var found=false;
-                    dp.botDocs.forEach(function(x){ if(x.code===code){ x.estado=nuevo; x.fecha=now; found=true; } });
-                    if(!found) dp.botDocs.push({code:code,estado:nuevo,url:'',fecha:now}); }
+                    dp.botDocs.forEach(function(x){ if(x.code===code){ x.estado=nuevo; x.fecha=now; x.manual=true; found=true; } });
+                    if(!found) dp.botDocs.push({code:code,estado:nuevo,url:'',fecha:now,manual:true}); }
                   refrescarContadores();
                 }
               }catch(err){ alert('No se pudo guardar: '+(err.message||err)); }
@@ -3279,7 +3281,7 @@ module.exports = function (app) {
         const code = String(r[3] || "").trim(); if (!code) continue;
         const viv = norm(r[2]);
         (out.docsByPiso[viv] = out.docsByPiso[viv] || []).push({
-          code, estado: String(r[8] || "").trim(), url: String(r[6] || "").trim(), fecha: String(r[5] || ""),
+          code, estado: String(r[8] || "").trim(), url: String(r[6] || "").trim(), fecha: String(r[5] || ""), manual: String(r[7] || "").trim() === "manual",   // v19.112
         });
       }
     } catch (e) { console.warn("[documentacion] leerBotDatos docs:", e.message); }
@@ -3329,7 +3331,7 @@ module.exports = function (app) {
       const now = new Date().toISOString();
       if (rowIndex > 0) {
         await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_documentos!F" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[now]] } });
-        await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_documentos!I" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[estado]] } });
+        await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_documentos!H" + rowIndex + ":I" + rowIndex, valueInputOption: "RAW", requestBody: { values: [["manual", estado]] } });   // v19.112: marca manual (col H)
       } else {
         await sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID, range: "bot_documentos!A:L", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",

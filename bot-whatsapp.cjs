@@ -4432,8 +4432,7 @@ async function manejarFase08(req, res) {
       let algo = false;
       if (st.contratoPend) { await _escribirCeldaPiso08(piso.fila, "AR", "REVISAR"); piso.contrato = "REVISAR"; algo = true; }
       if (st.pagoPend) { await _escribirCeldaPiso08(piso.fila, "AS", "REVISAR"); piso.pago = "REVISAR"; algo = true; }
-      // nada pendiente (ya estaba en REV u OK): se vuelve a marcar el contrato para que salga el aviso de revisar
-      if (!algo && piso.contrato === "OK" && piso.pago !== "REVISAR") { await _escribirCeldaPiso08(piso.fila, "AR", "REVISAR"); piso.contrato = "REVISAR"; }
+      // v19.112 (criterio de Guille: "mando yo") -- lo que esta en OK no se toca aunque llegue algo nuevo
     } catch (e) { console.error("[fase08] pastillas:", telefono, e.message); }
     try { await notificarEquipo("revisar_documento", { nombre: piso.nombre, comunidad: piso.comunidad, vivienda: piso.vivienda, telefono, documento: n === 1 ? "1 archivo (contrato / justificante)" : n + " archivos (contrato / justificante)", motivo: "Recibido por el bot en fase 08" }); } catch (e) {}
     return responderYLog(res, telefono, msgOriginal || "[archivo]", "archivo_fase08",

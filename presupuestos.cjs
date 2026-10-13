@@ -3541,11 +3541,16 @@ module.exports = function (app) {
   const _RANK_BOT = { F: 3, INCORRECTO: 2, REVISAR: 1, OK: 0 };
   function _normEstadoBot(v) { v = String(v || "").trim().toUpperCase(); if (v === "OK") return "OK"; if (v === "REVISAR") return "REVISAR"; if (v === "INCORRECTO" || v === "REPETIR") return "INCORRECTO"; if (v === "VACIO") return "VACIO"; return "F"; }
   function _peorBot(a, b) { return _RANK_BOT[a] >= _RANK_BOT[b] ? a : b; }
+  function _finalManualBot(x) { return !!(x && x.manual && /^(OK|VACIO)$/i.test(String(x.estado || "").trim())); }   // v19.112
   function _indexBotDocs(dp) {
     const idx = {};
     (Array.isArray(dp.botDocs) ? dp.botDocs : []).forEach(r => {
       const c = String(r.code || "").trim(); if (!c) return;
-      if (!idx[c] || String(r.fecha || "") >= String(idx[c].fecha || "")) idx[c] = { estado: r.estado, url: r.url, fecha: r.fecha || "" };
+      // v19.112 (criterio de Guille, 13/10/2026: "mando yo") -- lo que Guille da por bueno en la pastilla (OK o
+      //   no aplica) no lo cambia nada que llegue despues por el bot; F/REV/repetir si se actualizan con lo nuevo.
+      const cur = idx[c];
+      if (cur && _finalManualBot(cur) && !r.manual) return;
+      if (!cur || String(r.fecha || "") >= String(cur.fecha || "")) idx[c] = { estado: r.estado, url: r.url || (cur && cur.url) || "", fecha: r.fecha || "", manual: !!r.manual };
     });
     (Array.isArray(dp.descartadosBot) ? dp.descartadosBot : []).forEach(c => { c = String(c || "").trim(); if (c && !idx[c]) idx[c] = { estado: "VACIO", url: "", fecha: "" }; });
     return idx;
@@ -3557,6 +3562,7 @@ module.exports = function (app) {
       let acc = "OK", algo = false, fFaces = "";
       faces.forEach(grp => { let st = "F", fe = ""; for (let i = 0; i < grp.length; i++) { if (idx[grp[i]]) { st = _normEstadoBot(idx[grp[i]].estado); fe = idx[grp[i]].fecha || ""; algo = true; break; } } acc = _peorBot(acc, st); if (fe > fFaces) fFaces = fe; });
       const ov = idx[code];
+      if (_finalManualBot(ov)) return _normEstadoBot(ov.estado);   // v19.112: la pastilla dada por buena manda
       if (ov && (!algo || String(ov.fecha || "") >= fFaces)) return _normEstadoBot(ov.estado);
       return algo ? acc : "F";
     }
@@ -3602,7 +3608,7 @@ module.exports = function (app) {
         const k = _normDirBot(r[1]); if (!k) continue;
         const code = String(r[3] || "").trim(); if (!code) continue;
         const viv = _normVivBot(r[2]); const g = ensure(k);
-        (g.docsByPiso[viv] = g.docsByPiso[viv] || []).push({ code, estado: String(r[8] || "").trim(), url: String(r[6] || "").trim(), fecha: String(r[5] || "") });
+        (g.docsByPiso[viv] = g.docsByPiso[viv] || []).push({ code, estado: String(r[8] || "").trim(), url: String(r[6] || "").trim(), fecha: String(r[5] || ""), manual: String(r[7] || "").trim() === "manual" });   // v19.112
       }
     } catch (e) { console.warn("[presupuestos][hoy] botDocs:", e.message); }
     try {
@@ -13564,7 +13570,10 @@ module.exports = function (app) {
           // OK) ha llegado al final de SU recorrido y Guille tiene que revisarlo. Antes
           // era la última rama de un if/else y otras se lo comían: nunca aparecía.
           if (_paso === "finalizado") {
-            if (String(r[27] || "").trim() !== "1") { // se oculta solo al marcar su check
+            // v19.111 (criterio de Guille, 13/10/2026) -- igual que en la 08: sale mientras el piso no tenga
+            //   toda su documentacion en OK (contador verde de la ficha) y se va sola al dejarlo todo en OK;
+            //   si Guille vuelve a poner algo en F o en REV, vuelve a salir. Ya no depende del check (col AB).
+            if (!(await _pisoVerde(r[1] || "", r[2] || ""))) {
               const _fF = _fFecha(r[10]);
               _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false, waMsg: _waM3, fin: String(r[25] || "").trim().toUpperCase() === "SI", fecha: _fF.txt, ts: _fF.ts }, _base));
             }
@@ -13879,7 +13888,7 @@ module.exports = function (app) {
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
         } else {
-          _campo = "revisado"; _chkTitle = "Marcar como revisado";
+          _campo = ""; _chkTitle = "";   // v19.111: sin check, se quita al dejarlo todo en OK
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
         }
         // Bot\u00f3n WhatsApp (abre WhatsApp Web/app con el chat del vecino, desde TU n\u00famero) \u2014 mudo, atascado y pide ayuda
