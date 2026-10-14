@@ -3005,6 +3005,14 @@ module.exports = function (app) {
   }
 
   // Devuelve la lista de códigos de plantilla activos (sin _PIE_GLOBAL).
+  // v19.113 (criterio de Guille, 14/10/2026) -- RESPUESTAS TIPO para correos manuales: una fila especial
+  //   "_RESPUESTAS_TIPO" de mail_plantillas con un JSON [{nombre, texto}] en el mensaje (col D). Se editan en
+  //   Plantillas mail y se insertan desde el compositor (Enviar mail manual / Responder / Reenviar).
+  async function _leerRespuestasTipo() {
+    const r = await leerPlantillaMail("_RESPUESTAS_TIPO").catch(() => null);
+    if (!r || !String(r.mensaje || "").trim()) return [];
+    try { const a = JSON.parse(r.mensaje); return Array.isArray(a) ? a.filter(x => x && String(x.nombre || "").trim() && String(x.texto || "").trim()) : []; } catch (_) { return []; }
+  }
   async function leerListaPlantillas() {
     let rows;
     try {
@@ -5733,6 +5741,9 @@ module.exports = function (app) {
       const pieRow = await leerPlantillaMail("_PIE_GLOBAL");
       pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
     } catch (_) { pieGlobal = ""; }
+    // v19.113 -- respuestas tipo para el compositor de correos manuales
+    let _respTipo = [];
+    try { _respTipo = await _leerRespuestasTipo(); } catch (_) { _respTipo = []; }
 
     // Plantilla de la fase actual (para el badge de estado de plazo en "Datos CCPP").
     // Solo se carga si la fase tiene reenvíos configurados. Si falla, badge no aparece.
@@ -6603,6 +6614,10 @@ module.exports = function (app) {
                 <label class="ptl-form-label">CCO (opcional)</label>
                 <input type="text" id="ptlComScco" placeholder="separar con coma" class="ptl-input-modal"/>
               </div>
+              ${_respTipo.length ? `<div>
+                <label class="ptl-form-label">Insertar respuesta tipo</label>
+                <select id="ptlComSresp" class="ptl-input-modal"><option value="">— elegir —</option>${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
+              </div>` : ""}
               <div>
                 <label class="ptl-form-label">Cuerpo del mensaje</label>
                 <textarea id="ptlComScuerpo" rows="10" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical"></textarea>
@@ -7253,6 +7268,16 @@ module.exports = function (app) {
               window.__ptlMailFase = d.fase || '';
               setTimeout(function () { sCu.focus(); sCu.setSelectionRange(0, 0); sCu.scrollTop = 0; }, 100);
             };
+            // v19.113 -- respuestas tipo: el texto se mete arriba del cuerpo (la firma y la cita quedan debajo)
+            const RESP_TIPO = ${JSON.stringify(_respTipo).replace(/</g, "\\u003c")};
+            const sResp = document.getElementById('ptlComSresp');
+            if (sResp) sResp.addEventListener('change', function () {
+              const r = RESP_TIPO[parseInt(sResp.value, 10)]; sResp.value = '';
+              if (!r) return;
+              const t = String(r.texto || '');
+              sCu.value = t + (sCu.value.replace(/^\\s+/, '') ? '\\n\\n' + sCu.value.replace(/^\\s+/, '') : '');
+              setTimeout(function () { sCu.focus(); sCu.setSelectionRange(t.length, t.length); sCu.scrollTop = 0; }, 30);
+            });
             if (sCancel) sCancel.addEventListener('click', sCerrar);
             if (sXclose) sXclose.addEventListener('click', sCerrar);
             // v17.71: drag&drop unificado via window.ptlMakeDraggable (helper
@@ -9394,6 +9419,32 @@ module.exports = function (app) {
             <textarea name="pie_global" rows="5" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(pieGlobal || "")}</textarea>
           </form>
         </div>
+
+        ${(() => {   // v19.113 -- respuestas tipo
+          const _rt = (segTextos && Array.isArray(segTextos.respTipo)) ? segTextos.respTipo : [];
+          const _filas = _rt.concat([{ nombre: "", texto: "" }]).map((r, i) => `
+            <div style="border:1px solid var(--ptl-gray-200);border-radius:6px;padding:8px;margin-bottom:8px">
+              <input type="text" name="rt_nombre_${i}" value="${esc(r.nombre || "")}" maxlength="80" placeholder="${r.nombre ? "" : "Nueva: nombre (ej: Derivar a comercial)"}" class="ptl-input-sm ptl-w100" style="font-weight:600;margin-bottom:6px"/>
+              <textarea name="rt_texto_${i}" rows="6" maxlength="5000" placeholder="${r.nombre ? "" : "Texto de la respuesta"}" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(r.texto || "")}</textarea>
+            </div>`).join("");
+          return `
+        <div class="ptl-card ptl-acordeon" data-fase="_RESPUESTAS_TIPO" style="border-color:var(--ptl-gray-300)">
+          <div class="ptl-acordeon-cab">
+            <div class="ptl-flex-1">
+              <div class="ptl-card-title ptl-flex-c-g8">
+                <span class="ptl-acordeon-flecha">▶</span>
+                <span>💬 Respuestas tipo (${_rt.length})</span>
+              </div>
+              <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Textos para insertar en los correos manuales (Enviar mail manual, Responder, Reenviar). Para borrar una, deja su nombre vacío y guarda. La firma se añade sola.</div>
+            </div>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar ptl-acc-guardar-hidden">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar-respuestas-tipo")}" class="ptl-acordeon-cuerpo ptl-acc-body8">
+            <input type="hidden" name="rt_n" value="${_rt.length + 1}"/>
+            ${_filas}
+          </form>
+        </div>`;
+        })()}
 
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
           Los datos se guardan en la pestaña <code>mail_plantillas</code> del Sheet.
@@ -15777,7 +15828,7 @@ module.exports = function (app) {
       } catch (_) {}
       sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, aviso8: _ultAviso8, resolucion8: _ultResol8, actaSin: _actaSin, recVec: _recVec }, _waDias),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { respTipo: await _leerRespuestasTipo().catch(() => []), espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, aviso8: _ultAviso8, resolucion8: _ultResol8, actaSin: _actaSin, recVec: _recVec }, _waDias),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -15911,6 +15962,27 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/plantillas", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas/guardar:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas/guardar-respuestas-tipo (v19.113)
+  app.post("/presupuestos/plantillas/guardar-respuestas-tipo", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const n = Math.min(200, parseInt(req.body.rt_n, 10) || 0);
+      const lista = [];
+      for (let i = 0; i < n; i++) {
+        const nombre = String(req.body["rt_nombre_" + i] || "").trim();
+        const texto = String(req.body["rt_texto_" + i] || "").replace(/\r\n/g, "\n").trim();
+        if (nombre && texto) lista.push({ nombre, texto });
+      }
+      await guardarPlantillaMail({ fase: "_RESPUESTAS_TIPO", activo: "SI", asunto: "", mensaje: JSON.stringify(lista), adjuntos_fijos: "",
+        dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
+      res.redirect(urlT(token, "/presupuestos/plantillas", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas/guardar-respuestas-tipo:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });

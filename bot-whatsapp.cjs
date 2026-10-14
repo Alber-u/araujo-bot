@@ -4260,57 +4260,6 @@ function _textoPendiente08(st) {
 function _textoTodoRecibido08() {
   return "Hemos recibido toda la documentaci\u00f3n que le ped\u00edamos. La revisaremos y, si falta algo, le avisaremos. Gracias.";   // v19.108: sin "por aqui"
 }
-async function _clasificarDoc08(jpegBuf) {
-  if (!jpegBuf) return null;
-  const prompt = "Clasifica la imagen de un documento. Responde SOLO un JSON {\"tipo\":\"contrato\"|\"justificante\"|\"otro\",\"confianza\":0-1}. " +
-    "contrato = una hoja de un contrato de suministro de agua de EMASESA (texto contractual, condiciones, datos del abonado o firmas). " +
-    "justificante = un comprobante de pago: ticket de cajero, justificante de transferencia bancaria, recibo pagado o carta de pago con marca o sello de pagado. " +
-    "otro = cualquier otra cosa.";
-  const r = await llamarIAconImagen(prompt, jpegBuf.toString("base64"), IA_TIMEOUT_IMAGEN_MS);
-  const t = r && String(r.tipo || "").toLowerCase();
-  return ["contrato", "justificante", "otro"].includes(t) ? t : null;
-}
-async function _imagenAJpeg08(buf) {
-  return await sharp(buf).rotate().resize(1800, 1800, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
-}
-// Junta las hojas del contrato (fotos y/o PDF sueltos) en un PDF, lo sube y pone la pastilla en REVISAR.
-async function _finalizarContrato08(ctx) {
-  const { piso, comu, ficha, carpetaId, telefono } = ctx;
-  const hojas = ficha.hojas || [];
-  const drive = getDriveClient();
-  const out = await PDFDocument.create();
-  for (const h of hojas) {
-    const meta = await drive.files.get({ fileId: h.id, fields: "id, mimeType, name" });
-    const buf = await _bajarDrive(h.id);
-    if (String(meta.data.mimeType || "").includes("pdf")) {
-      const src = await PDFDocument.load(buf, { ignoreEncryption: true });
-      const pags = await out.copyPages(src, src.getPageIndices());
-      pags.forEach(p => out.addPage(p));
-    } else {
-      const img = await out.embedJpg(buf);
-      const A4W = 595.28, A4H = 841.89;
-      const esc = Math.min(A4W / img.width, A4H / img.height);
-      const w = img.width * esc, hh = img.height * esc;
-      const page = out.addPage([A4W, A4H]);
-      page.drawImage(img, { x: (A4W - w) / 2, y: (A4H - hh) / 2, width: w, height: hh });
-    }
-  }
-  const total = out.getPageCount();
-  const pdf = Buffer.from(await out.save());
-  const nombre = "08-CONTRATO FIRMADO " + ((comu && comu.tipoVia) ? comu.tipoVia + " " : "") + piso.comunidad + " (" + piso.vivienda + ").pdf";
-  const subido = await uploadToDrive(pdf, nombre, "application/pdf", carpetaId);
-  const motivo = total < _HOJAS_CONTRATO ? ("solo " + total + " hoja" + (total === 1 ? "" : "s") + " (el contrato tiene " + _HOJAS_CONTRATO + ")") : "contrato firmado recibido por el bot";
-  await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "contrato_firmado", nombre, subido.webViewLink || "", "bot_fase08", "REVISAR", motivo);
-  await _escribirCeldaPiso08(piso.fila, "AR", "REVISAR");
-  piso.contrato = "REVISAR";
-  await _escribirFicha08(ficha.rowIndex, ficha.enviado, [], ficha.ultimo);
-  ficha.hojas = [];
-  // las hojas sueltas ya estan dentro del PDF: a la papelera (recuperables)
-  for (const h of hojas) { try { await drive.files.update({ fileId: h.id, requestBody: { trashed: true } }); } catch (e) {} }
-  try { await notificarEquipo("revisar_documento", { nombre: piso.nombre, comunidad: piso.comunidad, vivienda: piso.vivienda, telefono, documento: "Contrato firmado", motivo }); } catch (e) {}
-  return { total };
-}
-// Un archivo recibido en fase 08. Devuelve la frase para el vecino.
 // v19.108 -- guarda un archivo de fase 08 tal cual llega (mismo formato y contenido) en la carpeta del piso.
 async function _guardarArchivo08(ctx, mediaUrl, mimeType, idx) {
   const { piso, comu, telefono } = ctx;
@@ -4327,83 +4276,8 @@ async function _guardarArchivo08(ctx, mediaUrl, mimeType, idx) {
   await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "documento_fase08", nombre, subido.webViewLink || "", "bot_fase08", "REVISAR", "recibido por el bot en fase 08 (sin clasificar: contrato o justificante)");
   return true;
 }
-async function _procesarArchivo08(ctx, mediaUrl, mimeType) {
-  const { piso, comu, ficha, telefono } = ctx;
-  const resp = await axios.get(mediaUrl, { responseType: "arraybuffer", auth: { username: process.env.TWILIO_ACCOUNT_SID, password: process.env.TWILIO_AUTH_TOKEN } });
-  let buf = Buffer.from(resp.data);
-  if (buf.length > MAX_FILE_SIZE) return "El archivo es demasiado grande (m\u00e1ximo 10 MB). Env\u00edelo en varias partes o en fotos.";
-  const esPdf = String(mimeType || "").includes("pdf");
-  const esImg = String(mimeType || "").startsWith("image/");
-  let nPag = 1, jpegIA = null;
-  if (esPdf) { nPag = Math.max(1, await _paginasPdf(buf)); try { jpegIA = await renderizarPrimeraPaginaPDF(buf); } catch (e) {} }
-  else if (esImg) { buf = await _imagenAJpeg08(buf); jpegIA = buf; }
-  const st = _estado08(piso, comu, ficha);
-  // ¿Que es? Sin IA cuando no hay duda; con IA cuando puede ser cualquiera de los dos.
-  let tipo;
-  if (esPdf && nPag >= _HOJAS_CONTRATO) tipo = "contrato_completo";
-  else if (!esPdf && !esImg) tipo = "otro";
-  else {
-    const dudoso = (st.contratoPend && st.pagoPend) || (!st.contratoPend && !st.pagoPend) || (st.nHojas > 0 && st.pagoPend);
-    const ia = dudoso ? await _clasificarDoc08(jpegIA) : null;
-    if (ia === "justificante") tipo = "justificante";
-    else if (ia === "contrato") tipo = "hoja";
-    else if (ia === "otro" && !st.contratoPend && !st.pagoPend) tipo = "otro";
-    else if (st.nHojas > 0 || st.contratoPend) tipo = "hoja";
-    else if (st.pagoPend) tipo = "justificante";
-    else tipo = "otro";
-  }
-  const carpetaId = await getOrCreateCarpetaVivienda({ comunidad: piso.comunidad, vivienda: piso.vivienda, telefono });
-  ctx.carpetaId = carpetaId;
-  const ext = esPdf ? ".pdf" : ".jpg";
-  const mime = esPdf ? "application/pdf" : "image/jpeg";
-  const sello = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
-  if (tipo === "contrato_completo") {
-    // Un PDF con el contrato entero: se guarda tal cual (no se pasa a imagen) y sustituye a las hojas sueltas
-    const nombre = "08-CONTRATO FIRMADO " + (comu && comu.tipoVia ? comu.tipoVia + " " : "") + piso.comunidad + " (" + piso.vivienda + ").pdf";
-    const subido = await uploadToDrive(buf, nombre, "application/pdf", carpetaId);
-    await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "contrato_firmado", nombre, subido.webViewLink || "", "bot_fase08", "REVISAR", "contrato firmado recibido por el bot (" + nPag + " p\u00e1g.)");
-    await _escribirCeldaPiso08(piso.fila, "AR", "REVISAR");
-    piso.contrato = "REVISAR";
-    if (ficha.hojas.length) await _escribirFicha08(ficha.rowIndex, ficha.enviado, [], ficha.ultimo);
-    ficha.hojas = [];
-    try { await notificarEquipo("revisar_documento", { nombre: piso.nombre, comunidad: piso.comunidad, vivienda: piso.vivienda, telefono, documento: "Contrato firmado", motivo: "Recibido por el bot en fase 08" }); } catch (e) {}
-    return "\u2705 Hemos recibido el contrato firmado.";
-  }
-  if (tipo === "hoja") {
-    if (!st.contratoPend && st.nHojas === 0) {
-      // ya habia contrato: es una hoja de mas. Se guarda y se avisa para revisarlo.
-      const nombre = "08-contrato_firmado-hoja_extra_" + sello + ext;
-      const subido = await uploadToDrive(buf, nombre, mime, carpetaId);
-      await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "contrato_firmado_extra", nombre, subido.webViewLink || "", "bot_fase08", "REVISAR", "hoja recibida despu\u00e9s del contrato");
-      if (piso.contrato !== "REVISAR") { await _escribirCeldaPiso08(piso.fila, "AR", "REVISAR"); piso.contrato = "REVISAR"; }
-      return "Hemos a\u00f1adido esta hoja a su contrato para revisarla.";
-    }
-    const num = st.nHojas + 1;
-    const nombre = "08-contrato_firmado-hoja" + _dosDig(num) + ext;
-    const subido = await uploadToDrive(buf, nombre, mime, carpetaId);
-    ficha.hojas = (ficha.hojas || []).concat([{ id: subido.id, n: esPdf ? nPag : 1 }]);
-    const llevamos = st.nHojas + (esPdf ? nPag : 1);
-    if (llevamos >= _HOJAS_CONTRATO) {
-      const r = await _finalizarContrato08(ctx);
-      return "\u2705 Hemos recibido las " + r.total + " hojas del contrato firmado.";
-    }
-    await _escribirFicha08(ficha.rowIndex, ficha.enviado, ficha.hojas, ficha.ultimo);
-    return "Hoja recibida (" + llevamos + " de " + _HOJAS_CONTRATO + "). Env\u00edenos las que falten; si ya las ha mandado todas, escriba LISTO.";
-  }
-  if (tipo === "justificante") {
-    const nombre = "08-JUSTIFICANTE PAGO " + (comu && comu.tipoVia ? comu.tipoVia + " " : "") + piso.comunidad + " (" + piso.vivienda + ")_" + sello + ext;
-    const subido = await uploadToDrive(buf, nombre, mime, carpetaId);
-    const sePedia = st.pagoPend || piso.pago === "REVISAR" || piso.pago === "OK";
-    await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "justificante_pago", nombre, subido.webViewLink || "", "bot_fase08", "REVISAR", sePedia ? "justificante de pago recibido por el bot" : "justificante recibido sin ped\u00edrselo (forma de pago " + (piso.pago || "vac\u00eda") + ")");
-    if (sePedia && piso.pago !== "REVISAR") { await _escribirCeldaPiso08(piso.fila, "AS", "REVISAR"); piso.pago = "REVISAR"; }
-    try { await notificarEquipo("revisar_documento", { nombre: piso.nombre, comunidad: piso.comunidad, vivienda: piso.vivienda, telefono, documento: "Justificante de pago", motivo: "Recibido por el bot en fase 08" }); } catch (e) {}
-    return "\u2705 Hemos recibido el justificante de pago.";
-  }
-  const nombre = "08-adicional_" + sello + ext;
-  const subido = await uploadToDrive(buf, nombre, mime, carpetaId);
-  await guardarDocumentoSheet(telefono, piso.comunidad, piso.vivienda, "adicional", nombre, subido.webViewLink || "", "fuera_flujo", "REVISAR", "archivo recibido en fase 08 que no es contrato ni justificante");
-  return "Hemos guardado el archivo en su expediente para revisarlo.";
-}
+// v19.112 -- borrados los restos de la recogida antigua de la 08 (v19.98-19.107): _clasificarDoc08,
+//   _imagenAJpeg08, _finalizarContrato08 y _procesarArchivo08. Desde v19.108 se usa _guardarArchivo08.
 async function manejarFase08(req, res) {
   const msgOriginal = String(req.body.Body || "").trim();
   const numMedia = parseInt(req.body.NumMedia || "0", 10);
