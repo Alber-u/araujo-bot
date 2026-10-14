@@ -1584,6 +1584,30 @@ async function crearExpedienteInicial(telefono, datosVecino) {
   // Crear carpeta 04_nota_simple en Drive en background
   if (datosVecino) crearCarpetaNotaSimple(datosVecino).catch(() => {});
 }
+// v19.114 (criterio de Guille, 14/10/2026) -- reabre la ficha de un vecino que el bot ya habia dado por
+//   terminado cuando Guille rechaza o da por falta uno de sus documentos: vuelve a "recogida_documentacion"
+//   con el documento pendiente, y sus recordatorios automaticos vuelven a correr desde hoy. Solo la ficha del
+//   telefono ACTUAL del piso. Devuelve true si la ha reabierto.
+async function reabrirSiFinalizado(o) {
+  const n = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  const sheets = getSheetsClient();
+  const rp = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:C" });
+  let tel = "";
+  for (const r of (rp.data.values || []).slice(1)) { if (r && n(r[1]) === n(o.comunidad) && n(r[2]) === n(o.vivienda)) { tel = normalizarTelefono(r[0] || ""); break; } }
+  if (!tel) return false;
+  let exp = await buscarExpedientePorTelefono(tel);
+  if (!exp || exp.paso_actual !== "finalizado" || n(exp.comunidad) !== n(o.comunidad) || n(exp.vivienda) !== n(o.vivienda)) return false;
+  const rowIndex = exp.rowIndex;
+  exp = await resolverEstadoConversacional(exp);
+  if (exp.paso_actual !== "recogida_documentacion" || !exp.documento_actual) return false;   // no falta nada obligatorio
+  exp.rowIndex = rowIndex;
+  exp.documentos_completos = "NO";
+  exp.alerta_plazo = "";
+  exp.fecha_ultimo_contacto = new Date().toISOString();
+  await actualizarExpediente(rowIndex, exp);
+  console.log("[bot] ficha reabierta por rechazo/falta de un documento:", tel, o.comunidad, o.vivienda, "->", exp.documento_actual);
+  return true;
+}
 async function actualizarExpediente(rowIndex, data) {
   // Recalcular motivo_bloqueo_actual automaticamente antes de guardar
   data.motivo_bloqueo_actual = calcularMotivoBloqueActual(data);
@@ -2870,7 +2894,7 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente) {
     const docsDelFlujo = new Set([...(reglas.obligatorios || []), ...(reglas.opcionales || [])]);
 
     // Politica: ultimo estado manda, manual gana sobre automatico
-    const ORIGENES_MANUALES_REC = ["validacion_manual", "rechazo_manual"];
+    const ORIGENES_MANUALES_REC = ["validacion_manual", "rechazo_manual", "manual"];   // v19.114: "manual" = marca de la ficha (v19.112)
     const estadoPorTipoRec = {};
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
@@ -4525,6 +4549,7 @@ setTimeout(() => {
   // v0.10 - Envio de presentacion a UN solo piso (lo dispara el switch M->W del
   // programa via app.locals). No reenvia si el vecino ya tiene ficha.
   app.locals.botWhatsapp = {
+    reabrirSiFinalizado,   // v19.114
     salud: _saludBot,   // v19.96: para el aviso de sistema de HOY
     // v19.98 -- contratos por el bot en fase 08 (los usa documentacion.cjs, boton W)
     enviarContratoPiso,

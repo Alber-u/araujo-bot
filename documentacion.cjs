@@ -3338,7 +3338,17 @@ module.exports = function (app) {
           requestBody: { values: [["", comu.comunidad, vivienda, codigo, "", now, "", "manual", estado, "", "", ""]] },
         });
       }
-      res.json({ ok: true });
+      // v19.114 (criterio de Guille, 14/10/2026) -- si Guille rechaza (INCORRECTO) o da por falta (F) un
+      //   documento de un vecino al que el bot ya habia dado por terminado, el bot reabre su ficha y vuelve
+      //   a pedirselo con sus recordatorios automaticos, hasta que lo entregue y Guille lo marque OK.
+      let reabierto = false;
+      if (estado === "INCORRECTO" || estado === "F") {
+        try {
+          const bot = app.locals.botWhatsapp;
+          if (bot && typeof bot.reabrirSiFinalizado === "function") reabierto = !!(await bot.reabrirSiFinalizado({ comunidad: comu.direccion || comu.comunidad, vivienda }));
+        } catch (eR) { console.error("[documentacion] bot/marcar reabrir:", eR.message); }
+      }
+      res.json({ ok: true, reabierto });
     } catch (e) {
       console.error("[documentacion] bot/marcar:", e.message);
       res.status(500).json({ error: e.message });

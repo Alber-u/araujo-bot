@@ -3583,11 +3583,11 @@ module.exports = function (app) {
     const tipo = String(dp.pisoTipo || dp.tipoBot || "").trim().toLowerCase();
     const cfg = _TIPOS_BOT[tipo]; if (!cfg) return { hechos: 0, total: 0, aplica: false };
     const idx = _indexBotDocs(dp); const mapEst = dp.mapEst || {};
-    let total = 0, hechos = 0;
-    cfg.docs.forEach(d => { const e = _estadoSwitchBot(d.code, idx); if (d.opc && e === "VACIO") return; total++; if (e === "OK") hechos++; });
+    let total = 0, hechos = 0, revisar = 0;   // v19.114: revisar = documentos en REVISAR (pendientes de revisar por Guille)
+    cfg.docs.forEach(d => { const e = _estadoSwitchBot(d.code, idx); if (d.opc && e === "VACIO") return; total++; if (e === "OK") hechos++; if (e === "REVISAR") revisar++; });
     if (cfg.fin) {
       const fv = String(mapEst["piso_meses_financiar"] || "").trim();
-      if (fv === "6" || fv === "12" || fv === "18") { _FIN_DOCS_BOT.forEach(d => { total++; if (_estadoSwitchBot(d.code, idx) === "OK") hechos++; }); }
+      if (fv === "6" || fv === "12" || fv === "18") { _FIN_DOCS_BOT.forEach(d => { total++; const _ef = _estadoSwitchBot(d.code, idx); if (_ef === "OK") hechos++; if (_ef === "REVISAR") revisar++; }); }
       else { total++; hechos++; }
     }
     if (String(mapEst["piso_disidente"] || "").trim().toUpperCase() === "OK") { total++; hechos++; }
@@ -3599,7 +3599,7 @@ module.exports = function (app) {
     //   en los acordeones manuales. Solo cuenta en OK (hecha) o en F (falta).
     const _ns = String(mapEst["piso_titularidad"] || "").trim().toUpperCase();
     if (_ns === "OK") { total++; hechos++; } else if (_ns !== "") { total++; }
-    return { hechos, total, aplica: true };
+    return { hechos, total, revisar, aplica: true };
   }
   function _normDirBot(x) { return String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim(); }
   function _normVivBot(x) { return String(x == null ? "" : x).trim().toLowerCase(); }
@@ -3636,6 +3636,7 @@ module.exports = function (app) {
   // piso_tipo, acordeon. botDatos = indice de _leerBotDatosHoyIndex para esa comunidad.
   function _contarFaltanBot(estadosCcpp, docsCcpp, pisos, docsPiso, fase, botDatos) {
     const bd = botDatos || { docsByPiso: {}, tipoByPiso: {}, descByPiso: {} };
+    const _revisarBot = {}; // v19.114 -- viviendas del bot con algun documento en REVISAR
     const _verdesBot = {}; // v18.99h — viviendas con toda su documentación (verde)
     let totalFilas = 0, completas = 0;
     if (!_ccppNoContrata(estadosCcpp, docsCcpp, fase)) {
@@ -3659,12 +3660,13 @@ module.exports = function (app) {
         for (let i = 0; i < docsPiso.length; i++) mapEst[docsPiso[i].codigo] = String((p.estados || [])[i] || "");
         const c = _botContarPiso({ pisoTipo: p.piso_tipo || "", tipoBot, botDocs: bd.docsByPiso[viv] || [], descartadosBot: bd.descByPiso[viv] || [], mapEst });
         if (c.aplica && c.hechos >= c.total) { completas++; if (c.total > 0) _verdesBot[viv] = true; }
+        if (c.aplica && c.revisar > 0) _revisarBot[viv] = true;   // v19.114
       } else {
         const r = _resumenFase(p.estados, docsPiso, fase);
         if (r.totalRel > 0 && r.hechos >= r.totalRel) { completas++; _verdesBot[viv] = true; }
       }
     }
-    return { totalFilas, pend: totalFilas > 0 ? (totalFilas - completas) : 0, verdes: _verdesBot };
+    return { totalFilas, pend: totalFilas > 0 ? (totalFilas - completas) : 0, verdes: _verdesBot, revisar: _revisarBot };
   }
 
   // Devuelve { lista_doc_ccpp, lista_doc_pisos, pct_pisos } para una CCPP.
@@ -13552,20 +13554,22 @@ module.exports = function (app) {
         let _docsPisoAv = [], _botIdxAv = {};
         try { _docsPisoAv = (await _leerDocsManuales()).docsPiso || []; } catch (e) {}
         try { _botIdxAv = await _leerBotDatosHoyIndex(); } catch (e) {}
-        const _verdeCache = {};
-        const _pisoVerde = async (comu, viv) => {
+        const _verdeCache = {}, _revisarCache = {};
+        const _cargaVerde = async (comu) => {
           const key = _normDirBot(comu);
           if (!(key in _verdeCache)) {
-            let set = {};
+            let set = {}, rev = {};
             try {
               const pisosV = await _leerPisosDeCcpp(comu, _docsPisoAv);
               const rV = _contarFaltanBot([], [], pisosV, _docsPisoAv, "", _botIdxAv[key] || null);
-              set = rV.verdes || {};
+              set = rV.verdes || {}; rev = rV.revisar || {};
             } catch (e) {}
-            _verdeCache[key] = set;
+            _verdeCache[key] = set; _revisarCache[key] = rev;
           }
-          return !!_verdeCache[key][_normVivBot(viv)];
+          return key;
         };
+        const _pisoVerde = async (comu, viv) => { const key = await _cargaVerde(comu); return !!_verdeCache[key][_normVivBot(viv)]; };
+        const _pisoRevisar = async (comu, viv) => { const key = await _cargaVerde(comu); return !!_revisarCache[key][_normVivBot(viv)]; };   // v19.114
         // v19.36 — Criterio de Guille: en fase 05 todos los vecinos ven la fecha de la
         //   COMUNIDAD (primer WhatsApp del bot a cualquier vecino + 20), la misma que los
         //   correos ({{fecha_limite_doc_vecinos}}). v19.102 (criterio de Guille, 09/10/2026): los
@@ -13624,7 +13628,10 @@ module.exports = function (app) {
             // v19.111 (criterio de Guille, 13/10/2026) -- igual que en la 08: sale mientras el piso no tenga
             //   toda su documentacion en OK (contador verde de la ficha) y se va sola al dejarlo todo en OK;
             //   si Guille vuelve a poner algo en F o en REV, vuelve a salir. Ya no depende del check (col AB).
-            if (!(await _pisoVerde(r[1] || "", r[2] || ""))) {
+            // v19.114 (criterio de Guille, 14/10/2026): solo mientras haya algo en REVISAR. Revisado todo:
+            //   si esta todo OK, terminado; si algo queda en F o INCORRECTO, vuelve a la cadena normal
+            //   (M1/M2) y el bot reabre la ficha para seguir pidiendolo (documentacion.cjs, bot/marcar).
+            if (await _pisoRevisar(r[1] || "", r[2] || "")) {
               const _fF = _fFecha(r[10]);
               _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false, waMsg: _waM3, fin: String(r[25] || "").trim().toUpperCase() === "SI", fecha: _fF.txt, ts: _fF.ts }, _base));
             }
