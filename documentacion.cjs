@@ -3329,13 +3329,19 @@ module.exports = function (app) {
             norm(r[2]) === norm(vivienda) && String(r[3] || "").trim() === codigo) { rowIndex = i + 1; break; }
       }
       const now = new Date().toISOString();
+      // v19.115 -- telefono actual del piso, para que el bot reconozca la marca como suya
+      let _telPiso = "";
+      try {
+        const _rp = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:C" });
+        for (const _r of (_rp.data.values || []).slice(1)) { if (_r && (mismaDireccion(_r[1] || "", comu.comunidad) || mismaDireccion(_r[1] || "", comu.direccion)) && norm(_r[2]) === norm(vivienda)) { _telPiso = String(_r[0] || "").trim(); break; } }
+      } catch (_) {}
       if (rowIndex > 0) {
         await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_documentos!F" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[now]] } });
         await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_documentos!H" + rowIndex + ":I" + rowIndex, valueInputOption: "RAW", requestBody: { values: [["manual", estado]] } });   // v19.112: marca manual (col H)
       } else {
         await sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID, range: "bot_documentos!A:L", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
-          requestBody: { values: [["", comu.comunidad, vivienda, codigo, "", now, "", "manual", estado, "", "", ""]] },
+          requestBody: { values: [[_telPiso, comu.comunidad, vivienda, codigo, "", now, "", "manual", estado, "", "", ""]] },   // v19.115: con el telefono del piso
         });
       }
       // v19.114 (criterio de Guille, 14/10/2026) -- si Guille rechaza (INCORRECTO) o da por falta (F) un

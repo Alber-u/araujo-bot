@@ -2881,7 +2881,7 @@ const DNI_ALIAS_UNA_PIEZA = {
   dni_pagador:       ["dni_pagador_delante", "dni_pagador_detras"],
 };
 
-async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente) {
+async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente, comunidadExp, viviendaExp) {
   try {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
@@ -2902,7 +2902,11 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente) {
       let tipoDoc = row[3] || "";
       const estado = row[8] || "OK";
       const origen = row[7] || "";
-      if (tel !== telNorm) continue;
+      // v19.115 -- las marcas que Guille anade desde la ficha no llevaban telefono (col A vacia): se
+      //   reconocen por comunidad + vivienda del expediente.
+      const _nn = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+      const _deEstePiso = !tel && comunidadExp && _nn(row[1]) === _nn(comunidadExp) && _nn(row[2]) === _nn(viviendaExp);
+      if (tel !== telNorm && !_deEstePiso) continue;
       // Si es un alias de DNI en una pieza y el flujo pide las dos caras por
       // separado, este documento vale para las dos.
       const objetivos = (!docsDelFlujo.has(tipoDoc) && DNI_ALIAS_UNA_PIEZA[tipoDoc])
@@ -2937,7 +2941,8 @@ async function hidratarResumenDocumentalDesdeSheets(expediente, tipoDocs = null)
   const tipo = tipoDocs || expediente.tipo_expediente;
   const docsRecibidosArr = await reconstruirDocsRecibidosDesdeSheets(
     expediente.telefono,
-    tipo
+    tipo,
+    expediente.comunidad, expediente.vivienda   // v19.115
   );
   const resumen = calcularDocsExpediente(tipo, docsRecibidosArr);
   expediente.documentos_recibidos = resumen.recibidos;
