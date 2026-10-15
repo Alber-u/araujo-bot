@@ -1578,10 +1578,18 @@ function registrar(app) {
       // v0.7.0 — Partidas extra: subtotal adicional a cobrar (sin IVA).
       let partidasExtra = [];
       let totalExtra = 0;
+      let partidasSonPresupuesto = false;
       try {
         partidasExtra = await leerExtras(obra.obra_id);
         totalExtra = partidasExtra.reduce((s, e) => s + (e.subtotal_eur_num || 0), 0);
         totalExtra = +totalExtra.toFixed(2);
+        // (15/10/2026) El editor de presupuestos guarda las partidas DEL presupuesto en esta misma tabla y pone el
+        // subtotal de la orden = su suma (tuberías de Jorge de Montemayor: 1.920 € de partidas y 1.920 € de
+        // subtotal). Entonces no son extras: sumarlas otra vez duplicaba la venta (3.840 €, margen 68,8 %).
+        if (partidasExtra.length && subtotalPresup > 0 && Math.abs(totalExtra - subtotalPresup) <= 1) {
+          partidasSonPresupuesto = true;
+          totalExtra = 0;
+        }
       } catch (e) {
         console.error("[economico] error leyendo partidas extra:", e.message);
       }
@@ -1707,7 +1715,7 @@ function registrar(app) {
           num_entradas_manuales: entradasManuales.length,
           // v0.7.0 — partidas extra
           partidas_extra: partidasExtra,
-          total_extra_eur: totalExtra,
+          total_extra_eur: totalExtra, partidas_son_presupuesto: partidasSonPresupuesto,
           // v0.5.3 — Beneficio vivo (incluso sin tags)
           beneficio_vivo: {
             horas_reales: horasReales,
@@ -1941,7 +1949,7 @@ function registrar(app) {
         num_entradas_manuales: entradasManuales.length,
         // v0.7.0 — partidas extra
         partidas_extra: partidasExtra,
-        total_extra_eur: totalExtra,
+        total_extra_eur: totalExtra, partidas_son_presupuesto: partidasSonPresupuesto,
         // v0.5.3 — Beneficio en vivo (estimación)
         beneficio_vivo: {
           horas_reales: horasReales,
