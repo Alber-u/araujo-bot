@@ -318,6 +318,10 @@ module.exports = function setupAraOSPanelObras(app) {
     transferencia_recibida:  26, // AA
     // v0.16.0 — Fecha de montaje de contadores (editable, fase 16)
     fecha_montaje:           27, // AB
+    // 15/10/2026 — remate de terceros con la obra ya certificada al 100 % (armario, puertas del herrero, EMASESA…):
+    // no gasta horas de la cuadrilla; Planificación la da por terminada y enseña «pendiente de remate: …»
+    remate_pendiente:        37, // AL
+    remate_responsable:      38, // AM
   };
   // Letra de columna por índice, calculada para todo OT_COLS (antes era
   // una lista fija hasta AB y los campos AH/AI escribían en "undefined").
@@ -2050,7 +2054,7 @@ Reglas:
   // Body: { ccpp_id, campo, valor }
   //   campo ∈ { "fecha_inicio_obra", "materiales_pedidos",
   //             "presidente_avisado", "llaves_obtenidas",
-  //             "operarios_asignados" }
+  //             "operarios_asignados", "remate_pendiente", "remate_responsable" (15/10/2026) }
   //   valor: cadena (para los checks: "·"/"F"/"OK")
   // ============================================================
   app.post("/api/ara-os/panel-obras/ot/actualizar", jsonBodyParser, async (req, res) => {
@@ -2098,6 +2102,21 @@ Reglas:
       const sheets = getSheetsClient();
       const letra = OT_LETRA[OT_COLS[campo]];
       const ahora = new Date().toISOString();
+      // (15/10/2026) remate (AL/AM): si la rejilla de la hoja no llega a esas columnas, se amplía (sin eso, «exceeds grid limits»)
+      if (OT_COLS[campo] >= 37) {
+        try {
+          const meta = await sheets.spreadsheets.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID });
+          const h = (meta.data.sheets || []).find((x) => x.properties?.title === "ordenes_trabajo");
+          const cols = Number(h?.properties?.gridProperties?.columnCount) || 0;
+          if (h && cols && cols < OT_COLS.remate_responsable + 1) {
+            await sheets.spreadsheets.batchUpdate({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, requestBody: { requests: [{ appendDimension: { sheetId: h.properties.sheetId, dimension: "COLUMNS", length: OT_COLS.remate_responsable + 1 - cols } }] } });
+          }
+          const cab = (await leerHojaSafe("ordenes_trabajo!AL1:AM1"))[0] || [];
+          if (cab[0] !== "remate_pendiente" || cab[1] !== "remate_responsable") {
+            await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "ordenes_trabajo!AL1:AM1", valueInputOption: "RAW", requestBody: { values: [["remate_pendiente", "remate_responsable"]] } });
+          }
+        } catch (e) { console.warn("[ot/actualizar] columnas de remate:", e.message); }
+      }
 
       // Actualizamos en dos pasos: el campo + ultima_modificacion + modificador
       await sheets.spreadsheets.values.batchUpdate({
@@ -2190,7 +2209,7 @@ Reglas:
     try {
       const [rowsCom, rowsOT] = await Promise.all([
         leerHoja("comunidades!A2:BD"),
-        leerHojaSafe("ordenes_trabajo!A2:AK"),
+        leerHojaSafe("ordenes_trabajo!A2:AM"),
       ]);
 
       // v0.16.0 — Historial de fases para sacar la fecha de montaje (fase 16)
@@ -2315,6 +2334,9 @@ Reglas:
           fecha_firma_presidente:  row[35] || "",
           // v0.19.0 — Fase 14 PDF firmado en Drive
           url_pdf_firmado:         row[36] || "",
+          // 15/10/2026 — remate de terceros (sin horas de cuadrilla)
+          remate_pendiente:        row[OT_COLS.remate_pendiente] || "",
+          remate_responsable:      row[OT_COLS.remate_responsable] || "",
         };
 
         // Días desde que se creó la OT (cuánto lleva en la fase)
@@ -2355,6 +2377,8 @@ Reglas:
           fecha_cobro:           fechaCobro,
           // Planificación: de dónde sale la columna, qué dice y quién la hace
           estado_de: efectiva.de, plan_texto: efectiva.texto || "",
+          // (15/10/2026) Certificaciones al 100 %: se propone (no se hace) pasar la OT a Finalizada
+          propuesta_fase: efectiva.propuesta || null,
           plan_operarios: planDe.get(ccppIdCalc)?.operarios || null,
           plan_inicio: planDe.get(ccppIdCalc)?.inicio || null, plan_fin: planDe.get(ccppIdCalc)?.fin || null,
           ...listaPlan(planDe.get(ccppIdCalc)),
