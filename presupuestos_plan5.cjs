@@ -1586,7 +1586,10 @@ function _p5memoria(R, meta, saved){
     return _gpDepW(n) + " de " + _p5esc(String(tipo==null?"":tipo).trim()) + "L";
   };
   var _gpDescNuevo = "Se instala uno nuevo que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpInstala)) + " de " + _p5esc(String(m.gpPotNew||"").trim()) + "KW" + (function(){ /* Rev-23.1 (29/09/2026, criterio de Guille): sin depositos NUEVOS y con depositos EXISTENTES = se reutilizan (no se valoran) y la memoria lo dice */ var _dN = _gpDepDesc(m.gpNdepNew, m.gpTdepNew); if (_dN) return _p5gpCaldDep(m.gpCaldNew, _dN); var _nA = _gpNum(m.gpNdepAct); if (_nA > 0) { var _reu = _esAljibe(m.gpTdepAct) ? (_nA===1 ? "el aljibe existente" : ("los " + _nA + " aljibes existentes")) : (_nA===1 ? ("el depósito de " + _p5esc(String(m.gpTdepAct==null?"":m.gpTdepAct).trim()) + "L existente") : ("los " + _nA + " depósitos de " + _p5esc(String(m.gpTdepAct==null?"":m.gpTdepAct).trim()) + "L existentes")); return _p5gpCaldDep(m.gpCaldNew, "") + ", reutilizando " + _reu; } return _p5gpCaldDep(m.gpCaldNew, ""); })() + ", con lo que cumple las exigencias técnicas.";
-  var _gpDescActual = "Se mantiene el existente que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpMotAct)) + " de " + _p5esc(String(m.gpPotAct||"").trim()) + "KW" + _p5gpCaldDep(m.gpCaldAct, _gpDepDesc(m.gpNdepAct, m.gpTdepAct)) + " (se adjunta documento de mantenimiento).";
+  // Rev-25.1 (15/10/2026, criterio de Guille): las caracteristicas del grupo ACTUAL van en A) "TIENE GRUPO
+  // HIDRONEUMATICO" (lo que hay); en B) "GRUPOS DE PRESION" (lo que se hace) el mantenimiento queda sin ellas.
+  var _gpCaractAct = _gpMotW(_gpNum(m.gpMotAct)) + " de " + _p5esc(String(m.gpPotAct||"").trim().replace(/\s*kw$/i, "")) + "KW"   /* si la casilla ya trae "KW" (C Virgen de Loreto 9: "0,8KW") no se duplica */ + _p5gpCaldDep(m.gpCaldAct, _gpDepDesc(m.gpNdepAct, m.gpTdepAct));
+  var _gpDescActual = "Se mantiene el existente (se adjunta documento de mantenimiento).";
   var gpDescTxt = _gpInstala ? _gpDescNuevo : (_gpTiene ? _gpDescActual : "La CC.PP. renuncia al grupo de presión (se adjunta documento de renuncia).");
   var grupoTxt = _gpInstala ? "Sí." : (_gpTiene ? "Se utiliza el existente." : "La CC.PP. renuncia al grupo de presión.");
   var aljibeTxt = (_esAljibe(m.gpTdepAct) || _esAljibe(m.gpTdepNew)) ? "Sí." : "No.";
@@ -1700,7 +1703,7 @@ function _p5memoria(R, meta, saved){
   <p class="meml"><b>CONTADOR:</b><br>El contador${vgid("ac_ncont")?(" (nº "+_p5esc(vgid("ac_ncont"))+")"):""} está ubicado en ${_p5esc((vgid("ac_ubic")||"zonas comunes").toLowerCase().replace(/^en /,""))} del edificio.</p>
   <p class="meml"><b>ABASTECIMIENTO ACTUAL:</b><br>${vg(_P5V.matMontante)?(((peines||[]).filter(function(pe){return pe&&(pe.puerta||pe.tipo);}).length===1?"El montante actual es de ":"Los montantes actuales son de ")+_p5esc((function(mm){var u=mm.toUpperCase();return u==="DESCONOCIDO"?"material desconocido":(u==="PE"||u==="PPR")?u:mm.toLowerCase();})(vg(_P5V.matMontante)))+"."+(_peinesAct?(" "+_p5esc(_peinesAct)):"")):"—"}</p>
   <p class="meml"><b>Nº DE CONEXIONES A VIVIENDAS:</b><br>Las viviendas tienen una entrada de agua${vivMasEnt>0?(" ("+vivMasEnt+" de ellas "+(vivMasEnt===1?"tiene":"tienen")+" más de una)"):""}, siendo en total ${_p5listaES([(nViv+entradasMas)+" "+((nViv+entradasMas)===1?"conexión":"conexiones")+" a vivienda", localesSin>0?(localesSin+" "+(localesSin===1?"conexión":"conexiones")+" a local"+(localesSin===1?"":"es")):"", nCom>0?(nCom+" "+(nCom===1?"conexión":"conexiones")+" a comunidad"):""])}.</p>
-  <p class="meml"><b>TIENE GRUPO HIDRONEUMÁTICO:</b><br>${(String(m.gpMotAct==null?"":m.gpMotAct).trim()!=="")?"Sí":"No"}.</p>
+  <p class="meml"><b>TIENE GRUPO HIDRONEUMÁTICO:</b><br>${(String(m.gpMotAct==null?"":m.gpMotAct).trim()!=="")?("Sí. "+_gpCaractAct):"No"}.</p>
   <p class="meml"><b>TIENE ALJIBE:</b><br>${aljibeTxt}</p>
 
   <div class="memsub">B) Descripción del abastecimiento propuesto</div>
