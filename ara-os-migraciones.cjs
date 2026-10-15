@@ -251,6 +251,79 @@ function resumen(d, p, { desde = "2026-10-01", hasta = "2026-10-15" } = {}) {
 }
 
 // ============================================================
+// Nombres sueltos (15/10/2026, Alberto): registros de tiempo con un texto que no es ninguna orden, a la obra que
+// él ha dicho. Plan 5 se ficha con el nombre de la comunidad (comunidades!A / ordenes_trabajo!A); Otras órdenes,
+// con su id. «lavin 6» y «Doña francisquita 9» se quedan como están hasta saber a qué van.
+// ============================================================
+const MIGRACION_NOMBRES = "nombres-sueltos-15-10-2026";
+// fuente (texto del registro) → destino: { obra } (nombre de la obra a buscar) u { oo } (id de Otras órdenes)
+const NOMBRES_SUELTOS = [
+  { fuentes: ["DOCTOR FEDRIANI 39"], obra: "Doctor Fedriani 39" },
+  { fuentes: ["PLAN CINCO CCPP BETIS 20 (G)"], obra: "Betis 20" },
+  { fuentes: ["villanueva 3"], obra: "Villanueva 3" },
+  { fuentes: ["la oliva 67 cambio de tomas"], obra: "La Oliva 67" },
+  { fuentes: ["la oliva 102", "LA OLIVA 102"], obra: "La Oliva 102" },
+  { fuentes: ["Ciudad Jardin"], obra: "Ciudad Jardín 85" },
+  { fuentes: ["marques de nervion 99"], obra: "Marqués de Nervión 99" },
+  { fuentes: ["Parque miraflores"], obra: "Parque Miraflores 5" },
+  { fuentes: ["RAMON Y CAJAL 28"], obra: "Ramón y Cajal 28" },
+  { fuentes: ["FURGONETA TALLER", "FURGONETA ITV"], oo: "OO-2026-032", debe_contener: "furgoneta" },
+];
+// palabras de una obra sin ruido («CCPP», «Plan Cinco», «C/», tildes…): «PLAN CINCO CCPP BETIS 20 (G)» → betis 20 g
+const RUIDO = new Set(["ccpp", "cpp", "cp", "c", "calle", "cl", "plan", "cinco", "comunidad", "de", "propietarios", "sevilla"]);
+const palabras = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).filter((w) => w && !RUIDO.has(w));
+// ¿las palabras de la clave van seguidas dentro de las del nombre? («la oliva 67» sí en «la oliva 67»; «betis 20» sí
+// en «betis 20 g»; «oliva 10» no en «oliva 102»)
+function contiene(nombre, clave) {
+  const n = palabras(nombre), k = palabras(clave);
+  if (!k.length) return false;
+  for (let i = 0; i + k.length <= n.length; i++) if (k.every((w, j) => n[i + j] === w)) return true;
+  return false;
+}
+
+// d = { obras, registros } (tablas) · plan5: nombres de comunidades y OT
+function planificarNombres(d, plan5, { ahora = new Date().toISOString(), usuario = "migración", mapa = NOMBRES_SUELTOS } = {}) {
+  const cambios = [], avisos = [], reescritos = [], destinos = [];
+  const obras = objetos(d.obras).filter((o) => o.obra_id && !verdad(o.borrado));
+  const nombresP5 = [...new Set((plan5 || []).map((x) => String(x || "").trim()).filter(Boolean))];
+  const regs = objetos(d.registros);
+  const set = (fila, campo, antes, despues) => {
+    let c = cambios.find((x) => x.fila === fila);
+    if (!c) cambios.push((c = { hoja: "registros_tiempo", fila, campos: {} }));
+    c.campos[campo] = [antes ?? "", despues];
+  };
+  for (const m of mapa) {
+    let destino = null, tipo = null;
+    if (m.oo) {
+      const o = obras.find((x) => x.obra_id === m.oo);
+      if (!o) avisos.push(`${m.fuentes.join(" / ")}: no está la orden ${m.oo} (o está borrada); no se toca`);
+      else if (m.debe_contener && !palabras(o.nombre).includes(m.debe_contener)) avisos.push(`${m.fuentes.join(" / ")}: ${m.oo} se llama «${o.nombre}», no parece la de ${m.debe_contener}; no se toca`);
+      else { destino = o.obra_id; tipo = `Otras órdenes («${o.nombre}»)`; }
+    } else {
+      // primero igual (sin ruido), si no, que contenga la clave; tiene que salir UNA sola obra entre Plan 5 y Otras órdenes
+      const cand = [...nombresP5.map((n) => ({ id: n, nombre: n, tipo: "Plan 5" })), ...obras.map((o) => ({ id: o.obra_id, nombre: o.nombre, tipo: "Otras órdenes" }))];
+      const iguales = cand.filter((c) => palabras(c.nombre).join(" ") === palabras(m.obra).join(" "));
+      const xs = iguales.length ? iguales : cand.filter((c) => contiene(c.nombre, m.obra));
+      const unicos = [...new Map(xs.map((c) => [c.id, c])).values()];
+      if (unicos.length === 1) { destino = unicos[0].id; tipo = `${unicos[0].tipo}${unicos[0].tipo === "Otras órdenes" ? ` («${unicos[0].nombre}»)` : ""}`; }
+      else avisos.push(`${m.fuentes.join(" / ")}: ${unicos.length ? `varias obras posibles para «${m.obra}»: ${unicos.map((c) => `${c.nombre} (${c.tipo})`).join(", ")}` : `no encuentro «${m.obra}» ni en Plan 5 ni en Otras órdenes`}; no se toca`);
+    }
+    const claves = new Set(m.fuentes.map((f) => RO.normClave(f)));
+    const suyos = regs.filter((r) => !verdad(r.borrado) && r.obra_id && claves.has(RO.normClave(r.obra_id)));
+    destinos.push({ fuentes: m.fuentes, buscado: m.obra || m.oo, destino, tipo, registros: suyos.length, horas: r2(suyos.reduce((t, r) => t + num(r.horas), 0)) });
+    if (!destino) continue;
+    for (const r of suyos) {
+      if (r.obra_id === destino) continue;
+      set(r._fila, "obra_id", r.obra_id, destino);
+      set(r._fila, "updated_at", r.updated_at, ahora);
+      set(r._fila, "updated_by", r.updated_by, `${usuario} (${MIGRACION_NOMBRES})`);
+      reescritos.push({ registro_id: r.registro_id, fecha: r.fecha, horas: num(r.horas), antes: r.obra_id, despues: destino, snapshot: r });
+    }
+  }
+  return { cambios, nuevas: [], avisos, reescritos, destinos };
+}
+
+// ============================================================
 // Hoja
 // ============================================================
 let _sheets = null;
@@ -263,7 +336,7 @@ function sheetsCli() {
 }
 const HOJAS = { obras: "obras_otras", entradas: "obras_otras_entradas_cuenta", extras: "obras_otras_partidas_extra", etiquetas: "holded_etiquetas", registros: "registros_tiempo", plan: "planificacion_obras" };
 
-async function leerTodo() {
+async function leerTodo({ facturas = true } = {}) {
   const sheets = sheetsCli();
   const d = {};
   for (const [k, hoja] of Object.entries(HOJAS)) {
@@ -273,7 +346,7 @@ async function leerTodo() {
     d[k] = { head: (filas[0] || []).map((h) => String(h || "").trim()), filas: filas.slice(1) };
   }
   // facturas de venta de Holded (sólo lectura), para el anticipo de Orad; sin ellas, la migración avisa y no vincula
-  try {
+  if (facturas) try {
     const r = await require("./ara-os-holded.cjs").obtenerInvoices();
     d.facturas = r && !r.error && Array.isArray(r.docs) ? r.docs : null;
   } catch (e) { console.warn("[migraciones] facturas Holded:", e.message); d.facturas = null; }
@@ -282,7 +355,7 @@ async function leerTodo() {
   return d;
 }
 
-async function aplicar(d, p, usuario) {
+async function aplicar(d, p, usuario, migracion = MIGRACION) {
   const sheets = sheetsCli();
   const id = process.env.GOOGLE_SHEETS_ID;
   const data = [];
@@ -311,7 +384,7 @@ async function aplicar(d, p, usuario) {
     let n = Math.max(0, ...prev.filter((x) => x.startsWith(`EV-${dia}-`)).map((x) => parseInt(x.split("-").pop(), 10)).filter((x) => !isNaN(x)));
     const filas = p.reescritos.map((r) => {
       const { _fila, ...snap } = r.snapshot;
-      return [`EV-${dia}-${String(++n).padStart(3, "0")}`, r.registro_id, "editado", JSON.stringify({ ...snap, obra_id: r.despues }), JSON.stringify({ obra_id: { antes: r.antes, despues: r.despues }, migracion: MIGRACION }), ahora, usuario];
+      return [`EV-${dia}-${String(++n).padStart(3, "0")}`, r.registro_id, "editado", JSON.stringify({ ...snap, obra_id: r.despues }), JSON.stringify({ obra_id: { antes: r.antes, despues: r.despues }, migracion }), ahora, usuario];
     });
     await sheets.spreadsheets.values.append({ spreadsheetId: id, range: "registros_tiempo_historial!A:G", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: filas } });
   }
@@ -353,6 +426,38 @@ function registrar(app) {
   };
   app.get(ruta, manejar);
   app.post(ruta, manejar);
+
+  // Nombres sueltos (15/10/2026): GET = simulación · POST &aplicar=1 = aplica
+  const rutaN = "/api/ara-os/admin/migraciones/nombres-sueltos";
+  app.options(rutaN, (req, res) => { cors(res); res.status(204).end(); });
+  const manejarN = async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    const hacer = req.method === "POST" && String(req.query.aplicar || "") === "1";
+    const usuario = String(req.query.usuario || "ARA OS");
+    try {
+      const d = await leerTodo({ facturas: false });
+      const sheets = sheetsCli();
+      const leerA = async (rango) => ((await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: rango })).data.values || []).map((f) => f[0]);
+      const plan5 = [...await leerA("comunidades!A2:A"), ...await leerA("ordenes_trabajo!A2:A")];
+      const p = planificarNombres(d, plan5, { usuario });
+      const salida = {
+        ok: true, migracion: MIGRACION_NOMBRES, simulacion: !hacer,
+        n_cambios: p.cambios.reduce((t, c) => t + Object.keys(c.campos).length, 0),
+        registros_reescritos: { n: p.reescritos.length, horas: r2(p.reescritos.reduce((t, x) => t + x.horas, 0)),
+          por_obra: p.reescritos.reduce((m, x) => { const k = `${x.antes} → ${x.despues}`; m[k] = r2((m[k] || 0) + x.horas); return m; }, {}) },
+        destinos: p.destinos, avisos: p.avisos,
+        cambios: p.cambios.map((c) => ({ hoja: c.hoja, fila: c.fila, campos: c.campos })),
+      };
+      if (hacer) salida.celdas_escritas = await aplicar(d, p, usuario, MIGRACION_NOMBRES);
+      res.json(salida);
+    } catch (e) {
+      console.error("[migraciones/nombres-sueltos]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  };
+  app.get(rutaN, manejarN);
+  app.post(rutaN, manejarN);
 }
 
 module.exports = registrar;
@@ -360,3 +465,5 @@ module.exports.planificar = planificar;
 module.exports.resumen = resumen;
 module.exports.ORAD = ORAD;
 module.exports.TUBERIAS = TUBERIAS;
+module.exports.planificarNombres = planificarNombres;
+module.exports.NOMBRES_SUELTOS = NOMBRES_SUELTOS;
