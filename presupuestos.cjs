@@ -114,7 +114,8 @@ function _p5VenceEl(fechaDMY, hoyIsoOpt) {
 module.exports = function (app) {
   // v19.92 -- UNA sola lista fija de tipos de via (Nuevo expediente, su reenvio con error y la
   // ficha); a ella se suman los que ya esten usados en el Sheet.
-  const TIPOS_VIA_FIJOS = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur", "Cm", "Pje", "Bda", "Crta"];
+  // 15/10/2026 (criterio de Guille): quitados Pza, Cm, Pje, Bda y Crta, que no usaba ningun expediente.
+  const TIPOS_VIA_FIJOS = ["C", "Av", "Bª", "Pz", "Rª", "Ur"];
   // v19.95 -- Memoria de "lectura compartida" (_leerRangoCorto, mas abajo). Cualquier POST del programa
   // (guardar, marcar, cambiar de modo, mensajes del bot...) la vacia antes de nada, para que despues de
   // escribir nunca se lea un dato de antes. Va aqui arriba para registrarse antes que todas las rutas.
