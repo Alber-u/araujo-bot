@@ -31,6 +31,9 @@ const ORAD = {
   origen: "OO-2026-143",
   datos: { nombre: "CCPP Urbano Orad 13-15", codigo_ot: "OT0143/2026", subtotal_eur: 35300, iva_pct: 10, horas_previstas: 640, material_previsto_eur: 5000, fecha_inicio: "2026-10-05", fase: "EN_EJECUCION" },
   tags: ["ot01432026ccppurbanoorad13", "ot01442026ccppurbanoorad15"],
+  // contacto de Holded «COMUNIDAD DE PROPIETARIOS CL.URBANO ORAD 13-15» y su factura de anticipo (Alberto, 15/10/2026)
+  contacto: "6ab38664ed647c83cb07ba87",
+  anticipo: "F260049",
   // obra_id de registros de tiempo que son Urbano Orad (además de los dos nombres de las OO, leídos de la hoja)
   alias_registros: ["Urbano Orad 13-15", "OO-2026-143", "OO-2026-142+OO-2026-143", "OO-2026-143+OO-2026-142", "Urbano Orad 13", "Urbano Orad 15"],
   alias_plan: ["OO-2026-142+OO-2026-143", "OO-2026-143+OO-2026-142", "OO-2026-143"],
@@ -82,6 +85,7 @@ function planificar(d, { todas = false, ahora = new Date().toISOString(), usuari
 
   // ---------- A · Urbano Orad ----------
   const o142 = obra(ORAD.destino), o143 = obra(ORAD.origen);
+  let anticipo = null;   // factura de venta del anticipo (Holded), si se vincula
   const nombresOrad = [o142?.nombre, o143?.nombre].filter(Boolean);
   if (!o142) avisos.push(`No está ${ORAD.destino} en obras_otras: no se fusiona Urbano Orad`);
   else {
@@ -102,20 +106,25 @@ function planificar(d, { todas = false, ahora = new Date().toISOString(), usuari
     if (o143 && !String(nota || "").includes(MARCA)) {
       nota = conNota(nota, `${MARCA} Una sola orden con ${ORAD.origen} (${o143.codigo_ot || "sin OT"} · «${o143.nombre}»), antes «${o142.nombre}»`);
     }
-    // ¿dos clientes / dos facturas? (Alberto lo confirma): se deja anotado y las etiquetas fusionadas suman las
-    // facturas de venta de las dos comunidades en la ficha económica
-    if (o143) {
-      if (o143.holded_contact_id && o142.holded_contact_id && o143.holded_contact_id !== o142.holded_contact_id) {
-        avisos.push(`Urbano Orad tiene dos clientes en Holded: ${o142.holded_contact_id} (${ORAD.destino}) y ${o143.holded_contact_id} (${ORAD.origen}). La orden única guarda el primero; las facturas de venta de los dos cuentan por las etiquetas fusionadas.`);
-        nota = conNota(nota, `segundo cliente Holded ${o143.holded_contact_id} (nº 15)`);
-      } else if (o143.holded_contact_id && !o142.holded_contact_id) objetivo.holded_contact_id = o143.holded_contact_id;
-      for (const k of ["holded_invoice_emitida_id", "holded_invoice_id"]) {
-        if (!o143[k]) continue;
-        if (!o142[k]) objetivo[k] = o143[k];
-        else if (o142[k] !== o143[k]) {
-          avisos.push(`${ORAD.origen} tiene su propia factura vinculada (${k} = ${o143[k]}): queda anotada en la orden única; cuenta en la ficha si lleva una de las etiquetas.`);
-          nota = conNota(nota, `factura nº 15: ${o143[k]}`);
-        }
+    // Cliente (Alberto, 15/10/2026): Urbano Orad se factura a UN solo contacto de Holded, «COMUNIDAD DE
+    // PROPIETARIOS CL.URBANO ORAD 13-15»; los de «CCPP URBANO ORAD 13» y «… 15» no se usan ni se guardan.
+    objetivo.holded_contact_id = ORAD.contacto;
+    // El anticipo F260049 (22/09, 17.650 € sin IVA, cobrada): se busca en Holded (sólo lectura) por ese contacto y
+    // se vincula a la orden; las entradas manuales de ese anticipo quedan conciliadas con ella (más abajo), así la
+    // ficha la cuenta como factura de venta y no suma el mismo dinero dos veces.
+    const fact = (d.facturas || []).find((f) => String(f.numero || "").trim().toUpperCase() === ORAD.anticipo && String(f.cliente_id || "") === ORAD.contacto);
+    if (!d.facturas) avisos.push(`No se han podido leer las facturas de Holded: ${ORAD.anticipo} no se vincula ni se concilian las entradas (vuelve a lanzar la migración)`);
+    else if (!fact) avisos.push(`No encuentro ${ORAD.anticipo} del contacto ${ORAD.contacto} en Holded: no se vincula ni se concilian las entradas`);
+    else {
+      const otra = obras.find((o) => o.obra_id !== ORAD.destino && o.obra_id !== ORAD.origen && !verdad(o.borrado) && o.holded_invoice_emitida_id === fact.id);
+      if (otra) avisos.push(`${ORAD.anticipo} ya está vinculada a ${otra.obra_id} («${otra.nombre}»): no se vincula a ${ORAD.destino}`);
+      else if (o142.holded_invoice_emitida_id && o142.holded_invoice_emitida_id !== fact.id) avisos.push(`${ORAD.destino} ya tiene otra factura vinculada (${o142.holded_invoice_emitida_id}): no se cambia por ${ORAD.anticipo}`);
+      else { objetivo.holded_invoice_emitida_id = fact.id; anticipo = fact; }
+    }
+    for (const k of ["holded_invoice_emitida_id", "holded_invoice_id"]) {
+      if (o143?.[k] && o143[k] !== fact?.id && o143[k] !== o142[k]) {
+        avisos.push(`${ORAD.origen} tenía su propia factura vinculada (${k} = ${o143[k]}): queda anotada en la orden única, no se vincula`);
+        nota = conNota(nota, `factura que tenía ${ORAD.origen}: ${o143[k]}`);
       }
     }
     objetivo.notas = nota;
@@ -130,6 +139,22 @@ function planificar(d, { todas = false, ahora = new Date().toISOString(), usuari
       set("obras_otras_entradas_cuenta", e._fila, "concepto", e.concepto, String(e.concepto || "").startsWith(`(${ORAD.origen})`) ? e.concepto : `(${ORAD.origen}) ${e.concepto || ""}`.trim());
     }
     for (const x of extras.filter((x) => x.obra_id === ORAD.origen)) set("obras_otras_partidas_extra", x._fila, "obra_id", x.obra_id, ORAD.destino);
+    // las entradas manuales del anticipo («50 % anticipo F260049»), conciliadas con la factura: siguen en la orden
+    // (y en el listado de entradas), pero el cobro lo cuenta la factura. Si ninguna nombra la factura, las que
+    // sin conciliar suman su importe.
+    if (anticipo) {
+      const deOrad = entradas.filter((e) => [ORAD.destino, ORAD.origen].includes(e.obra_id) && !verdad(e.borrado));
+      const libres = deOrad.filter((e) => !String(e.conciliada_con_invoice_id || "").trim());
+      let aConciliar = libres.filter((e) => String(e.concepto || "").toUpperCase().includes(ORAD.anticipo));
+      if (!aConciliar.length && Math.abs(libres.reduce((t, e) => t + num(e.importe), 0) - num(anticipo.total)) <= 1) aConciliar = libres;
+      const suma = r2(aConciliar.reduce((t, e) => t + num(e.importe), 0)) + r2(deOrad.filter((e) => e.conciliada_con_invoice_id === anticipo.id).reduce((t, e) => t + num(e.importe), 0));
+      if (suma > num(anticipo.total) + 1) avisos.push(`Las entradas a conciliar con ${ORAD.anticipo} suman ${suma} € y la factura ${num(anticipo.total)} €: no se concilian`);
+      else for (const e of aConciliar) {
+        set("obras_otras_entradas_cuenta", e._fila, "conciliada_con_invoice_id", e.conciliada_con_invoice_id, anticipo.id);
+        set("obras_otras_entradas_cuenta", e._fila, "conciliada_at", e.conciliada_at, ahora);
+      }
+      if (!aConciliar.length && !deOrad.some((e) => e.conciliada_con_invoice_id === anticipo.id)) avisos.push(`No hay entradas manuales de ${ORAD.anticipo} que conciliar`);
+    }
     // holded_etiquetas: la de la 142, con las dos; la de la 143 deja de contar (activa = FALSE, no se borra)
     const e142 = etiq.find((e) => e.obra_id === ORAD.destino), e143 = etiq.find((e) => e.obra_id === ORAD.origen);
     const tagsE = fusionar(parseTagsCSV(e142?.etiqueta_holded), parseTagsCSV(e143?.etiqueta_holded), ORAD.tags);
@@ -200,7 +225,7 @@ function resumen(d, p, { desde = "2026-10-01", hasta = "2026-10-15" } = {}) {
   const foto = (dd) => {
     const obras = objetos(dd.obras), entradas = objetos(dd.entradas), etiq = objetos(dd.etiquetas), regs = objetos(dd.registros);
     const ids = [ORAD.destino, ORAD.origen, TUBERIAS.obra_id];
-    const cobrado = (id) => r2(entradas.filter((e) => e.obra_id === id && !verdad(e.borrado)).reduce((t, e) => t + num(e.importe), 0));
+    const cobrado = (id, soloLibres = false) => r2(entradas.filter((e) => e.obra_id === id && !verdad(e.borrado) && (!soloLibres || !String(e.conciliada_con_invoice_id || "").trim())).reduce((t, e) => t + num(e.importe), 0));
     const horas = {};
     for (const r of regs) {
       if (verdad(r.borrado) || !r.obra_id || (r.tipo && r.tipo !== "trabajo" && r.tipo !== "extra")) continue;
@@ -214,7 +239,9 @@ function resumen(d, p, { desde = "2026-10-01", hasta = "2026-10-15" } = {}) {
       obras: ids.map((id) => obras.find((o) => o.obra_id === id)).filter(Boolean).map((o) => ({
         obra_id: o.obra_id, nombre: o.nombre, codigo_ot: o.codigo_ot, fase: o.fase, borrado: verdad(o.borrado),
         subtotal_eur: num(o.subtotal_eur), total_eur: num(o.total_eur), horas_previstas: num(o.horas_previstas), material_previsto_eur: num(o.material_previsto_eur),
-        fecha_inicio: o.fecha_inicio, tags_holded: tagsOO(o.tags_holded), obra_relacionada: o.obra_relacionada || "", cobrado_entradas: cobrado(o.obra_id) })),
+        fecha_inicio: o.fecha_inicio, tags_holded: tagsOO(o.tags_holded), obra_relacionada: o.obra_relacionada || "",
+        holded_contact_id: o.holded_contact_id || "", factura_vinculada: o.holded_invoice_emitida_id || "",
+        cobrado_entradas: cobrado(o.obra_id), entradas_sin_conciliar: cobrado(o.obra_id, true) })),
       etiquetas: etiq.filter((e) => ids.includes(e.obra_id)).map((e) => ({ obra_id: e.obra_id, etiquetas: parseTagsCSV(e.etiqueta_holded), activa: verdad(e.activa) })),
       horas_registros: Object.fromEntries(Object.entries(horas).filter(([k]) => interesa.has(k))),
     };
@@ -245,6 +272,11 @@ async function leerTodo() {
     catch (e) { if (k !== "plan" && k !== "extras") throw e; }   // sin planificación ni partidas extra: nada que mover
     d[k] = { head: (filas[0] || []).map((h) => String(h || "").trim()), filas: filas.slice(1) };
   }
+  // facturas de venta de Holded (sólo lectura), para el anticipo de Orad; sin ellas, la migración avisa y no vincula
+  try {
+    const r = await require("./ara-os-holded.cjs").obtenerInvoices();
+    d.facturas = r && !r.error && Array.isArray(r.docs) ? r.docs : null;
+  } catch (e) { console.warn("[migraciones] facturas Holded:", e.message); d.facturas = null; }
   // obras_otras: la columna obra_relacionada (AR) puede no estar aún en la cabecera de la hoja
   if (!d.obras.head.includes("obra_relacionada")) d.obras.head.push("obra_relacionada");
   return d;

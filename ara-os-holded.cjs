@@ -3184,7 +3184,7 @@ module.exports = function setupAraOSHolded(app) {
         // Permite recuperar el importe de órdenes facturadas con factura
         // VINCULADA directamente (sin etiqueta/tag), como hace la ficha.
         const invoiceEmitidaId = String(r[32] || r[13] || "").trim();
-        obrasMapAll[oid] = { obra_id: oid, nombre, importe, importe_fuente: importeFuente, horas_previstas: horasPrevOO > 0 ? horasPrevOO : dias_estimados * 16, fase, tipo: "otras", invoiceEmitidaId, fecha_fin: fechaFinOO, import_fixner: esImportFixner };
+        obrasMapAll[oid] = { obra_id: oid, nombre, importe, importe_fuente: importeFuente, horas_previstas: horasPrevOO > 0 ? horasPrevOO : dias_estimados * 16, horas_previstas_dias16: dias_estimados * 16, fase, tipo: "otras", invoiceEmitidaId, fecha_fin: fechaFinOO, import_fixner: esImportFixner };
         obrasMapAll[nombre] = obrasMapAll[oid];
       }
 
@@ -3497,67 +3497,21 @@ module.exports = function setupAraOSHolded(app) {
         const horasAcumAntes = horasAcumMapAntes[o.obra_id] || horasAcumMapAntes[o.nombre] || 0;
         const horasMes       = horasMesXObra[o.obra_id]     || horasMesXObra[o.nombre]     || 0;
         const horasTotalReal = horasTotalMap[o.obra_id] || horasTotalMap[o.nombre] || 0;
-        // Obra sin tiempo estimado (solo obras_otras sin dias_estimados)
-        const sinTiempoEstimado = horasPrevistas === 0 && o.tipo === "otras";
-        // Terminada: fase de finalización. INCIDENCIAS implica que pasó por FINALIZADA antes.
-        const esIncidenciaFase = (o.tipo === "plan5" && o.fase === "19_INCIDENCIAS")
-                              || (o.tipo === "otras" && o.fase === "INCIDENCIAS");
-        const faseTerminada = (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
-                           || (o.tipo === "otras" && FASES_OO_DEVENGADO_100.has(o.fase));
-
-        // ── v0.6 (11/09/2026) · MES DE CIERRE REAL ──────────────────────
-        // La fase es la de HOY. Antes, una obra que hoy está finalizada se
-        // trataba como finalizada en todos los meses pasados, y además el
-        // «tramo pendiente» (1 − horas antes/horas previstas) se volvía a
-        // reconocer cada mes si la obra acabó con menos horas de las
-        // previstas o sin horas. Resultado ene-ago 2026: 28.367 € de ingreso
-        // repetido (Chiva 7 extras 17.559 € sobre 2.352 €, Maracaibo 2
-        // ampliación, Guardabosques extras, Hostales La Negrilla).
-        // Ahora el cierre tiene fecha: fin real / facturada / cobrada de la
-        // orden, o el último día con horas registradas.
-        //   fecha_fin > fin de este mes  → este mes la obra seguía en curso
-        //   fecha_fin dentro de este mes → se reconoce el tramo pendiente
-        //   fecha_fin < inicio de mes    → ya reconocida: 0
-        //   sin fecha                    → 0 y aviso
         const fechaFin = o.fecha_fin
           || ultimaFechaMap[o.obra_id] || ultimaFechaMap[o.nombre] || "";
-        // Cobradas sin horas ni fechas = obras antiguas (anteriores al registro de horas): ya cerradas, sin aviso.
-        const cobradaAntigua    = faseTerminada && !fechaFin && (o.fase === "18_COBRADA" || o.fase === "COBRADA" || o.import_fixner);
-        const cerradaAntesDeMes = faseTerminada && ((fechaFin && fechaFin < desde) || cobradaAntigua);
-        const cierraEsteMes     = faseTerminada && fechaFin && fechaFin >= desde && fechaFin <= hasta;
-        const sinFechaFin       = faseTerminada && !fechaFin && !cobradaAntigua;
-        const terminada = esIncidenciaFase || cerradaAntesDeMes || cierraEsteMes || sinFechaFin;
-        const devengado100 = cerradaAntesDeMes || cierraEsteMes;
+        // (15/10/2026) cálculo en lib/ingreso-obra-mes.cjs (misma lógica de siempre: mes de cierre real v0.6,
+        // tramo pendiente una sola vez, sin tiempo estimado por reparto de horas)
+        const { ingresoObraMes: calcIngreso } = require("./lib/ingreso-obra-mes.cjs");
+        const baseCalc = { tipo: o.tipo, fase: o.fase, importe, horasAcum, horasAcumAntes, horasMes, horasTotalReal, fechaFin, importFixner: o.import_fixner };
+        const calc = calcIngreso({ ...baseCalc, horasPrevistas }, desde, hasta);
+        const { sinTiempoEstimado, esIncidenciaFase, cierraEsteMes, sinFechaFin, terminada, avanceReal, avance, devengado, ingresoObraMes } = calc;
         if (sinFechaFin && importe > 0) obrasSinFechaFin.push({ obra_id: o.obra_id, nombre: o.nombre, fase: o.fase, importe });
-
-        // horasTotal = total all-time de esta obra (denominador para reparto proporcional)
-        // Se busca por obra_id Y por nombre para cubrir ambos formatos en registros-tiempo
-        const horasTotalObra = horasTotalReal || horasMes || 1;
-
-        const avanceReal = horasPrevistas > 0
-          ? Math.round(horasAcum / horasPrevistas * 10000) / 100
-          : (sinTiempoEstimado ? Math.round(Math.min(horasAcum, horasTotalObra) / horasTotalObra * 10000) / 100 : 0);
-        const avance = devengado100 ? 100 : Math.min(100, avanceReal);
-        const devengado = Math.round(importe * avance / 100 * 100) / 100;
-
-        // Ingreso del mes
-        let ingresoObraMes;
-        if (esIncidenciaFase || cerradaAntesDeMes || sinFechaFin) {
-          ingresoObraMes = 0; // garantía, ya reconocida o sin fecha de cierre
-        } else if (cierraEsteMes) {
-          // Tramo que faltaba hasta el 100 %, UNA sola vez (el mes del cierre).
-          let ratioAntes;
-          if (horasPrevistas > 0)       ratioAntes = horasAcumAntes / horasPrevistas;
-          else if (horasTotalReal > 0)  ratioAntes = horasAcumAntes / horasTotalReal;
-          else                          ratioAntes = 0; // sin horas: todo el importe en el mes de cierre
-          ingresoObraMes = Math.round(importe * (1 - Math.min(1, ratioAntes)) * 100) / 100;
-        } else if (sinTiempoEstimado) {
-          // Directo: importe × horasMes / horasTotal (evita problemas de clave en horasAcumMap)
-          ingresoObraMes = Math.round(importe * Math.min(1, horasMes / horasTotalObra) * 100) / 100;
-        } else {
-          const ratioAcum  = Math.min(1, horasPrevistas > 0 ? horasAcum      / horasPrevistas : 0);
-          const ratioAntes = Math.min(1, horasPrevistas > 0 ? horasAcumAntes  / horasPrevistas : 0);
-          ingresoObraMes = Math.round((importe * ratioAcum - importe * ratioAntes) * 100) / 100;
+        // (15/10/2026) Órdenes de Otras órdenes: el mismo cálculo con el criterio anterior (días estimados × 16 h)
+        // cuando cambia, para ver qué mueve pasar a las horas previstas de la orden
+        let criterioAnterior = null;
+        if (o.tipo === "otras" && o.horas_previstas_dias16 != null && Math.abs(o.horas_previstas_dias16 - horasPrevistas) > 0.01) {
+          const ant = calcIngreso({ ...baseCalc, horasPrevistas: o.horas_previstas_dias16 }, desde, hasta);
+          criterioAnterior = { horas_previstas: Math.round(o.horas_previstas_dias16 * 100) / 100, ingreso_mes: ant.ingresoObraMes, devengado: ant.devengado, avance_pct: ant.avance };
         }
         const materiales    = gastosMapObra[o.obra_id] || gastosMapObra[o.nombre] || 0;
         // Coste neto de materiales = coste compra × (1 − margen_materiales)
@@ -3587,6 +3541,7 @@ module.exports = function setupAraOSHolded(app) {
           fase:             o.fase || "",
           devengado,
           ingreso_mes:      ingresoObraMes,
+          criterio_anterior: criterioAnterior,   // (15/10/2026) días × 16 h, sólo si cambia
           comision_comercial_mes: 0,       // se rellena abajo con el beneficio REAL
           tipo_obra:        o.tipo,
           materiales_eur:   Math.round(materiales * 100) / 100,
@@ -3811,6 +3766,15 @@ module.exports = function setupAraOSHolded(app) {
         ingreso_devengado_eur:        Math.round(ingresoDevengado * 100) / 100,
         ingreso_pendiente_eur:        Math.round((ingresoDevengado - cobradoMes) * 100) / 100,
         obras:                        obrasDesglose,
+        // (15/10/2026) qué cambia en las órdenes de Otras órdenes al pasar de «días × 16 h» a sus horas previstas
+        cambio_horas_previstas: (() => {
+          const xs = obrasDesglose.filter((o) => o.criterio_anterior).map((o) => ({ obra_id: o.obra_id, nombre: o.nombre, fase: o.fase, importe: o.importe,
+            horas_mes: o.horas_mes, horas_registradas: o.horas_registradas,
+            antes: { horas_previstas: o.criterio_anterior.horas_previstas, ingreso_mes: o.criterio_anterior.ingreso_mes, devengado: o.criterio_anterior.devengado },
+            despues: { horas_previstas: o.horas_previstas, ingreso_mes: o.ingreso_mes, devengado: o.devengado },
+            diferencia_ingreso_mes: Math.round((o.ingreso_mes - o.criterio_anterior.ingreso_mes) * 100) / 100 }));
+          return { n: xs.length, diferencia_ingreso_mes: Math.round(xs.reduce((t, x) => t + x.diferencia_ingreso_mes, 0) * 100) / 100, obras: xs };
+        })(),
         n_obras_activas:              obrasActivas.length,
         n_obras_mes:                  obrasMesTocadas.size,
       });

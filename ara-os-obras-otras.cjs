@@ -1371,6 +1371,18 @@ function registrar(app) {
             o.facturado_eur = Number(doc.total) || 0;
             o.cobrado_eur = Number(doc.cobrado_eur) || 0;
             o.pdte_cobro_eur = Number(doc.pdte_cobro_eur) || 0;
+            // (15/10/2026) Factura de ANTICIPO: la orden sigue en obra y la factura vinculada es menor que su total
+            // (Urbano Orad: F260049, 19.415 € de 38.830 €). No es la factura de la orden: la orden no está cobrada
+            // ni facturada entera; lo que falta se calcula como sin factura (total − cobrado − entradas sin conciliar).
+            const totalOO = parseFloat(o.total_eur) || parseFloat(o.importe) || 0;
+            const enCurso = ["INICIO_OBRA", "EN_EJECUCION", "FINALIZADA"].includes(o.fase);
+            if (enCurso && totalOO > 0 && o.facturado_eur < totalOO - Math.max(5, totalOO * 0.02)) {
+              o.factura_anticipo = true;
+              o.tiene_factura_emitida = false;
+              o.pdte_facturar_eur = Math.round((totalOO - o.facturado_eur) * 100) / 100;
+              o.estado_cobro = o.cobrado_eur > 0 ? "cobro_parcial" : "emitida_pdte";
+              return;
+            }
             o.tiene_factura_emitida = true;
             o.estado_cobro = o.pdte_cobro_eur <= 0.01 ? "cobrada"
               : o.cobrado_eur > 0 ? "cobro_parcial"
@@ -1415,13 +1427,16 @@ function registrar(app) {
       // v0.7.0 — Añadir entradas a cuenta manuales al listado
       try {
         const todasEntradas = await leerEntradas(); // usa caché
-        const porObra = {};
+        // (15/10/2026) entradas_cuenta_eur = las NO conciliadas: las conciliadas ya están en lo cobrado de su
+        // factura (cobrado_eur) y restarlas otra vez contaba el mismo dinero dos veces. El total, aparte.
+        const porObra = {}, totalPorObra = {};
         for (const e of todasEntradas) {
-          if (!porObra[e.obra_id]) porObra[e.obra_id] = 0;
-          porObra[e.obra_id] += e.importe_num || 0;
+          totalPorObra[e.obra_id] = (totalPorObra[e.obra_id] || 0) + (e.importe_num || 0);
+          if (!e.conciliada) porObra[e.obra_id] = (porObra[e.obra_id] || 0) + (e.importe_num || 0);
         }
         for (const o of obras) {
           o.entradas_cuenta_eur = porObra[o.obra_id] || 0;
+          o.entradas_cuenta_total_eur = totalPorObra[o.obra_id] || 0;
         }
       } catch (e) {
         console.error("[GET /obras-otras] error entradas cuenta:", e.message);
@@ -1847,6 +1862,12 @@ function registrar(app) {
         // Hay entradas manuales aunque no haya factura Holded emitida todavía
         estadoCobroFinal = "cobro_parcial";
       }
+      // (15/10/2026) Orden aún en obra con sólo una factura de anticipo (Urbano Orad: F260049, 19.415 € de
+      // 38.830 €): no está «cobrada»; lo que falta por facturar, aparte
+      const totalOrden = +(totalPresup + totalExtra * (subtotalPresup > 0 ? totalPresup / subtotalPresup : 1)).toFixed(2);
+      const pdteFacturarEur = ["INICIO_OBRA", "EN_EJECUCION", "FINALIZADA"].includes(obra.fase) && totalOrden > 0
+        ? Math.max(0, +(totalOrden - facturadoEur).toFixed(2)) : 0;
+      if (pdteFacturarEur > Math.max(5, totalOrden * 0.02) && estadoCobroFinal === "cobrada") estadoCobroFinal = "cobro_parcial";
 
       // v0.5.3 — Beneficio en vivo (estimación)
       // Calculamos PVP estimado a partir de:
@@ -1911,6 +1932,7 @@ function registrar(app) {
         cobrado_holded_eur: cobradoEur,         // solo de facturas Holded
         cobrado_manual_eur: cobradoManualEur,   // solo de entradas a cuenta manuales
         pdte_cobro_eur: pdteCobroTotal,
+        pdte_facturar_eur: pdteFacturarEur,     // (15/10/2026) orden en obra: total − facturado
         num_facturas_venta: facturas_venta.length,
         facturas_venta,
         estado_cobro: estadoCobroFinal,
