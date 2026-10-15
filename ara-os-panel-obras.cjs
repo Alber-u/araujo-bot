@@ -2362,15 +2362,18 @@ Reglas:
         });
         conOT.add(ccppIdCalc);
       }
-      // En obra o programadas según Planificación y sin OT (p. ej. una obra privada de Otras órdenes)
+      // En obra o programadas según Planificación y sin OT (p. ej. una obra privada de Otras órdenes).
+      // (15/10/2026, Alberto) Las órdenes de Otras órdenes (tipo OO, id «OO-…») no son Plan 5: van en
+      // `otras_ordenes`, no en las fases 12-19. ?con_oo=1 las deja en sus fases, como antes (Mi panel › dinero).
+      const conOO = String(req.query.con_oo || "") === "1";
+      const otrasOrdenes = [];
       for (const p of plan?.obras || []) {
         if (conOT.has(p.obra_id) || terminadasPlan.has(p.obra_id)) continue;
         if (p.estado_plan !== "en_obra" && p.estado_plan !== "planificada") continue;
         const f = p.estado_plan === "en_obra" ? "13_EN_EJECUCION" : "12_PROGRAMADA";
-        // obra de varias OO (id «OO-2026-142+OO-2026-143»): con el nombre de la obra («Urbano Orad 13-15»), también
-        // como dirección (el título de la tarjeta), no vacío
-        const nomP = p.nombre || require("./lib/orden-cartera.cjs").GRUPOS_OO.find((g) => g.ids.join("+") === p.obra_id)?.nombre || p.obra_id;
-        grupos[f].push({ comunidad: nomP, nombre: nomP, direccion: nomP, ccpp_id: p.obra_id, tipo: p.tipo || null, sin_ot: true, pto_total: p.importe || 0, pto_total_fmt: formatEur(p.importe || 0), ...listaPlan(p),
+        const nomP = p.nombre || p.obra_id;
+        const esOO = p.tipo === "OO" || /^OO-/.test(String(p.obra_id || ""));
+        (esOO && !conOO ? otrasOrdenes : grupos[f]).push({ comunidad: nomP, nombre: nomP, direccion: nomP, ccpp_id: p.obra_id, tipo: p.tipo || null, sin_ot: true, pto_total: p.importe || 0, pto_total_fmt: formatEur(p.importe || 0), ...listaPlan(p),
           tiempo_previsto: null, ot: { fase_ot: f, fase_ot_hoja: "", operarios_asignados: (p.operarios || []).join(", "), fecha_inicio_obra: p.inicio },
           dias_en_fase: null, dias_humano: "", estado_de: "planificacion", plan_texto: textoPlan(p), plan_operarios: p.operarios || null, plan_inicio: p.inicio, plan_fin: p.fin,
           ...horasDe(nomP, p.obra_id, null) });
@@ -2398,6 +2401,7 @@ Reglas:
         version: "0.15.1",
         fases: FASES_OT,
         grupos,
+        otras_ordenes: otrasOrdenes,
         cuentas,
         totales,
         totales_fmt,

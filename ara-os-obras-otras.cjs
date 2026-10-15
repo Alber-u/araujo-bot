@@ -112,6 +112,9 @@ const OB_HEADERS = [
   "prevision_at",                // AO  cuándo
   "margen_aceptado_por",         // AP  CEO que aceptó un margen por debajo del mínimo
   "margen_aceptado_at",          // AQ  cuándo
+  // 15/10/2026 · obra a la que va unida (id de Plan 5 «ccpp_…» u otra «OO-…»): Jorge de Montemayor 34 tuberías
+  // (OO-2026-150) con su obra de contadores. Cada una con sus horas, material y factura; se enseñan juntas.
+  "obra_relacionada",            // AR
 ];
 
 const HIST_HEADERS = [
@@ -487,6 +490,14 @@ async function asegurarPestanas() {
     requests.push({
       addSheet: { properties: { title: TAB_PARTIDAS_EXTRA } },
     });
+  }
+
+  // (15/10/2026) columnas que faltan en la rejilla de obras_otras (AR obra_relacionada): sin ellas, escribir da
+  // «exceeds grid limits»
+  const hojaObras = (meta.data.sheets || []).find((s) => s.properties.title === TAB_OBRAS);
+  const colsRejilla = Number(hojaObras?.properties?.gridProperties?.columnCount) || 0;
+  if (hojaObras && colsRejilla && colsRejilla < OB_HEADERS.length) {
+    requests.push({ appendDimension: { sheetId: hojaObras.properties.sheetId, dimension: "COLUMNS", length: OB_HEADERS.length - colsRejilla } });
   }
 
   if (requests.length > 0) {
@@ -1649,7 +1660,7 @@ function registrar(app) {
 
         return res.json({
           ok: true,
-          obra_id: obra.obra_id,
+          obra_id: obra.obra_id, obra_relacionada: obra.obra_relacionada || null,
           tags_configurados: [],
           aviso: "Esta orden no tiene tags Holded configurados. Edítala y añade al menos un tag para cruzar gastos.",
           presupuestado: {
@@ -1876,7 +1887,7 @@ function registrar(app) {
 
       res.json({
         ok: true,
-        obra_id: obra.obra_id,
+        obra_id: obra.obra_id, obra_relacionada: obra.obra_relacionada || null,
         tags_configurados: tagsObra,
         presupuestado: {
           subtotal: subtotalPresup,
@@ -2080,6 +2091,8 @@ function registrar(app) {
         "email",
         // v0.13
         "horas_previstas", "personas", "material_previsto_eur", "material_lista", "coste_hora_eur",
+        // 15/10/2026
+        "obra_relacionada",
       ];
 
       const numericos = new Set(["importe", "subtotal_eur", "iva_eur", "total_eur", "dias_estimados", "beneficio_pct", "horas_previstas", "personas", "material_previsto_eur", "coste_hora_eur"]);
@@ -2974,3 +2987,5 @@ function registrar(app) {
 module.exports = registrar;
 module.exports.getObrasOtrasActivas = getObrasOtrasActivas;
 module.exports.leerObras = leerObras;   // acciones: la fase actual de cada orden
+// migraciones de datos (15/10/2026): tras escribir en la hoja
+module.exports.invalidarCaches = () => { invalidarCacheObras(); invalidarCacheEntradas(); invalidarCacheHoras(); _cacheExtras = null; _cacheExtrasTs = 0; };

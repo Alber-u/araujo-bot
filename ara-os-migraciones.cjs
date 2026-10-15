@@ -1,0 +1,330 @@
+// ============================================================
+// ARA OS — Migraciones de datos · v0.1.0 (15/10/2026)
+// ============================================================
+// Cambios de datos de una sola vez, idempotentes y con simulación. Nunca borran filas: lo que sobra queda con
+// borrado = TRUE (obras_otras) o activa = FALSE (holded_etiquetas). Las listas de etiquetas se fusionan, no se
+// reemplazan. No escriben en Holded ni en Pleo.
+//
+//   GET  /api/ara-os/admin/migraciones/orad-montemayor?token=…            → simulación (antes / después)
+//   POST /api/ara-os/admin/migraciones/orad-montemayor?token=…&aplicar=1  → lo aplica
+//        &todas=1 (opcional): además, cualquier registro de tiempo guardado con el NOMBRE de una orden de Otras
+//        órdenes pasa a su id (los que lista /registros-tiempo/diagnostico/obras como «por_nombre»).
+//
+// Orad-Montemayor (decisión de Alberto, 15/10/2026):
+//   A · Urbano Orad 13-15 es UNA orden de Otras órdenes: OO-2026-142 pasa a «CCPP Urbano Orad 13-15» (35.300 € sin
+//       IVA, 640 h, 5.000 € de material, OT0143/2026); OO-2026-143 se fusiona en ella (sus entradas a cuenta,
+//       partidas extra, etiquetas y registros de tiempo) y queda con borrado = TRUE.
+//   B · Jorge de Montemayor 34 tuberías (OO-2026-150): sus registros de tiempo por id, su etiqueta
+//       «jorgedemontemayor34tuberias» y unida (obra_relacionada) a la obra de contadores de Plan 5.
+// ============================================================
+
+const { google } = require("googleapis");
+const { validToken } = require("./lib/auth.cjs");
+const RO = require("./lib/obra-registro.cjs");
+const { parseTagsCSV, serializeTagsCSV } = require("./lib/etiquetas-obra.cjs");
+
+const MIGRACION = "orad-montemayor-15-10-2026";
+const MARCA = "[fusión 15/10/2026]";
+
+const ORAD = {
+  destino: "OO-2026-142",
+  origen: "OO-2026-143",
+  datos: { nombre: "CCPP Urbano Orad 13-15", codigo_ot: "OT0143/2026", subtotal_eur: 35300, iva_pct: 10, horas_previstas: 640, material_previsto_eur: 5000, fecha_inicio: "2026-10-05", fase: "EN_EJECUCION" },
+  tags: ["ot01432026ccppurbanoorad13", "ot01442026ccppurbanoorad15"],
+  // obra_id de registros de tiempo que son Urbano Orad (además de los dos nombres de las OO, leídos de la hoja)
+  alias_registros: ["Urbano Orad 13-15", "OO-2026-143", "OO-2026-142+OO-2026-143", "OO-2026-143+OO-2026-142", "Urbano Orad 13", "Urbano Orad 15"],
+  alias_plan: ["OO-2026-142+OO-2026-143", "OO-2026-143+OO-2026-142", "OO-2026-143"],
+};
+const TUBERIAS = {
+  obra_id: "OO-2026-150",
+  tag: "jorgedemontemayor34tuberias",
+  relacionada: "ccpp_jorge_de_montemayor_34_9836ef",
+  alias_registros: ["Jorge Montemayor 34 TUBERIAS"],
+};
+
+const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const num = (x) => { const v = parseFloat(String(x ?? "").replace(",", ".")); return isFinite(v) ? v : 0; };
+const verdad = (v) => String(v || "").trim().toUpperCase() === "TRUE";
+const fix2 = (n) => Number(n).toFixed(2);
+function colLetra(i) { let s = ""; let n = i; while (n >= 0) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } return s; }
+
+// tags_holded de obras_otras: JSON '["a","b"]' (o texto con comas de las filas antiguas)
+function tagsOO(celda) {
+  const s = String(celda || "").trim();
+  if (!s) return [];
+  if (s.startsWith("[")) { try { const a = JSON.parse(s); if (Array.isArray(a)) return a.map((t) => String(t).trim()).filter(Boolean); } catch (_) { /* sigue */ } }
+  return parseTagsCSV(s);
+}
+const fusionar = (...listas) => { const out = [], vistos = new Set(); for (const t of listas.flat()) { const k = String(t || "").trim(); if (k && !vistos.has(k.toLowerCase())) { vistos.add(k.toLowerCase()); out.push(k); } } return out; };
+const conNota = (nota, texto) => (String(nota || "").includes(texto) ? String(nota || "") : [String(nota || "").trim(), texto].filter(Boolean).join(" · "));
+
+// tabla = { head: [...], filas: [[...]] } (fila 1 = cabeceras) → objetos con su nº de fila en la hoja
+const objetos = (t) => t.filas.map((f, i) => ({ _fila: i + 2, ...Object.fromEntries(t.head.map((h, j) => [h, f[j] != null ? String(f[j]) : ""])) }));
+
+// ============================================================
+// Plan (función pura): qué cambia, sin escribir nada
+// d = { obras, entradas, extras, etiquetas, registros, plan } (tablas) · opciones { todas, hoy }
+// ============================================================
+function planificar(d, { todas = false, ahora = new Date().toISOString(), usuario = "migración" } = {}) {
+  const hoy = ahora.slice(0, 10);
+  const cambios = [];            // { hoja, fila, campos: { col: [antes, después] } }
+  const nuevas = [];             // { hoja, valores: {col: v} }
+  const avisos = [];
+  const set = (hoja, fila, campo, antes, despues) => {
+    if (String(antes ?? "") === String(despues ?? "")) return;
+    let c = cambios.find((x) => x.hoja === hoja && x.fila === fila);
+    if (!c) cambios.push((c = { hoja, fila, campos: {} }));
+    c.campos[campo] = [antes ?? "", despues];
+  };
+
+  const obras = objetos(d.obras), entradas = objetos(d.entradas), extras = objetos(d.extras), etiq = objetos(d.etiquetas), regs = objetos(d.registros), plan = objetos(d.plan);
+  const obra = (id) => obras.find((o) => o.obra_id === id) || null;
+
+  // ---------- A · Urbano Orad ----------
+  const o142 = obra(ORAD.destino), o143 = obra(ORAD.origen);
+  const nombresOrad = [o142?.nombre, o143?.nombre].filter(Boolean);
+  if (!o142) avisos.push(`No está ${ORAD.destino} en obras_otras: no se fusiona Urbano Orad`);
+  else {
+    const D = ORAD.datos;
+    const iva = r2(D.subtotal_eur * D.iva_pct / 100), total = r2(D.subtotal_eur + iva);
+    const personas = num(o142.personas) || num(o143?.personas) || 3;
+    const objetivo = {
+      nombre: D.nombre, codigo_ot: D.codigo_ot, fase: D.fase, fecha_inicio: D.fecha_inicio,
+      subtotal_eur: fix2(D.subtotal_eur), iva_eur: fix2(iva), total_eur: fix2(total), importe: fix2(total),
+      horas_previstas: fix2(D.horas_previstas), material_previsto_eur: fix2(D.material_previsto_eur),
+      dias_estimados: fix2(D.horas_previstas / (personas * 8)),
+      tags_holded: JSON.stringify(fusionar(tagsOO(o142.tags_holded), tagsOO(o143?.tags_holded), ORAD.tags)),
+      borrado: "FALSE",
+    };
+    // mismo contenido de tags (el JSON puede venir con otro formato): no se reescribe
+    if (fusionar(tagsOO(o142.tags_holded)).join("|") === JSON.parse(objetivo.tags_holded).join("|")) objetivo.tags_holded = o142.tags_holded;
+    let nota = o142.notas;
+    if (o143 && !String(nota || "").includes(MARCA)) {
+      nota = conNota(nota, `${MARCA} Una sola orden con ${ORAD.origen} (${o143.codigo_ot || "sin OT"} · «${o143.nombre}»), antes «${o142.nombre}»`);
+    }
+    // ¿dos clientes / dos facturas? (Alberto lo confirma): se deja anotado y las etiquetas fusionadas suman las
+    // facturas de venta de las dos comunidades en la ficha económica
+    if (o143) {
+      if (o143.holded_contact_id && o142.holded_contact_id && o143.holded_contact_id !== o142.holded_contact_id) {
+        avisos.push(`Urbano Orad tiene dos clientes en Holded: ${o142.holded_contact_id} (${ORAD.destino}) y ${o143.holded_contact_id} (${ORAD.origen}). La orden única guarda el primero; las facturas de venta de los dos cuentan por las etiquetas fusionadas.`);
+        nota = conNota(nota, `segundo cliente Holded ${o143.holded_contact_id} (nº 15)`);
+      } else if (o143.holded_contact_id && !o142.holded_contact_id) objetivo.holded_contact_id = o143.holded_contact_id;
+      for (const k of ["holded_invoice_emitida_id", "holded_invoice_id"]) {
+        if (!o143[k]) continue;
+        if (!o142[k]) objetivo[k] = o143[k];
+        else if (o142[k] !== o143[k]) {
+          avisos.push(`${ORAD.origen} tiene su propia factura vinculada (${k} = ${o143[k]}): queda anotada en la orden única; cuenta en la ficha si lleva una de las etiquetas.`);
+          nota = conNota(nota, `factura nº 15: ${o143[k]}`);
+        }
+      }
+    }
+    objetivo.notas = nota;
+    for (const [k, v] of Object.entries(objetivo)) set("obras_otras", o142._fila, k, o142[k], v);
+    if (o143) {
+      set("obras_otras", o143._fila, "borrado", o143.borrado, "TRUE");
+      set("obras_otras", o143._fila, "notas", o143.notas, conNota(o143.notas, `${MARCA} Fusionada en ${ORAD.destino} («${D.nombre}»)`));
+    }
+    // cobros: las entradas a cuenta de la 143 pasan a la 142 (mismo entrada_id, misma conciliación con la factura)
+    for (const e of entradas.filter((x) => x.obra_id === ORAD.origen)) {
+      set("obras_otras_entradas_cuenta", e._fila, "obra_id", e.obra_id, ORAD.destino);
+      set("obras_otras_entradas_cuenta", e._fila, "concepto", e.concepto, String(e.concepto || "").startsWith(`(${ORAD.origen})`) ? e.concepto : `(${ORAD.origen}) ${e.concepto || ""}`.trim());
+    }
+    for (const x of extras.filter((x) => x.obra_id === ORAD.origen)) set("obras_otras_partidas_extra", x._fila, "obra_id", x.obra_id, ORAD.destino);
+    // holded_etiquetas: la de la 142, con las dos; la de la 143 deja de contar (activa = FALSE, no se borra)
+    const e142 = etiq.find((e) => e.obra_id === ORAD.destino), e143 = etiq.find((e) => e.obra_id === ORAD.origen);
+    const tagsE = fusionar(parseTagsCSV(e142?.etiqueta_holded), parseTagsCSV(e143?.etiqueta_holded), ORAD.tags);
+    if (e142) {
+      if (parseTagsCSV(e142.etiqueta_holded).join("|") !== tagsE.join("|")) set("holded_etiquetas", e142._fila, "etiqueta_holded", e142.etiqueta_holded, serializeTagsCSV(tagsE));
+      set("holded_etiquetas", e142._fila, "activa", e142.activa, "TRUE");
+      set("holded_etiquetas", e142._fila, "nombre_comunidad", e142.nombre_comunidad, D.nombre);
+      set("holded_etiquetas", e142._fila, "notas", e142.notas, conNota(e142.notas, `${MARCA} con las de ${ORAD.origen}`));
+    } else {
+      nuevas.push({ hoja: "holded_etiquetas", valores: { obra_id: ORAD.destino, etiqueta_holded: serializeTagsCSV(tagsE), nombre_comunidad: D.nombre, tipo_obra: "otras", fecha_asignacion: hoy, activa: "TRUE", notas: `${MARCA} con las de ${ORAD.origen}` } });
+    }
+    if (e143) {
+      set("holded_etiquetas", e143._fila, "activa", e143.activa, "FALSE");
+      set("holded_etiquetas", e143._fila, "notas", e143.notas, conNota(e143.notas, `${MARCA} fusionada en ${ORAD.destino}`));
+    }
+    // planificación (historial de cambios): la tarjeta «A+B» y la 143 son la 142
+    for (const p of plan.filter((x) => ORAD.alias_plan.includes(String(x.obra_id || "").trim()))) set("planificacion_obras", p._fila, "obra_id", p.obra_id, ORAD.destino);
+  }
+
+  // ---------- B · Jorge de Montemayor 34 tuberías ----------
+  const o150 = obra(TUBERIAS.obra_id);
+  if (!o150) avisos.push(`No está ${TUBERIAS.obra_id} en obras_otras: no se tocan las tuberías de Jorge de Montemayor`);
+  else {
+    const tags = fusionar(tagsOO(o150.tags_holded), [TUBERIAS.tag]);
+    if (tagsOO(o150.tags_holded).join("|") !== tags.join("|")) set("obras_otras", o150._fila, "tags_holded", o150.tags_holded, JSON.stringify(tags));
+    if (!o150.obra_relacionada) set("obras_otras", o150._fila, "obra_relacionada", o150.obra_relacionada, TUBERIAS.relacionada);
+    else if (o150.obra_relacionada !== TUBERIAS.relacionada) avisos.push(`${TUBERIAS.obra_id} ya está unida a ${o150.obra_relacionada}: no se cambia`);
+    const e150 = etiq.find((e) => e.obra_id === TUBERIAS.obra_id);
+    if (e150) {
+      const t = fusionar(parseTagsCSV(e150.etiqueta_holded), [TUBERIAS.tag]);
+      if (parseTagsCSV(e150.etiqueta_holded).join("|") !== t.join("|")) set("holded_etiquetas", e150._fila, "etiqueta_holded", e150.etiqueta_holded, serializeTagsCSV(t));
+      set("holded_etiquetas", e150._fila, "activa", e150.activa, "TRUE");
+    } else {
+      nuevas.push({ hoja: "holded_etiquetas", valores: { obra_id: TUBERIAS.obra_id, etiqueta_holded: TUBERIAS.tag, nombre_comunidad: o150.nombre, tipo_obra: "otras", fecha_asignacion: hoy, activa: "TRUE", notas: `${MARCA} tuberías de Jorge de Montemayor 34` } });
+    }
+  }
+
+  // ---------- registros de tiempo ----------
+  const destinoDe = new Map();   // clave normalizada → id
+  if (o142) for (const a of [...ORAD.alias_registros, ...nombresOrad, ORAD.datos.nombre]) destinoDe.set(RO.normClave(a), ORAD.destino);
+  if (o150) for (const a of [...TUBERIAS.alias_registros, o150.nombre]) destinoDe.set(RO.normClave(a), TUBERIAS.obra_id);
+  const idx = RO.indiceObrasOtras(d.obras.filas);
+  const reescritos = [];
+  for (const r of regs) {
+    if (verdad(r.borrado) || !r.obra_id) continue;
+    let nuevo = destinoDe.get(RO.normClave(r.obra_id)) || null;
+    // la 142 por su id ya está bien; cualquier otro id se queda como está
+    if (!nuevo && todas && !idx.porId.has(r.obra_id.trim())) nuevo = RO.resolverOO(r.obra_id, idx);
+    if (!nuevo || nuevo === r.obra_id) continue;
+    set("registros_tiempo", r._fila, "obra_id", r.obra_id, nuevo);
+    set("registros_tiempo", r._fila, "updated_at", r.updated_at, ahora);
+    set("registros_tiempo", r._fila, "updated_by", r.updated_by, `${usuario} (${MIGRACION})`);
+    reescritos.push({ registro_id: r.registro_id, fecha: r.fecha, horas: num(r.horas), antes: r.obra_id, despues: nuevo, snapshot: r });
+  }
+  return { cambios, nuevas, avisos, reescritos };
+}
+
+// Antes / después legible: las órdenes, sus cobros y etiquetas, y las horas por obra_id
+function resumen(d, p, { desde = "2026-10-01", hasta = "2026-10-15" } = {}) {
+  const despues = (tabla, hoja) => {
+    const filas = tabla.filas.map((f) => [...f]);
+    for (const c of p.cambios.filter((x) => x.hoja === hoja)) for (const [k, [, v]] of Object.entries(c.campos)) {
+      const j = tabla.head.indexOf(k); if (j >= 0) { const f = filas[c.fila - 2]; while (f.length <= j) f.push(""); f[j] = v; }
+    }
+    for (const n of p.nuevas.filter((x) => x.hoja === hoja)) filas.push(tabla.head.map((h) => n.valores[h] ?? ""));
+    return { head: tabla.head, filas };
+  };
+  const foto = (dd) => {
+    const obras = objetos(dd.obras), entradas = objetos(dd.entradas), etiq = objetos(dd.etiquetas), regs = objetos(dd.registros);
+    const ids = [ORAD.destino, ORAD.origen, TUBERIAS.obra_id];
+    const cobrado = (id) => r2(entradas.filter((e) => e.obra_id === id && !verdad(e.borrado)).reduce((t, e) => t + num(e.importe), 0));
+    const horas = {};
+    for (const r of regs) {
+      if (verdad(r.borrado) || !r.obra_id || (r.tipo && r.tipo !== "trabajo" && r.tipo !== "extra")) continue;
+      const k = r.obra_id.trim();
+      const x = horas[k] || (horas[k] = { total: 0, periodo: 0 });
+      x.total = r2(x.total + num(r.horas));
+      if (r.fecha >= desde && r.fecha <= hasta) x.periodo = r2(x.periodo + num(r.horas));
+    }
+    const interesa = new Set([...ids, ...ORAD.alias_registros, ...TUBERIAS.alias_registros, ...p.reescritos.flatMap((r) => [r.antes, r.despues])]);
+    return {
+      obras: ids.map((id) => obras.find((o) => o.obra_id === id)).filter(Boolean).map((o) => ({
+        obra_id: o.obra_id, nombre: o.nombre, codigo_ot: o.codigo_ot, fase: o.fase, borrado: verdad(o.borrado),
+        subtotal_eur: num(o.subtotal_eur), total_eur: num(o.total_eur), horas_previstas: num(o.horas_previstas), material_previsto_eur: num(o.material_previsto_eur),
+        fecha_inicio: o.fecha_inicio, tags_holded: tagsOO(o.tags_holded), obra_relacionada: o.obra_relacionada || "", cobrado_entradas: cobrado(o.obra_id) })),
+      etiquetas: etiq.filter((e) => ids.includes(e.obra_id)).map((e) => ({ obra_id: e.obra_id, etiquetas: parseTagsCSV(e.etiqueta_holded), activa: verdad(e.activa) })),
+      horas_registros: Object.fromEntries(Object.entries(horas).filter(([k]) => interesa.has(k))),
+    };
+  };
+  const dDesp = { ...d, obras: despues(d.obras, "obras_otras"), entradas: despues(d.entradas, "obras_otras_entradas_cuenta"), etiquetas: despues(d.etiquetas, "holded_etiquetas"), registros: despues(d.registros, "registros_tiempo") };
+  return { periodo: { desde, hasta }, antes: foto(d), despues: foto(dDesp) };
+}
+
+// ============================================================
+// Hoja
+// ============================================================
+let _sheets = null;
+function sheetsCli() {
+  if (_sheets) return _sheets;
+  const auth = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET);
+  auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+  _sheets = google.sheets({ version: "v4", auth });
+  return _sheets;
+}
+const HOJAS = { obras: "obras_otras", entradas: "obras_otras_entradas_cuenta", extras: "obras_otras_partidas_extra", etiquetas: "holded_etiquetas", registros: "registros_tiempo", plan: "planificacion_obras" };
+
+async function leerTodo() {
+  const sheets = sheetsCli();
+  const d = {};
+  for (const [k, hoja] of Object.entries(HOJAS)) {
+    let filas = [];
+    try { filas = (await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${hoja}!A1:AZ` })).data.values || []; }
+    catch (e) { if (k !== "plan" && k !== "extras") throw e; }   // sin planificación ni partidas extra: nada que mover
+    d[k] = { head: (filas[0] || []).map((h) => String(h || "").trim()), filas: filas.slice(1) };
+  }
+  // obras_otras: la columna obra_relacionada (AR) puede no estar aún en la cabecera de la hoja
+  if (!d.obras.head.includes("obra_relacionada")) d.obras.head.push("obra_relacionada");
+  return d;
+}
+
+async function aplicar(d, p, usuario) {
+  const sheets = sheetsCli();
+  const id = process.env.GOOGLE_SHEETS_ID;
+  const data = [];
+  const tabla = Object.fromEntries(Object.entries(HOJAS).map(([k, h]) => [h, d[k]]));
+  // la cabecera de obra_relacionada, si faltaba
+  const hObras = d.obras.head;
+  data.push({ range: `obras_otras!${colLetra(hObras.indexOf("obra_relacionada"))}1`, values: [["obra_relacionada"]] });
+  for (const c of p.cambios) {
+    const head = tabla[c.hoja].head;
+    for (const [campo, [, v]] of Object.entries(c.campos)) {
+      const j = head.indexOf(campo);
+      if (j < 0) throw new Error(`${c.hoja}: no hay columna «${campo}»`);
+      data.push({ range: `${c.hoja}!${colLetra(j)}${c.fila}`, values: [[String(v)]] });
+    }
+  }
+  if (data.length) await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: id, requestBody: { valueInputOption: "RAW", data } });
+  for (const n of p.nuevas) {
+    const head = tabla[n.hoja].head;
+    await sheets.spreadsheets.values.append({ spreadsheetId: id, range: `${n.hoja}!A:${colLetra(head.length - 1)}`, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: [head.map((h) => String(n.valores[h] ?? ""))] } });
+  }
+  // historial de registros de tiempo (append-only): un «editado» por registro reescrito
+  if (p.reescritos.length) {
+    const ahora = new Date().toISOString(), dia = ahora.slice(0, 10).replace(/-/g, "");
+    let prev = [];
+    try { prev = ((await sheets.spreadsheets.values.get({ spreadsheetId: id, range: "registros_tiempo_historial!A2:A" })).data.values || []).map((f) => String(f[0] || "")); } catch (_) { /* sin historial */ }
+    let n = Math.max(0, ...prev.filter((x) => x.startsWith(`EV-${dia}-`)).map((x) => parseInt(x.split("-").pop(), 10)).filter((x) => !isNaN(x)));
+    const filas = p.reescritos.map((r) => {
+      const { _fila, ...snap } = r.snapshot;
+      return [`EV-${dia}-${String(++n).padStart(3, "0")}`, r.registro_id, "editado", JSON.stringify({ ...snap, obra_id: r.despues }), JSON.stringify({ obra_id: { antes: r.antes, despues: r.despues }, migracion: MIGRACION }), ahora, usuario];
+    });
+    await sheets.spreadsheets.values.append({ spreadsheetId: id, range: "registros_tiempo_historial!A:G", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: filas } });
+  }
+  // las cachés de los módulos, para que se vea ya
+  for (const [mod, fn] of [["./ara-os-registros-tiempo.cjs", "invalidarCacheRegistros"], ["./ara-os-obras-otras.cjs", "invalidarCaches"], ["./ara-os-holded.cjs", "invalidarCachesEtiquetas"]]) {
+    try { require(mod)[fn]?.(); } catch (e) { console.warn(`[migraciones] ${fn}:`, e.message); }
+  }
+  try { require("./ara-os-dinero-empresa.cjs").registrosCambiados?.(); } catch (_) { /* opcional */ }
+  return data.length + p.nuevas.length;
+}
+
+function registrar(app) {
+  const cors = (res) => { res.setHeader("Access-Control-Allow-Origin", "*"); res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS"); res.setHeader("Access-Control-Allow-Headers", "Content-Type"); };
+  const ruta = "/api/ara-os/admin/migraciones/orad-montemayor";
+  app.options(ruta, (req, res) => { cors(res); res.status(204).end(); });
+  const manejar = async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    const hacer = req.method === "POST" && String(req.query.aplicar || "") === "1";
+    const usuario = String(req.query.usuario || "ARA OS");
+    try {
+      const d = await leerTodo();
+      const p = planificar(d, { todas: String(req.query.todas || "") === "1", usuario });
+      const r = resumen(d, p);
+      const salida = {
+        ok: true, migracion: MIGRACION, simulacion: !hacer,
+        n_cambios: p.cambios.reduce((t, c) => t + Object.keys(c.campos).length, 0), n_filas_nuevas: p.nuevas.length,
+        registros_reescritos: { n: p.reescritos.length, horas: r2(p.reescritos.reduce((t, x) => t + x.horas, 0)),
+          por_obra: p.reescritos.reduce((m, x) => { const k = `${x.antes} → ${x.despues}`; m[k] = r2((m[k] || 0) + x.horas); return m; }, {}) },
+        avisos: p.avisos, ...r,
+        cambios: p.cambios.map((c) => ({ hoja: c.hoja, fila: c.fila, campos: c.campos })), filas_nuevas: p.nuevas,
+      };
+      if (hacer) salida.celdas_escritas = await aplicar(d, p, usuario);
+      res.json(salida);
+    } catch (e) {
+      console.error("[migraciones/orad-montemayor]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  };
+  app.get(ruta, manejar);
+  app.post(ruta, manejar);
+}
+
+module.exports = registrar;
+module.exports.planificar = planificar;
+module.exports.resumen = resumen;
+module.exports.ORAD = ORAD;
+module.exports.TUBERIAS = TUBERIAS;

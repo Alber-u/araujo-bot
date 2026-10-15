@@ -5723,6 +5723,8 @@ require("./ara-os-certificaciones.cjs")(app);
 // y /api/ara-os/holded/gastos-recibidos (lista purchases del rango).
 // Habilitador del Panel CEO para tener coste real por obra.
 require("./ara-os-holded.cjs")(app);
+// 15/10/2026 — Migraciones de datos con simulación (Urbano Orad una sola orden, tuberías de Jorge de Montemayor)
+require("./ara-os-migraciones.cjs")(app);
 // v0.1 · Custodias Plan Cinco por comunidad, leídas de Holded.
 // Protegido: si este módulo fallase al cargar, el resto de ARA-OS sigue arrancando.
 try { require("./ara-os-custodias.cjs")(app); }

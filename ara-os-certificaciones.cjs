@@ -528,7 +528,7 @@ async function guardarConfigObra(obra_id, cambios, usuario) {
 }
 // umbral de visita de una obra: el suyo (certif_obras), el de su grupo de OO (Orad, 80 h) o config_dinero
 function umbralObra(obra_id, cfgObras, global) {
-  return cfgObras?.[obra_id]?.horas_visita || require("./lib/orden-cartera.cjs").grupoDe({ nombre: obra_id })?.horas_visita || global;
+  return cfgObras?.[obra_id]?.horas_visita || require("./lib/orden-cartera.cjs").fichaCompartidaDe({ nombre: obra_id })?.horas_visita || global;
 }
 
 // ============================================================
@@ -686,7 +686,7 @@ function partesDeGrupo(partidas) {
   const prev = {};
   for (const p of partidas || []) prev[p.obra_id] = (prev[p.obra_id] || 0) + toNum(p.tiempo_previsto_horas);
   const porGrupo = new Map();
-  for (const id of Object.keys(prev)) { const g = OC.grupoDe({ nombre: id }); if (g) porGrupo.set(g, [...(porGrupo.get(g) || []), id]); }
+  for (const id of Object.keys(prev)) { const g = OC.fichaCompartidaDe({ nombre: id }); if (g) porGrupo.set(g, [...(porGrupo.get(g) || []), id]); }
   const out = {};
   for (const [g, ids] of porGrupo) {
     const tot = ids.reduce((t, id) => t + prev[id], 0);
@@ -709,7 +709,7 @@ function registrosDeObra(registros, obra_id, partes) {
   const out = [];
   for (const r of registros) {
     if (r.obra_id === obra_id) out.push(r);
-    else if (!pg.hermanas.includes(r.obra_id) && OC.grupoDe({ nombre: r.obra_id, obra_id: r.obra_id })?.nombre === pg.grupo) out.push({ ...r, horas: toNum(r.horas) * pg.parte, de_grupo: true });
+    else if (!pg.hermanas.includes(r.obra_id) && OC.fichaCompartidaDe({ nombre: r.obra_id, obra_id: r.obra_id })?.nombre === pg.grupo) out.push({ ...r, horas: toNum(r.horas) * pg.parte, de_grupo: true });
   }
   return out;
 }
@@ -1200,8 +1200,8 @@ module.exports = function (app) {
       if (partes.some((x) => x.pct < 0 || x.pct > 100)) return res.status(400).json({ ok: false, error: "el % de avance va de 0 a 100" });
       const [partidas, visitas] = await Promise.all([leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS), leerTabla(HOJA_VISITAS, VISITAS_HEADERS)]);
       if (partidas.some((p) => p.obra_id === obra_id)) return res.status(409).json({ ok: false, error: "Esta obra tiene presupuesto por partidas: visítala por partidas" });
-      const g = require("./lib/orden-cartera.cjs").grupoDe({ nombre: obra_id });
-      const conPartidasGrupo = g ? [...new Set(partidas.filter((p) => require("./lib/orden-cartera.cjs").grupoDe({ nombre: p.obra_id }) === g).map((p) => p.obra_id))] : [];
+      const g = require("./lib/orden-cartera.cjs").fichaCompartidaDe({ nombre: obra_id });
+      const conPartidasGrupo = g ? [...new Set(partidas.filter((p) => require("./lib/orden-cartera.cjs").fichaCompartidaDe({ nombre: p.obra_id }) === g).map((p) => p.obra_id))] : [];
       if (conPartidasGrupo.length) return res.status(409).json({ ok: false, error: `Esta obra se visita por partidas: ${conPartidasGrupo.join(" y ")}` });
       if (visitaAbiertaDe(visitas, obra_id)) return res.status(409).json({ ok: false, error: "Hay una visita abierta en esta obra: ciérrala antes" });
       // partes con sus horas (sin el %): las de la última visita mandan
@@ -1236,11 +1236,11 @@ module.exports = function (app) {
       const OCg = require("./lib/orden-cartera.cjs");
       const conPartidas = new Set(partidasRaw.map((p) => p.obra_id));
       // grupos de OO con presupuesto por partidas (Orad 13 y 15): ya no se visitan con un % global
-      const gruposConPartidas = new Set([...conPartidas].map((id) => OCg.grupoDe({ nombre: id })).filter(Boolean));
+      const gruposConPartidas = new Set([...conPartidas].map((id) => OCg.fichaCompartidaDe({ nombre: id })).filter(Boolean));
       const modoTotal = new Set();
       for (const [obraId, c] of Object.entries(cfgObras)) {
         if (conPartidas.has(obraId) || !c.partes.length) continue;
-        if (gruposConPartidas.has(OCg.grupoDe({ nombre: obraId }))) continue;
+        if (gruposConPartidas.has(OCg.fichaCompartidaDe({ nombre: obraId }))) continue;
         modoTotal.add(obraId);
         for (const pt of c.partes) partidasRaw.push({ partida_id: PARTIDA_TOTAL + pt.id, obra_id: obraId, bloque: "", nombre: pt.nombre, tiempo_previsto_horas: pt.horas, tiempo_previsto_dias: "", orden: "", created_at: "" });
       }
@@ -1260,9 +1260,9 @@ module.exports = function (app) {
         const prevDe = {};
         for (const p of partidasRaw) prevDe[p.obra_id] = (prevDe[p.obra_id] || 0) + toNum(p.tiempo_previsto_horas);
         const miembros = new Map();
-        for (const id of Object.keys(prevDe)) { const g = OCg.grupoDe({ nombre: id }); if (g) miembros.set(g, [...(miembros.get(g) || []), id]); }
+        for (const id of Object.keys(prevDe)) { const g = OCg.fichaCompartidaDe({ nombre: id }); if (g) miembros.set(g, [...(miembros.get(g) || []), id]); }
         for (const [g, ids] of miembros) {
-          const suyas = registrosRaw.filter((r) => (r.tipo === "trabajo" || r.tipo === "extra") && String(r.borrado).toUpperCase() !== "TRUE" && OCg.grupoDe({ nombre: r.obra_id, obra_id: r.obra_id }) === g);
+          const suyas = registrosRaw.filter((r) => (r.tipo === "trabajo" || r.tipo === "extra") && String(r.borrado).toUpperCase() !== "TRUE" && OCg.fichaCompartidaDe({ nombre: r.obra_id, obra_id: r.obra_id }) === g);
           const tot = ids.reduce((t, id) => t + prevDe[id], 0);
           for (const id of ids) {
             const parte = tot > 0 ? prevDe[id] / tot : 1 / ids.length;

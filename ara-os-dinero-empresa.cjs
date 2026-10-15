@@ -411,7 +411,7 @@ async function construirFuentes(token, force) {
     cacheFuente("clientes", { ttl: TTL.clientes, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/holded/clientes-pendientes", token, f, LECTURA_MAX_MS)),
     cacheFuente("custodias", { ttl: TTL.custodias, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/custodias", token, {}, LECTURA_MAX_MS)),
     cacheFuente("obligaciones", { ttl: TTL.obligaciones, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/obligaciones", token, f, LECTURA_MAX_MS)),
-    cacheFuente("ot", { ttl: TTL.ot, espera: TIMEOUT_MS }, () => local("/api/ara-os/ordenes-trabajo", token, {}, LECTURA_MAX_MS)),
+    cacheFuente("ot", { ttl: TTL.ot, espera: TIMEOUT_MS }, () => local("/api/ara-os/ordenes-trabajo", token, { con_oo: "1" }, LECTURA_MAX_MS)),
     cacheFuente("oo", { ttl: TTL.oo, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/obras-otras", token, {}, LECTURA_MAX_MS).then(conHorasOO)),
     cacheFuente(`iva_${iva.desde}_${iva.hasta}`, { ttl: TTL.iva, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/holded/iva-trimestre", token, { desde: iva.desde, hasta: iva.hasta }, LECTURA_MAX_MS)),
     cacheFuente("invoices", { ttl: TTL.invoices, espera: TIMEOUT_LARGO_MS }, () => holded.obtenerInvoices()

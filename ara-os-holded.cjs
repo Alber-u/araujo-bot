@@ -367,18 +367,26 @@ async function leerObrasPlan5() {
     "15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA","19_INCIDENCIAS",
   ]);
   const filas = await leerHojaSafe("comunidades!A2:BG");
+  // (15/10/2026) Con orden de trabajo, la fase es la de la OT (ordenes_trabajo!B): la de comunidades se queda en la
+  // de antes de la obra (Jorge de Montemayor 34 salía «09_TRAMITADA» estando en 13_EN_EJECUCION).
+  let faseOT = new Map();
+  try {
+    faseOT = new Map((await leerHojaSafe("ordenes_trabajo!A2:B")).map((f) => [String(f[0] || "").trim(), String(f[1] || "").trim()]).filter(([k, v]) => k && v));
+  } catch (e) { console.warn("[holded] ordenes_trabajo no accesible:", e.message); }
   const obras = [];
   for (const r of filas) {
     const comunidad = r[0] || "";
     const direccion = r[1] || "";
-    const fase = r[15] || "";
+    const fasePanel = r[15] || "";
     if (!comunidad || !direccion) continue;
-    if (!FASES_OK.has(fase)) continue;
+    if (!FASES_OK.has(fasePanel)) continue;
+    const fase = faseOT.get(String(comunidad).trim()) || fasePanel;
     obras.push({
       obra_id: ccppId(direccion),
       nombre: comunidad,
       tipo_obra: "plan5",
       fase,
+      fase_panel: fasePanel,
       direccion,
     });
   }
@@ -559,6 +567,41 @@ async function calcularManoObraReal(nombre_comunidad, costesPorPersona, extra = 
   }
   const desglose = Object.values(porPersona);
   return { mano_obra_eur, horas_total, registros, desglose_personas: desglose };
+}
+
+// Órdenes unidas a una obra (15/10/2026): las de obras_otras cuyo obra_relacionada (col AR) es esta obra, y la obra a
+// la que apunta esta orden si es una OO. Cada una con su presupuesto (sin IVA) y sus horas fichadas, por separado.
+async function ordenesRelacionadas(obra_id) {
+  try {
+    const filas = await leerHojaSafe("obras_otras!A2:AR");
+    const num = (x) => { const v = parseFloat(String(x || "").replace(",", ".")); return isFinite(v) ? v : 0; };
+    const vivas = filas.filter((f) => f[0] && String(f[19] || "").toUpperCase() !== "TRUE");
+    const propia = vivas.find((f) => String(f[0]).trim() === obra_id);
+    const destino = propia ? String(propia[43] || "").trim() : "";
+    const ids = new Set();
+    for (const f of vivas) {
+      const id = String(f[0]).trim(), rel = String(f[43] || "").trim();
+      if (id === obra_id) continue;
+      if (rel && (rel === obra_id || (destino && rel === destino))) ids.add(id);
+      if (destino && id === destino) ids.add(id);
+    }
+    const rt = require("./ara-os-registros-tiempo.cjs");
+    const out = [];
+    for (const id of ids) {
+      const f = vivas.find((x) => String(x[0]).trim() === id);
+      const h = await rt.getHorasAcumuladasPorObra(id).catch(() => null);
+      const base = num(f[20]) || (num(f[22]) && num(f[21]) ? num(f[22]) - num(f[21]) : num(f[22]) || num(f[6]));
+      out.push({ obra_id: id, nombre: String(f[1] || "").trim(), codigo_ot: String(f[26] || "").trim(), fase: String(f[7] || "").trim(),
+        presupuesto: Math.round(base * 100) / 100, horas_previstas: num(f[34]) || null, material_previsto: num(f[36]) || null,
+        horas: h ? h.total_horas : null, mano_obra: h ? h.total_coste : null, tags: (() => { try { return JSON.parse(f[23] || "[]"); } catch { return []; } })() });
+    }
+    // la obra de Plan 5 a la que apunta esta OO (ccpp_…): sólo su id; su ficha está en el panel de obras
+    if (destino && !/^OO-/.test(destino) && !out.some((o) => o.obra_id === destino)) out.unshift({ obra_id: destino, plan5: true });
+    return out;
+  } catch (e) {
+    console.warn("[holded] órdenes relacionadas:", e.message);
+    return [];
+  }
 }
 
 // config_dinero «presupuesto_provisional» (excepción temporal, caché 5 min)
@@ -2376,15 +2419,9 @@ module.exports = function setupAraOSHolded(app) {
       }
 
       const costesPorPersona = await leerCostesPorPersona();
-      // obra de un grupo (OO-2026-142 de Urbano Orad): también su parte de lo fichado con el nombre del grupo
-      const OCg = require("./lib/orden-cartera.cjs");
-      const grupo = OCg.GRUPOS_OO.find((g) => g.ids.includes(obra_id)) || null;
-      let extraMO = [];
-      if (grupo) {
-        const ptos = grupo.ids.map((id) => Number(obrasOtras.find((o) => o.obra_id === id)?.pto_total) || 0);
-        const tot = ptos.reduce((t, x) => t + x, 0);
-        extraMO = [{ nombre: grupo.nombre, factor: tot > 0 ? ptos[grupo.ids.indexOf(obra_id)] / tot : 1 / grupo.ids.length }];
-      }
+      // (15/10/2026) Una orden de Otras órdenes se ficha con su id («OO-2026-150»); los registros antiguos, con el
+      // nombre (eco.nombre_comunidad). Cuentan los dos. Ya no hay «obras de varias OO» (Urbano Orad es una sola orden).
+      const extraMO = /^OO-/.test(obra_id) && obra_id !== eco.nombre_comunidad ? [{ nombre: obra_id, factor: 1 }] : [];
       const mo = await calcularManoObraReal(eco.nombre_comunidad, costesPorPersona, extraMO);
 
       // v0.4.1: coste real = mano de obra + material SIN IVA
@@ -2406,9 +2443,14 @@ module.exports = function setupAraOSHolded(app) {
         ? (beneficio_real / presupuesto_real) * 100
         : null;
 
+      // (15/10/2026) órdenes unidas a esta obra (obras_otras.obra_relacionada), cada una con lo suyo: Jorge de
+      // Montemayor 34 contadores (Plan 5) + tuberías (OO-2026-150). No se suman a las cifras de esta obra.
+      const ordenes_relacionadas = await ordenesRelacionadas(obra_id);
+
       const respuesta = {
         ok: true,
         version: "0.5.0",
+        ordenes_relacionadas,
         ts: new Date().toISOString(),
         obra_id,
         nombre_comunidad: eco.nombre_comunidad,
@@ -3098,7 +3140,7 @@ module.exports = function setupAraOSHolded(app) {
       // Para obras_otras sin tiempo estimado: TODAS las fases generan ingreso si hay horas.
       // Solo INCIDENCIAS corta el ingreso (trabajo de garantía post-fin).
       // FASES_OO_SIN_INGRESO solo aplica a obras CON tiempo estimado (como Plan5).
-      const filasOO = await leerHojaSafe("obras_otras!A2:AH");
+      const filasOO = await leerHojaSafe("obras_otras!A2:AI");
       for (const r of filasOO) {
         const oid   = r[0] || "";
         const nombre = r[1] || "";
@@ -3120,6 +3162,9 @@ module.exports = function setupAraOSHolded(app) {
         else if (totalOO > 0)               { importe = totalOO;          importeFuente = "total_sin_desglose"; }
         else                                { importe = parseNumOO(r[6]); importeFuente = "legacy"; }
         const dias_estimados = parseNumOO(r[27]); // col AB
+        // (15/10/2026) horas previstas del presupuesto (col AI) si las hay: dias_estimados son días de las
+        // personas de la orden (horas ÷ (personas × 8)), no de 16 h; Urbano Orad 640 h salía con 427 h
+        const horasPrevOO = parseNumOO(r[34]);
         // Fechas de cierre (ISO): fin real (K) → facturada (L) → cobrada (M)
         const isoOO = s => { const v = String(s || "").trim(); return /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : ""; };
         let fechaFinOO = isoOO(r[10]) || isoOO(r[11]) || isoOO(r[12]);
@@ -3139,7 +3184,7 @@ module.exports = function setupAraOSHolded(app) {
         // Permite recuperar el importe de órdenes facturadas con factura
         // VINCULADA directamente (sin etiqueta/tag), como hace la ficha.
         const invoiceEmitidaId = String(r[32] || r[13] || "").trim();
-        obrasMapAll[oid] = { obra_id: oid, nombre, importe, importe_fuente: importeFuente, horas_previstas: dias_estimados * 16, fase, tipo: "otras", invoiceEmitidaId, fecha_fin: fechaFinOO, import_fixner: esImportFixner };
+        obrasMapAll[oid] = { obra_id: oid, nombre, importe, importe_fuente: importeFuente, horas_previstas: horasPrevOO > 0 ? horasPrevOO : dias_estimados * 16, fase, tipo: "otras", invoiceEmitidaId, fecha_fin: fechaFinOO, import_fixner: esImportFixner };
         obrasMapAll[nombre] = obrasMapAll[oid];
       }
 
@@ -3859,3 +3904,4 @@ module.exports.crearInvoiceBorrador = crearInvoiceBorrador;
 module.exports.anadirEtiquetaObra = anadirEtiquetaObra;
 module.exports.anadirEtiquetasObras = anadirEtiquetasObras;
 module.exports.leerEtiquetasObra = leerEtiquetasObra;
+module.exports.invalidarCachesEtiquetas = invalidarCachesEtiquetas;   // migraciones (15/10/2026)

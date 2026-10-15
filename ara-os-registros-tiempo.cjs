@@ -408,15 +408,26 @@ async function leerObrasPanel() {
   })).filter(o => o.comunidad && faseRegistrablePanel(o.fase_presupuesto));
 }
 
-// Obras no-Plan5 (obras_otras, fases INICIO_OBRA, EN_EJECUCION)
-// obras_otras!B = nombre, H (índice 7) = fase
-async function leerObrasOtras() {
-  const filas = await leerHojaSafe("obras_otras!A2:H");
-  return filas.map(f => ({
-    comunidad: (f[1] || "").toString().trim(),  // col B = nombre
-    fase_otras: (f[7] || "").toString().trim(),  // col H = fase
-  })).filter(o => o.comunidad && FASES_OTRAS_VALIDAS.includes(o.fase_otras));
+// Índice de obras_otras (id ↔ nombre, ver lib/obra-registro.cjs) con caché de 60 s: nombre de cada orden
+// en los listados y resolución de un nombre a su id (15/10/2026)
+// (una sola lectura a la vez: los listados enriquecen cientos de registros en paralelo)
+let _idxOO = null, _idxOOAt = 0, _idxOOVuelo = null;
+async function indiceOO() {
+  if (_idxOO && Date.now() - _idxOOAt < 60_000) return _idxOO;
+  if (!_idxOOVuelo) {
+    _idxOOVuelo = (async () => {
+      try {
+        _idxOO = require("./lib/obra-registro.cjs").indiceObrasOtras(await leerHojaSafe("obras_otras!A2:T"));
+        _idxOOAt = Date.now();
+      } catch (e) {
+        console.warn("[registros-tiempo] índice obras_otras:", e.message);
+      }
+      return _idxOO || { porId: new Map(), porClave: new Map() };
+    })().finally(() => { _idxOOVuelo = null; });
+  }
+  return _idxOOVuelo;
 }
+function invalidarIndiceOO() { _idxOO = null; _idxOOAt = 0; }
 
 // Cache de tipos (TTL 60s)
 let _tiposCache = null;
@@ -552,31 +563,34 @@ async function validarObra(obra_id) {
         error: `Obra "${obra_id}" no está activa (fase: ${o.fase_ot || "vacía"}). Solo se registran horas en fases 12-17.`,
       };
     }
-    return { ok: true, obra: o };
+    return { ok: true, obra_id, obra: o };
   }
 
   // 2. Buscar en comunidades (Plan5 fases 05-11)
   const obrasPanel = await leerObrasPanel();
   const p = obrasPanel.find(r => r.comunidad === obra_id);
   if (p) {
-    return { ok: true, obra: { comunidad: p.comunidad, fase_ot: p.fase_presupuesto } };
+    return { ok: true, obra_id, obra: { comunidad: p.comunidad, fase_ot: p.fase_presupuesto } };
   }
 
-  // 3. Buscar en obras_otras (no Plan5)
-  const obrasOtras = await leerObrasOtras();
-  const q = obrasOtras.find(r => r.comunidad === obra_id);
-  if (q) {
-    return { ok: true, obra: { comunidad: q.comunidad, fase_ot: q.fase_otras } };
+  // 3. Buscar en obras_otras (no Plan5), por id o por nombre: se guarda SIEMPRE su id (15/10/2026). Un nombre
+  // («Jorge Montemayor 34 TUBERIAS») se cambia por el id de su orden; los ids de órdenes borradas no valen.
+  invalidarIndiceOO();
+  const idx = await indiceOO();
+  const RO = require("./lib/obra-registro.cjs");
+  const idOO = RO.resolverOO(obra_id, idx);
+  if (idOO) {
+    const q = idx.porId.get(idOO);
+    if (!FASES_OTRAS_VALIDAS.includes(q.fase)) {
+      return { ok: false, error: `Orden "${q.nombre}" (${idOO}) no admite horas en fase ${q.fase || "vacía"}` };
+    }
+    return { ok: true, obra_id: idOO, obra: { comunidad: q.nombre, obra_id: idOO, fase_ot: q.fase } };
   }
+  const borrada = idx.porId.get(String(obra_id).trim());
+  if (borrada && borrada.borrado) return { ok: false, error: `La orden ${borrada.obra_id} («${borrada.nombre}») está borrada` };
 
-  // 4. Obra de varias OO (Urbano Orad 13-15 = OO-2026-142 + OO-2026-143, 06/10/2026): se ficha con el nombre de
-  // la obra (el de Planificación); quien lee las horas las reparte entre sus OO según su presupuesto
-  const g = require("./lib/orden-cartera.cjs").grupoDe({ nombre: obra_id });
-  if (g && g.nombre === obra_id) {
-    const sueltas = (await leerHojaSafe("obras_otras!A2:H")).filter((f) => g.ids.includes(String(f[0] || "").trim()));
-    if (sueltas.some((f) => FASES_OTRAS_VALIDAS.includes(String(f[7] || "").trim()))) return { ok: true, obra: { comunidad: g.nombre, fase_ot: "EN_EJECUCION", grupo: g.ids } };
-    return { ok: false, error: `Obra "${obra_id}": ninguna de sus órdenes (${g.ids.join(", ")}) está activa` };
-  }
+  // (06/10/2026 – 15/10/2026) Ya no hay «obras de varias OO» con nombre propio («Urbano Orad 13-15»): Urbano Orad
+  // es una sola orden de Otras órdenes y se ficha con su id.
 
   return { ok: false, error: `Obra "${obra_id}" no encontrada en ninguna fuente activa (ordenes_trabajo, comunidades Plan5 05-11, obras_otras)` };
 }
@@ -785,6 +799,8 @@ async function enriquecerRegistro(r, personasMap, personasTodas, tiposMap) {
       necesita_obra: tipoConfig.necesita_obra === "TRUE",
     } : null,
     coste_calculado,
+    // nombre de la obra para enseñar: el de la orden si el registro guarda su id («OO-2026-150»; 15/10/2026)
+    obra_nombre: r.obra_id ? ((await indiceOO()).porId.get(String(r.obra_id).trim())?.nombre || r.obra_id) : "",
   };
 }
 
@@ -805,24 +821,25 @@ async function getHorasAcumuladasPorObra(obra_id) {
   // ("Regimiento de Soria 9 2"), pero ARA·OS nuevo pasa el código ("OO-2026-050").
   // Si obra_id empieza por "OO-" leemos obras_otras y resolvemos su nombre,
   // luego buscamos partes guardados con cualquiera de los dos identificadores.
-  const aliases = new Set([obra_id]);
-  if (typeof obra_id === "string" && /^OO-/.test(obra_id)) {
+  // (15/10/2026) Las órdenes de Otras órdenes se fichan con su id; los registros antiguos, con el nombre. Se
+  // cuentan los dos, se pregunte por el id o por el nombre (sin distinguir mayúsculas, tildes ni espacios).
+  // Por nombre (obras de Plan 5), sólo ese nombre exacto, como siempre.
+  const RO = require("./lib/obra-registro.cjs");
+  const esOO = typeof obra_id === "string" && /^OO-/.test(obra_id.trim());
+  const claves = new Set();
+  if (esOO) {
+    claves.add(RO.normClave(obra_id));
     try {
-      const filas = await leerHojaSafe("obras_otras!A2:H");
-      for (const f of filas) {
-        const codigo = (f[0] || "").toString().trim();    // A = obra_id (OO-2026-NNN)
-        const nombre = (f[1] || "").toString().trim();    // B = nombre
-        if (codigo === obra_id && nombre) {
-          aliases.add(nombre);
-        }
-      }
+      const nom = (await indiceOO()).porId.get(obra_id.trim())?.nombre;
+      if (nom) claves.add(RO.normClave(nom));
     } catch (e) {
       console.error("[registros-tiempo] error resolviendo alias obra:", e.message);
     }
   }
+  const esDeLaObra = (v) => (esOO ? claves.has(RO.normClave(v)) : v === obra_id);
 
   const propios = registros.filter(r =>
-    aliases.has(r.obra_id) &&
+    esDeLaObra(r.obra_id) &&
     r.borrado !== "TRUE" &&
     (r.tipo === "trabajo" || r.tipo === "extra" || !r.tipo)  // backward-compat
   );
@@ -953,13 +970,21 @@ function registrar(app) {
         leerTiposJornada(),
       ]);
       const personasMap = Object.fromEntries(personas.map(p => [p.id, p]));
+      // ?obra_id de una orden de Otras órdenes: también sus registros antiguos guardados con el nombre (15/10/2026)
+      const RO = require("./lib/obra-registro.cjs");
+      let clavesFiltro = null;
+      if (obra_id) {
+        const idx = await indiceOO();
+        const id = RO.resolverOO(obra_id, idx);
+        if (id) clavesFiltro = new Set([RO.normClave(id), RO.normClave(idx.porId.get(id)?.nombre)].filter(Boolean));
+      }
 
       const filtrados = registros.filter(r => {
         if (incluir_borrados !== "true" && r.borrado === "TRUE") return false;
         if (desde && r.fecha < desde) return false;
         if (hasta && r.fecha > hasta) return false;
         if (persona_id && r.persona_id !== persona_id) return false;
-        if (obra_id && r.obra_id !== obra_id) return false;
+        if (obra_id && r.obra_id !== obra_id && !(clavesFiltro && clavesFiltro.has(RO.normClave(r.obra_id)))) return false;
         if (tipo && r.tipo !== tipo) return false;
         if (source && r.source !== source) return false;
         return true;
@@ -1128,6 +1153,7 @@ function registrar(app) {
       // Validaciones condicionales según config del tipo
       const necesitaObra = vTipo.tipoConfig.necesita_obra === "TRUE";
       const motivoObligatorio = vTipo.tipoConfig.motivo_obligatorio === "TRUE";
+      let obraFinal = obra_id;
 
       if (necesitaObra) {
         if (!obra_id) {
@@ -1138,6 +1164,7 @@ function registrar(app) {
         }
         const vObra = await validarObra(obra_id);
         if (!vObra.ok) return res.status(400).json({ ok: false, error: vObra.error });
+        obraFinal = vObra.obra_id || obra_id;   // una orden de Otras órdenes, siempre por su id (15/10/2026)
       }
       if (motivoObligatorio && (!motivo || motivo.trim() === "")) {
         return res.status(400).json({
@@ -1157,7 +1184,7 @@ function registrar(app) {
         fecha,
         persona_id,
         tipo: tipoFinal,
-        obra_id: necesitaObra ? obra_id : "",
+        obra_id: necesitaObra ? obraFinal : "",
         horas: vHoras.horas,
         motivo: (motivo || "").toString().slice(0, 500),
         nota: (nota || "").toString().slice(0, 500),
@@ -1176,9 +1203,9 @@ function registrar(app) {
       // Órdenes de Trabajo, al imputar tiempo la pasamos sola a ejecución
       // (fase 12). No bloqueante: nunca tumba el registro.
       let ot_creada = null;
-      if (necesitaObra && obra_id) {
-        const rOT = await crearOTSiProcede(obra_id, usuario);
-        if (rOT.creada) ot_creada = { comunidad: obra_id, fase_ot: rOT.fase_ot };
+      if (necesitaObra && obraFinal) {
+        const rOT = await crearOTSiProcede(obraFinal, usuario);
+        if (rOT.creada) ot_creada = { comunidad: obraFinal, fase_ot: rOT.fase_ot };
       }
 
       // Enriquecer respuesta
@@ -1190,6 +1217,35 @@ function registrar(app) {
       res.status(201).json({ ok: true, registro: enriquecido, warnings, ot_creada });
     } catch (e) {
       console.error("[POST /registros-tiempo]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- 3.4. GET /registros-tiempo/diagnostico/obras (15/10/2026) ----------
+  // Registros de trabajo cuyo obra_id no es el id de una orden viva ni una obra de Plan 5: nombres de órdenes de
+  // Otras órdenes (con el id que les toca), ids de órdenes borradas y textos que no casan con nada.
+  // ?desde&hasta (AAAA-MM-DD) opcionales · ?todos=1 incluye también los que están bien.
+  app.options("/api/ara-os/registros-tiempo/diagnostico/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/registros-tiempo/diagnostico/obras", async (req, res) => {
+    responderCORS(res);
+    try {
+      const { desde, hasta, todos } = req.query;
+      invalidarIndiceOO();
+      const [registros, idx, ot, comunidades] = await Promise.all([
+        leerRegistros(), indiceOO(), leerHojaSafe("ordenes_trabajo!A2:A"), leerHojaSafe("comunidades!A2:A"),
+      ]);
+      const plan5 = [...ot, ...comunidades].map((f) => String(f[0] || "").trim()).filter(Boolean);
+      const enRango = registros.filter((r) => (!desde || r.fecha >= desde) && (!hasta || r.fecha <= hasta));
+      const obras = require("./lib/obra-registro.cjs").clasificarRegistros(enRango, idx, plan5);
+      const mal = obras.filter((o) => o.estado !== "ok");
+      res.json({
+        ok: true,
+        total_mal: mal.reduce((t, o) => t + o.registros, 0),
+        horas_mal: Math.round(mal.reduce((t, o) => t + o.horas, 0) * 100) / 100,
+        obras: todos === "1" ? obras : mal,
+      });
+    } catch (e) {
+      console.error("[GET /registros-tiempo/diagnostico/obras]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
@@ -1280,6 +1336,11 @@ function registrar(app) {
         if (!nuevo.obra_id) return res.status(400).json({ ok: false, error: `Tipo "${nuevo.tipo}" requiere obra_id` });
         const v = await validarObra(nuevo.obra_id);
         if (!v.ok) return res.status(400).json({ ok: false, error: v.error });
+        // nombre de una orden de Otras órdenes → su id (también al editar un registro antiguo; 15/10/2026)
+        if (v.obra_id && v.obra_id !== nuevo.obra_id) {
+          diff.obra_id = { antes: original.obra_id, despues: v.obra_id };
+          nuevo.obra_id = v.obra_id;
+        }
       } else {
         nuevo.obra_id = ""; // limpiar obra si el tipo no la necesita
       }
@@ -1561,3 +1622,5 @@ module.exports.getRegistrosTrabajo = getRegistrosTrabajo;
 module.exports.getHorasAcumuladasPorObra = getHorasAcumuladasPorObra;
 module.exports.getHorasAcumuladasMap = getHorasAcumuladasMap;
 module.exports.getHorasAcumuladasMapHasta = getHorasAcumuladasMapHasta;
+// migraciones de datos (15/10/2026): tras reescribir obra_id en la hoja
+module.exports.invalidarCacheRegistros = () => { invalidarCacheRegistros(); invalidarIndiceOO(); };
