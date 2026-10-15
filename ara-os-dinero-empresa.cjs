@@ -61,6 +61,7 @@ const CACHE_STALE_MS = 30 * 60 * 1000;
 const PLAN_MAX_MS = 12 * 60 * 1000;
 const ESPERA_DIA_MS = 25 * 1000;
 let _planSucio = false;
+const RECALCULO_ESPERA_MS = 20 * 1000;   // «Recargar» sin cálculo propio: cuánto se espera a la carga completa
 // Registros de tiempo: un fichaje guardado relee los registros y renueva la carga en la siguiente petición
 function registrosCambiados() { _regs = null; _planSucio = true; }   // hasta aquí se sirve al momento y se recalcula por detrás
 // (16/10/2026) Una OT cambiada (fase, fecha, remate…): la próxima lectura de las OT no sale de la caché de 2 min
@@ -1062,14 +1063,34 @@ module.exports = function (app) {
     cors(res);
     if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
     try {
-      if (String(req.query.recalcular || "") === "1") await recalcularOT(process.env.ADMIN_TOKEN || String(req.query.token)).catch((e) => console.warn("[planificacion] recalcular:", e.message));
-      const [c, registros] = await Promise.all([datosServibles(process.env.ADMIN_TOKEN || String(req.query.token)), leerRegistrosTrabajo()]);
+      const tokI = process.env.ADMIN_TOKEN || String(req.query.token);
+      // «Recargar» (16/10/2026): recompone con las OT de ahora; sin cálculo propio todavía (recién desplegado o con la
+      // carga a medias) se lanza la carga completa y se espera un poco; si no llega, se sirve la última y se dice
+      let recalculo = null;
+      if (String(req.query.recalcular || "") === "1") {
+        const ok = await recalcularOT(tokI).catch((e) => { console.warn("[planificacion] recalcular:", e.message); return false; });
+        if (!ok) {
+          const p = refrescar(tokI).catch((e) => console.error("[planificacion] recalcular (carga completa):", e.message));
+          let t;
+          await Promise.race([p, new Promise((r) => { t = setTimeout(r, RECALCULO_ESPERA_MS); t.unref?.(); })]).finally(() => clearTimeout(t));
+        }
+        recalculo = { ok: ok || (!!_cache && Date.now() - _cache.ts < RECALCULO_ESPERA_MS + 5000) };
+      }
+      const [c, registros] = await Promise.all([datosServibles(tokI), leerRegistrosTrabajo()]);
       const json = (k) => { if (!req.query[k]) return null; try { return JSON.parse(String(req.query[k])); } catch { throw Object.assign(new Error(`${k} no es JSON`), { status: 400 }); } };
       const tam = req.query.tam ? String(req.query.tam).split(",").map(Number).filter((n) => n > 0) : null;
       let cf = c.data.cashflow;
       // hoy, el de Madrid (aunque la carga sea de ayer: la columna de hoy, «toca visitar» y el ritmo, con hoy)
       if (hoyMadrid() > cf.hoy) cf = { ...cf, hoy: hoyMadrid() };
       // Certificaciones cambiadas desde el último cálculo (preparar, visitas): las de ahora
+      // (16/10/2026) las OT de ahora encima de la cartera (aunque sea la de la última carga guardada): fase Finalizada o
+      // posterior = terminada y el remate de terceros de ahora. Lectura de la hoja (caché de 2 min; un cambio en una
+      // OT la borra), sin Holded
+      let otLeidas = null;
+      try {
+        const otF = await cacheFuente("ot", { ttl: TTL.ot, espera: TIMEOUT_MS }, () => local("/api/ara-os/ordenes-trabajo", tokI, { con_oo: "1" }, LECTURA_MAX_MS));
+        if (otF?.ok && cf.simulador?.obras) { cf = { ...cf, simulador: { ...cf.simulador, obras: ordenCartera.conOTFresca(cf.simulador.obras, otF.data, cf.hoy) } }; otLeidas = _fuente.ot?.ts ? new Date(_fuente.ot.ts).toISOString() : null; }
+      } catch (e) { console.warn("[planificacion] OT de ahora:", e.message); }
       const fresca = await certificacionesFrescas(process.env.ADMIN_TOKEN || String(req.query.token));
       if (fresca && fresca.ts > c.ts) {
         cf = { ...cf, certificaciones: fresca.lista };
@@ -1082,7 +1103,8 @@ module.exports = function (app) {
       // plan base (08/10/2026): la primera vez que una obra entra en obra (o con fecha), se guarda; no espera
       guardarPlanesBase(r.planes_base_nuevos);
       // commit desplegado (Render): para comprobar qué versión calcula
-      res.json({ ...r, generado: c.data.generado, de_cache: c.data.de_cache || null, cache: { edad_s: Math.round((Date.now() - c.ts) / 1000) }, commit: (process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null });
+      // calculado: cuándo se ha hecho este plan (ahora); generado: de cuándo son la cartera y el dinero; ot_leidas: las OT
+      res.json({ ...r, generado: c.data.generado, calculado: new Date().toISOString(), ot_leidas: otLeidas, recalculo, de_cache: c.data.de_cache || null, cache: { edad_s: Math.round((Date.now() - c.ts) / 1000) }, commit: (process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null });
     } catch (e) {
       if (e.status === 400) return res.status(400).json({ ok: false, error: e.message });
       console.error("[planificacion-obras/calendario]", e);
