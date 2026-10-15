@@ -63,6 +63,8 @@ const ESPERA_DIA_MS = 25 * 1000;
 let _planSucio = false;
 // Registros de tiempo: un fichaje guardado relee los registros y renueva la carga en la siguiente petición
 function registrosCambiados() { _regs = null; _planSucio = true; }   // hasta aquí se sirve al momento y se recalcula por detrás
+// (16/10/2026) Una OT cambiada (fase, fecha, remate…): la próxima lectura de las OT no sale de la caché de 2 min
+function otCambiada() { delete _fuente.ot; _planSucio = true; }
 // DINERO_ESCALA_TIEMPO: solo para la prueba local del bucle (acorta las esperas)
 const ESCALA_T = Number(process.env.DINERO_ESCALA_TIEMPO) > 0 ? Number(process.env.DINERO_ESCALA_TIEMPO) : 1;
 const RENTAB_TIMEOUT_MS = 45 * 1000 * ESCALA_T;
@@ -869,6 +871,29 @@ async function certificacionesFrescas(token) {
   return _certifFresca;
 }
 
+// (16/10/2026) «Recargar» en Planificación (?recalcular=1): relee las OT y las Otras órdenes (lecturas de ARA·OS, sin
+// Holded) y los registros de tiempo, y recompone con lo demás ya leído. «Actualizado a las» pasa a ser la hora de ahora.
+async function recalcularOT(token) {
+  const base = _cache?.data?._base;
+  if (!base?.fuentes) return false;
+  delete _fuente.ot; delete _fuente.oo; _regs = null;
+  const [ot, oo] = await Promise.all([
+    cacheFuente("ot", { ttl: TTL.ot, espera: TIMEOUT_MS }, () => local("/api/ara-os/ordenes-trabajo", token, { con_oo: "1" }, LECTURA_MAX_MS)),
+    cacheFuente("oo", { ttl: TTL.oo, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/obras-otras", token, {}, LECTURA_MAX_MS).then(conHorasOO)),
+  ]);
+  if (!ot?.ok && !oo?.ok) return false;
+  if (oo?.ok) base.fuentes.oo = oo;
+  if (ot?.ok) {
+    let d = ordenCartera.otSegunHoja(ot.data);
+    if (base.fuentes.oo?.ok) d = calc.otConOOEnCurso(d, base.fuentes.oo.data, base.fuentes.invoices);
+    base.fuentes.ot = { ...ot, data: d };
+  }
+  base.generado = new Date().toISOString();
+  _cache = { ts: Date.now(), data: { ...componer(base), _base: base } };
+  _planSucio = false;
+  return true;
+}
+
 module.exports = function (app) {
   const cors = (res) => {
     res.set("Access-Control-Allow-Origin", "*");
@@ -1037,6 +1062,7 @@ module.exports = function (app) {
     cors(res);
     if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
     try {
+      if (String(req.query.recalcular || "") === "1") await recalcularOT(process.env.ADMIN_TOKEN || String(req.query.token)).catch((e) => console.warn("[planificacion] recalcular:", e.message));
       const [c, registros] = await Promise.all([datosServibles(process.env.ADMIN_TOKEN || String(req.query.token)), leerRegistrosTrabajo()]);
       const json = (k) => { if (!req.query[k]) return null; try { return JSON.parse(String(req.query[k])); } catch { throw Object.assign(new Error(`${k} no es JSON`), { status: 400 }); } };
       const tam = req.query.tam ? String(req.query.tam).split(",").map(Number).filter((n) => n > 0) : null;
@@ -1356,8 +1382,9 @@ module.exports = function (app) {
 module.exports.construir = construir;
 module.exports.certificacionesCambiadas = certificacionesCambiadas;
 module.exports.registrosCambiados = registrosCambiados;
+module.exports.otCambiada = otCambiada;   // (16/10/2026) panel-obras, al cambiar una OT
 module.exports.componer = componer;
 module.exports.validarFoto = validarFoto;
 module.exports.cuadreCuenta = cuadreCuenta;
-module.exports._prueba = { cacheFuente, certificacionesFrescas, certifParaPlan, lecturasEnVuelo, aServir, deUltimo, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };
+module.exports._prueba = { recalcularOT, getCache: () => _cache, setCache: (c) => { _cache = c; }, cacheFuente, certificacionesFrescas, certifParaPlan, lecturasEnVuelo, aServir, deUltimo, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };
 module.exports.sabadellCustodia = sabadellCustodia;

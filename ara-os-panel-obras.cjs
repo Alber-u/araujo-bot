@@ -72,6 +72,12 @@
 // ============================================================
 
 module.exports = function setupAraOSPanelObras(app) {
+  // (16/10/2026) Al cambiar una OT (fase, fecha, remate, incidencia…), Planificación y el dinero la releen en la
+  // siguiente petición (antes, hasta 2 min de caché: «Recargar» no veía el paso a Finalizada)
+  app.use(["/api/ara-os/panel-obras/ot", "/api/ara-os/ordenes-trabajo"], (req, res, next) => {
+    if (req.method === "POST" || req.method === "PATCH") res.on("finish", () => { if (res.statusCode < 300) { try { require("./ara-os-dinero-empresa.cjs").otCambiada?.(); } catch (e) { console.warn("[panel-obras] avisar a Planificación:", e.message); } } });
+    next();
+  });
   // Bloqueos de contrato y pago con el expediente de Guillermo (la misma fuente que «Lista para
   // empezar»); sin obras terminadas ni facturadas ni la fila de prueba (lib/bloqueos-expediente.cjs)
   const bloqueosExp = require("./lib/bloqueos-expediente.cjs");
