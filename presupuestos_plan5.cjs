@@ -1706,6 +1706,9 @@ function _p5memoria(R, meta, saved){
   <p class="meml"><b>TIENE GRUPO HIDRONEUMÁTICO:</b><br>${(String(m.gpMotAct==null?"":m.gpMotAct).trim()!=="")?("Sí. "+_gpCaractAct):"No"}.</p>
   <p class="meml"><b>TIENE ALJIBE:</b><br>${aljibeTxt}</p>
 
+</div>
+<div class="sheet memo">
+  <!-- 16/10/2026 (criterio de Guille): B) empieza siempre en hoja nueva (hoja 3); la A cabe siempre en la hoja 2 -->
   <div class="memsub">B) Descripción del abastecimiento propuesto</div>
   <p class="meml"><b>NUEVO GRUPO HIDRONEUMÁTICO:</b><br>${grupoTxt}</p>
   <p class="meml"><b>EMPLAZAMIENTO DEL NUEVO GRUPO:</b><br>${emplazaTxt}</p>
@@ -1727,12 +1730,13 @@ function _p5memoria(R, meta, saved){
   <p class="meml">En la puerta de dicho cuarto/armario se instalará, en lugar destacado y de forma visible, un esquema señalizando debidamente los distintos montantes, salidas de batería y su correspondencia con las viviendas/locales.</p>
 
   <p class="meml">Dispondrá de un sumidero para evitar posibles fugas (no se instalará desagüe cuando el cuarto/armario se encuentre en patios, zonas exteriores o en habitáculos que ya dispongan del mismo).</p>
-  <table class="memtab"><thead><tr><th>Batería nº</th><th>Nº de tomas</th><th>Nº de filas</th><th>Emplazamiento</th></tr></thead><tbody>
-    <tr><td class="c">1</td><td class="c">${batTomas}</td><td class="c">${batFilas}</td><td class="c">${_f154}</td></tr>${bat2Tomas?('<tr><td class="c">2</td><td class="c">'+bat2Tomas+'</td><td class="c">'+bat2Filas+'</td><td class="c">'+_f154+'</td></tr>'):''}
-  </tbody></table>
 </div>`;
 
   var pagMont = `<div class="sheet memo">
+  <!-- 16/10/2026 (criterio de Guille): el cuadro de baterias abre la hoja de MONTANTES (hoja 4), para que no se quede solo en una hoja casi vacia -->
+  <table class="memtab"><thead><tr><th>Batería nº</th><th>Nº de tomas</th><th>Nº de filas</th><th>Emplazamiento</th></tr></thead><tbody>
+    <tr><td class="c">1</td><td class="c">${batTomas}</td><td class="c">${batFilas}</td><td class="c">${_f154}</td></tr>${bat2Tomas?('<tr><td class="c">2</td><td class="c">'+bat2Tomas+'</td><td class="c">'+bat2Filas+'</td><td class="c">'+_f154+'</td></tr>'):''}
+  </tbody></table>
   <div class="memsub2">MONTANTES:</div>
   <p class="meml">Partirán desde la batería de contadores, alimentando las distintas viviendas con la siguiente distribución:</p>
   ${montantesHtml}
