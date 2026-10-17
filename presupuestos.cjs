@@ -2144,7 +2144,7 @@ module.exports = function (app) {
   //   ningún mail debe salir sin sus adjuntos). El error indica qué link está roto
   //   para que se pueda diagnosticar.
   // Lanza error si falla. Devuelve el messageId.
-  async function enviarMailReal({ cuentaId, destinatario, cc, cco, asunto, mensaje, adjuntosUrls }) {
+  async function enviarMailReal({ cuentaId, destinatario, cc, cco, asunto, mensaje, adjuntosUrls, inReplyTo, references }) {
     if (!destinatario) throw new Error("Falta destinatario");
     const cuenta = await buscarCuentaMail(cuentaId);
     if (!cuenta) throw new Error(`Cuenta de envío "${cuentaId}" no encontrada en mail_cuentas`);
@@ -2208,6 +2208,9 @@ module.exports = function (app) {
       subject: asunto || "",
       text: cuerpo,
       attachments: attachments.length ? attachments : undefined,
+      // v19.116 -- recordatorios a un vecino: van como respuesta en el hilo de su correo inicial.
+      inReplyTo: inReplyTo || undefined,
+      references: (references && references.length) ? references : undefined,
     });
     return info.messageId;
   }
@@ -3003,6 +3006,34 @@ module.exports = function (app) {
       return va - vb;
     });
     return out;
+  }
+
+  // v19.116 (criterio de Guille, 17/10/2026) -- HILO DEL VECINO para los recordatorios por correo.
+  //   El recordatorio (M1/M2 de la 05, M1/M3 de la 08) sale como RESPUESTA en la misma conversacion
+  //   que el correo inicial a ese vecino (05_DOC_VECINO o 08_CYCP_VECINO): asunto "Re: <asunto del
+  //   inicial>", In-Reply-To = el ultimo correo de la conversacion (su contestacion si ha contestado,
+  //   o el ultimo recordatorio) y References = todos los de la conversacion desde el inicial.
+  //   Sin correo inicial registrado (o sin su message_id) devuelve null y sale como correo nuevo.
+  function _hiloVecino(filas, email, faseRec) {
+    const em = String(email || "").trim().toLowerCase();
+    if (!em || !/^(05|08)_REC_/.test(String(faseRec || ""))) return null;
+    const faseIni = String(faseRec).startsWith("05") ? "05_DOC_VECINO" : "08_CYCP_VECINO";
+    const conEm = f => String(f.destinatario || "").toLowerCase().split(/[,;\s]+/).map(x => x.replace(/^.*</, "").replace(/>.*$/, "").trim()).includes(em);
+    const mid = x => { x = String(x || "").trim(); return !x ? "" : (x.startsWith("<") ? x : "<" + x + ">"); };
+    let ini = -1;
+    for (let i = filas.length - 1; i >= 0; i--) {
+      const f = filas[i], t = String(f.tipo || "");
+      if (f.fase === faseIni && !(t.startsWith("manual_entrad") || t === "entrante") && conEm(f) && mid(f.message_id)) { ini = i; break; }
+    }
+    if (ini < 0) return null;
+    const refs = [];
+    for (let i = ini; i < filas.length; i++) {
+      const f = filas[i], m = mid(f.message_id);
+      if (!m || refs.includes(m)) continue;
+      if (i === ini || conEm(f)) refs.push(m);
+    }
+    const asIni = String(filas[ini].asunto || "").trim().replace(/^((re|rv|fw|fwd)\s*:\s*)+/i, "");
+    return { asunto: "Re: " + asIni, inReplyTo: refs[refs.length - 1], references: refs };
   }
 
   // Devuelve la lista de códigos de plantilla activos (sin _PIE_GLOBAL).
@@ -11659,6 +11690,21 @@ module.exports = function (app) {
     }
   });
 
+  // GET /presupuestos/expediente/hilo-vecino?id=&email=&fase=   (v19.116)
+  //   Asunto "Re: ..." con el que precargar un recordatorio al vecino (ver _hiloVecino).
+  app.get("/presupuestos/expediente/hilo-vecino", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const comu = await buscarComunidadPorId(String(req.query.id || "").trim());
+      if (!comu) return res.json({ ok: false });
+      const h = _hiloVecino(await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion || ""), req.query.email, String(req.query.fase || "").trim());
+      res.json(h ? { ok: true, asunto: h.asunto, n: h.references.length } : { ok: false });
+    } catch (e) {
+      console.error("[presupuestos] /hilo-vecino:", e.message);
+      res.json({ ok: false, error: e.message });
+    }
+  });
+
   const _coreMailManual = async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
@@ -11683,6 +11729,11 @@ module.exports = function (app) {
       let cuentaId = cuentas[0].id;
       if (_faseV) { try { const _pv = await leerPlantillaMail(_faseV); const _cv = String((_pv && _pv.cuenta_envio) || "").trim(); if (_cv && cuentas.some(c => c.id === _cv)) cuentaId = _cv; } catch (e) {} }
       // Envío real (descarga adjuntos de Drive, los adjunta, registra error si link roto).
+      // v19.116 -- recordatorio al vecino: respuesta en el hilo de su correo inicial (si lo hay).
+      let _hilo = null;
+      if (/^(05|08)_REC_/.test(_faseV)) {
+        try { _hilo = _hiloVecino(await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion || ""), destinatario.split(/[,;]/)[0], _faseV); } catch (e) { _hilo = null; }
+      }
       let msgIdEnviado = "";
       try {
         msgIdEnviado = await enviarMailReal({
@@ -11693,6 +11744,8 @@ module.exports = function (app) {
           asunto,
           mensaje,
           adjuntosUrls: adjuntos,
+          inReplyTo: _hilo ? _hilo.inReplyTo : "",
+          references: _hilo ? _hilo.references : null,
         });
       } catch (errEnv) {
         console.error("[presupuestos] /mail-enviar-manual envío falló:", errEnv.message);

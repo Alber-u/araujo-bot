@@ -1388,6 +1388,7 @@ module.exports = function (app) {
           //   de su fase. El email se saca de las notas del piso (el primero que haya). En 07/08 se
           //   adjuntan solos su contrato y su carta de pago de Drive. Abre el compositor de la ficha.
           const URL_PDFS_CONTRATO = ${JSON.stringify(urlT(token, "/documentacion/piso/pdfs-contrato"))};
+          const URL_HILO_VECINO = ${JSON.stringify(urlT(token, "/presupuestos/expediente/hilo-vecino"))};
           const RE_MAIL_NOTAS = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}/;
           window.__ptlMailVecino = async function (el, ev, recFase) {
             if (ev) { ev.preventDefault(); ev.stopPropagation(); }
@@ -1400,7 +1401,16 @@ module.exports = function (app) {
             if (d.falta && !recFase) { alert('Falta la plantilla ' + d.falta + ' o est\u00e1 desactivada (Plantillas mail).'); return false; }   // v19.103
             // v19.102 -- recordatorio por correo pedido desde un aviso de HOY
             if (recFase === d.fase && !d.falta) recFase = '';   // aviso "Inicio pendiente" por correo: el propio correo de inicio
-            if (recFase) { if (!d.rec || !d.rec[recFase]) { alert('Falta la plantilla ' + ({ '05_DOC_VECINO': '05-INICIO DOC (VECINO)', '08_CYCP_VECINO': '08-INICIO CYCP (VECINO)', '05_REC_M1_VECINO': '05-RECORDATORIO M1 (VECINO)', '05_REC_M2_VECINO': '05-RECORDATORIO M2 (VECINO)', '08_REC_M1_VECINO': '08-RECORDATORIO M1 (VECINO)', '08_REC_M3_VECINO': '08-RECORDATORIO M3 (VECINO)' }[recFase] || recFase) + ' o est\u00e1 desactivada (Plantillas mail).'); return false; } d = d.rec[recFase]; }
+            if (recFase) { if (!d.rec || !d.rec[recFase]) { alert('Falta la plantilla ' + ({ '05_DOC_VECINO': '05-INICIO DOC (VECINO)', '08_CYCP_VECINO': '08-INICIO CYCP (VECINO)', '05_REC_M1_VECINO': '05-RECORDATORIO M1 (VECINO)', '05_REC_M2_VECINO': '05-RECORDATORIO M2 (VECINO)', '08_REC_M1_VECINO': '08-RECORDATORIO M1 (VECINO)', '08_REC_M3_VECINO': '08-RECORDATORIO M3 (VECINO)' }[recFase] || recFase) + ' o est\u00e1 desactivada (Plantillas mail).'); return false; } d = Object.assign({}, d.rec[recFase]);
+              // v19.116 -- el recordatorio va como respuesta en el hilo del correo inicial a este vecino:
+              //   asunto "Re: <asunto del inicial>" (el envio pone las cabeceras). Sin inicial, correo nuevo.
+              try {
+                var swH = fila ? fila.querySelector('.ptl-bot-switch-piso') : null;
+                var rH = await fetch(URL_HILO_VECINO + (URL_HILO_VECINO.indexOf('?') < 0 ? '?' : '&') + new URLSearchParams({ id: (swH && swH.dataset.ccppId) || CCPP_ID, email: m[0], fase: recFase }).toString());
+                var xH = await rH.json().catch(function(){ return {}; });
+                if (xH && xH.ok && xH.asunto) d.asunto = xH.asunto;
+              } catch (eH) {}
+            }
             var adj = (d.adjuntos || []).slice();
             if (d.contrato) {
               var sw = fila.querySelector('.ptl-bot-switch-piso');
