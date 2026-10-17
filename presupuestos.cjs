@@ -14088,6 +14088,18 @@ module.exports = function (app) {
         }
       } catch (e) {}
 
+      // v122 (criterio de Guille, 17/10/2026) -- ultimo mensaje de cada vecino AL BOT (texto o documento), para
+      //   el boton de contestar por el bot: verde si fue hace menos de 24 h (WhatsApp deja contestar con texto
+      //   libre), rojo si no (hay que usar el WhatsApp normal).
+      const _ultVecinoBot = {};
+      try {
+        const _bcR = await _leerHoy("bot_contactos!A:D");
+        for (const f of ((_bcR.data && _bcR.data.values) || []).slice(1)) {
+          if (!f || !/^(texto|archivo)(_fase08)?$/.test(String(f[3] || "").trim())) continue;
+          const k = String(f[1] || "").replace(/\D/g, "").slice(-9), t = String(f[0] || "");
+          if (k && (!_ultVecinoBot[k] || t > _ultVecinoBot[k])) _ultVecinoBot[k] = t;
+        }
+      } catch (e) {}
       const _notaPorPiso = {};
       try {
         const _pr = await _leerHoy("pisos!A:AZ");   // v19.89: lectura compartida (por cabecera; AY de mas no afecta)
@@ -14163,6 +14175,15 @@ module.exports = function (app) {
         const _waHtml = _mailHtml ? _mailHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}"${p.registra ? ` class="hoy-wa-registra" data-reg="${_esc(p.registra)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}"` : ""} onclick="if(this.classList.contains('hoy-wa-registra')&&window.__hoyRegistraWa)window.__hoyRegistraWa(this);var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
           : "";
+        // v122 -- boton de contestar POR EL BOT (en "Pide ayuda" y "Completo · revisar"): verde < 24 h, rojo si no.
+        let _botRespHtml = "";
+        if ((p.tipo === "ayuda" || p.tipo === "completo") && p.telefono) {
+          const _uk = String(p.telefono).replace(/\D/g, "").slice(-9), _ut = _ultVecinoBot[_uk] || "";
+          const _uMs = _ut ? (Date.now() - new Date(_ut).getTime()) : Infinity;
+          const _ok24 = isFinite(_uMs) && _uMs < 24 * 3600 * 1000;
+          const _horas = isFinite(_uMs) ? Math.floor(_uMs / 3600000) : null;
+          _botRespHtml = `<button type="button" class="hoy-bot-resp" data-ok="${_ok24 ? "1" : "0"}" data-tel="${_esc(p.telefono)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-nom="${_esc(p.nombre || "")}" data-ayuda="${p.tipo === "ayuda" ? "1" : "0"}" title="${_ok24 ? "Contestar por el bot (escribi\u00f3 hace " + _horas + " h)" : "Han pasado m\u00e1s de 24 h" + (_horas !== null ? " (" + _horas + " h)" : "") + ": WhatsApp no deja contestar por el bot. Usa el WhatsApp normal (el blanco)."}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;background:${_ok24 ? "#1f9d55" : "#c0392b"}">\uD83E\uDD16\uD83D\uDCAC</button>`;
+        }
         // v19.103 -- plantilla que falta o esta desactivada: no se ofrece ningun texto alternativo
         if (p.falta) _badge += `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto;width:auto" title="Cr\u00e9ala o act\u00edvala (Plantillas mail o Flujo bot) y recarga">\u26A0 Falta la plantilla ${_esc(p.falta)} o est\u00e1 desactivada</span>`;
         return `
@@ -14175,6 +14196,7 @@ module.exports = function (app) {
           ${_notaHtml}
           ${_badge}
           ${_waHtml}
+          ${_botRespHtml}
         </div>`;
       };
       // v19.96 (criterio de Guille) -- Avisos de SISTEMA: si un automatismo deja de funcionar, se ve aqui
@@ -15713,6 +15735,39 @@ module.exports = function (app) {
             });
 
 
+            // v122 -- contestar al vecino POR EL BOT desde una tarjeta de Avisos (boton verde/rojo junto al blanco).
+            document.addEventListener('click', function(ev){
+              var b = ev.target.closest && ev.target.closest('.hoy-bot-resp'); if (!b) return;
+              ev.preventDefault();
+              if (b.dataset.ok !== '1') { alert(b.title); return; }
+              var fila = b.closest('.hoy-exp-fila');
+              var fondo = document.createElement('div');
+              fondo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
+              fondo.innerHTML = '<div style="background:#fff;color:#111;border-radius:10px;padding:14px;width:min(520px,92vw);box-shadow:0 8px 30px rgba(0,0,0,.3)">'
+                + '<div style="font-weight:700;font-size:14px;margin-bottom:4px">Contestar por el bot</div>'
+                + '<div style="font-size:12px;color:#555;margin-bottom:8px"></div>'
+                + '<textarea rows="6" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px"></textarea>'
+                + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-x="1">Cancelar</button><button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-s="1">Enviar</button></div></div>';
+              fondo.querySelector('div > div:nth-child(2)').textContent = (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + ' \u00b7 ' + (b.dataset.nom || '') + ' \u00b7 sale del n\u00famero del bot';
+              document.body.appendChild(fondo);
+              var ta = fondo.querySelector('textarea'); setTimeout(function(){ ta.focus(); }, 30);
+              var cerrar = function(){ fondo.remove(); };
+              fondo.querySelector('[data-x]').addEventListener('click', cerrar);
+              fondo.querySelector('[data-s]').addEventListener('click', async function(){
+                var txt = (ta.value || '').trim(); if (!txt) { ta.focus(); return; }
+                var bs = this; bs.disabled = true; bs.textContent = 'Enviando...';
+                try {
+                  var r = await fetch('${urlT(token, "/presupuestos/hoy/responder-bot")}', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: new URLSearchParams({ tel: b.dataset.tel || '', texto: txt, ayuda: b.dataset.ayuda || '0', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '' }).toString() });
+                  var d = await r.json().catch(function(){ return {}; });
+                  if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); bs.disabled = false; bs.textContent = 'Enviar'; return; }
+                  cerrar();
+                  if (b.dataset.ayuda === '1' && fila) { var chk = fila.querySelector('.hoy-bot-llamado[data-campo="revisado_ayuda"]'); if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); } }
+                  else { b.textContent = '\u2714'; b.title = 'Enviado'; }
+                } catch (e) { alert('No se ha enviado: ' + e.message); bs.disabled = false; bs.textContent = 'Enviar'; }
+              });
+            });
+
             // v17.78 — Helper unificado de feedback de guardado.
             // OK   → recuadro verde (borde+relleno) 5s y vuelve al normal.
             // FAIL → recuadro rojo PERMANENTE hasta el próximo guardado OK.
@@ -16885,6 +16940,22 @@ module.exports = function (app) {
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/presentacion:", e.message);
       sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/hoy/responder-bot  (v122) -- Guille contesta a un vecino desde Avisos POR EL BOT.
+  //   body: tel, texto, ayuda (1 = es una "Pide ayuda"). El bot comprueba la ventana de 24 h de WhatsApp.
+  app.post("/presupuestos/hoy/responder-bot", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const bot = app.locals.botWhatsapp;
+      if (!bot || typeof bot.responderVecino !== "function") return res.status(500).json({ ok: false, error: "bot no disponible" });
+      const r = await bot.responderVecino(String(req.body.tel || ""), String(req.body.texto || ""));
+      if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] POST /hoy/responder-bot:", e.message);
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 

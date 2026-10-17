@@ -1657,6 +1657,21 @@ async function crearExpedienteInicial(telefono, datosVecino) {
 //   terminado cuando Guille rechaza o da por falta uno de sus documentos: vuelve a "recogida_documentacion"
 //   con el documento pendiente, y sus recordatorios automaticos vuelven a correr desde hoy. Solo la ficha del
 //   telefono ACTUAL del piso. Devuelve true si la ha reabierto.
+// v122 (criterio de Guille, 17/10/2026) -- Guille contesta a un vecino desde Avisos de HOY POR EL BOT (no desde
+//   el WhatsApp de la empresa, que WhatsApp capa por "propaganda"). Solo con texto libre dentro de las 24 h
+//   desde el ultimo mensaje del vecino al bot (regla de WhatsApp); fuera de ese plazo devuelve error y en HOY
+//   el boton sale en rojo. Se apunta en bot_contactos con tipo "equipo" (no cuenta como mensaje del vecino).
+async function responderVecino(telefono, texto) {
+  const tel = normalizarTelefono(telefono), t = String(texto || "").trim();
+  if (!tel || !t) return { ok: false, error: "faltan el telefono o el texto" };
+  const rows = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:D" })).data.values || []);
+  let ult = "";
+  for (const f of rows.slice(1)) { if (f && normalizarTelefono(f[1] || "") === tel && /^(texto|archivo)(_fase08)?$/.test(String(f[3] || "").trim()) && String(f[0] || "") > ult) ult = String(f[0]); }
+  if (!ult || (Date.now() - new Date(ult).getTime()) >= 24 * 3600 * 1000) return { ok: false, error: "han pasado mas de 24 h desde su ultimo mensaje al bot: usa el WhatsApp normal" };
+  await enviarWhatsApp(tel, t);
+  try { await guardarContacto(tel, "respuesta_equipo", "equipo", t); } catch (e) {}
+  return { ok: true };
+}
 async function reabrirSiFinalizado(o) {
   await cargarPlantillas();   // v19.119
   const n = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -4714,6 +4729,7 @@ setTimeout(() => {
   // programa via app.locals). No reenvia si el vecino ya tiene ficha.
   app.locals.botWhatsapp = {
     reabrirSiFinalizado,   // v19.114
+    responderVecino,       // v122
     salud: _saludBot,   // v19.96: para el aviso de sistema de HOY
     // v19.98 -- contratos por el bot en fase 08 (los usa documentacion.cjs, boton W)
     enviarContratoPiso,
