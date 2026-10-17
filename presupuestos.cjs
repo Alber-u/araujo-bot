@@ -14159,7 +14159,7 @@ module.exports = function (app) {
           // v121 (17/10/2026, criterio de Guille: "que me entere de lo que dicen") -- el texto del vecino entre
           //   parentesis, hasta 180 caracteres y con los enlaces cambiados por un clip; al pasar el raton, entero.
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0;white-space:normal;text-align:left" title="${_esc(_txtAyuda(p.mensaje, 0))}">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " (" + _esc(_txtAyuda(p.mensaje, 180)) + ")" : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0" title="${_esc(_txtAyuda(p.mensaje, 0))}">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " (" + _esc(_txtAyuda(p.mensaje, 180)) + ")" : ""}</span>`;
         } else {
           _campo = ""; _chkTitle = "";   // v19.111: sin check, se quita al dejarlo todo en OK
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
@@ -14194,9 +14194,8 @@ module.exports = function (app) {
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
           ${_notaHtml}
-          ${_badge}
-          ${_waHtml}
-          ${_botRespHtml}
+          <div class="hoy-av-badges" style="flex:0 0 50%;max-width:50%;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden">${_badge}</div>
+          <div style="flex:0 0 64px;display:flex;align-items:center;justify-content:flex-end;gap:4px">${_waHtml}${_botRespHtml}</div>
         </div>`;
       };
       // v19.96 (criterio de Guille) -- Avisos de SISTEMA: si un automatismo deja de funcionar, se ve aqui
@@ -14219,6 +14218,10 @@ module.exports = function (app) {
       const _avSisHtml = _avSis.map(m => `<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;margin-bottom:4px;border-radius:5px;background:var(--ptl-danger-light);color:var(--ptl-danger-dark);font-size:12px;font-weight:600">⚠ ${_esc(m)}</div>`).join("");
       const cajaSinRespuesta = `
         <div class="ptl-card">
+          <style>
+            /* v123 (17/10/2026, criterio de Guille): los avisos, en la mitad derecha, alineados y en un renglon; entero al pasar el raton */
+            .hoy-av-badges>.ptl-fila-badge{white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:100%;flex:0 1 auto}
+          </style>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div class="ptl-card-title ptl-m0">🔔 Avisos (${_avisosArr.length + _avSis.length})</div>
           </div>
@@ -15735,6 +15738,8 @@ module.exports = function (app) {
             });
 
 
+            // v123 -- cada aviso en un renglon: el texto entero al pasar el raton (si no lo trae ya)
+            document.querySelectorAll('.hoy-av-badges > .ptl-fila-badge').forEach(function(b){ if (!b.title) b.title = (b.textContent || '').replace(/\\s+/g, ' ').trim(); });
             // v122 -- contestar al vecino POR EL BOT desde una tarjeta de Avisos (boton verde/rojo junto al blanco).
             document.addEventListener('click', function(ev){
               var b = ev.target.closest && ev.target.closest('.hoy-bot-resp'); if (!b) return;
