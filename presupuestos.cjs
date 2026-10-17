@@ -2515,6 +2515,47 @@ module.exports = function (app) {
     return { ok: true, cambios };
   }
   setTimeout(() => { _migBotV19118().catch(e => console.error("[presupuestos] v19.118 puesta en marcha del bot:", e.message)); }, 25000);
+  // v19.120 (criterio de Guille, 17/10/2026) -- RECUPERAR LAS DUDAS PERDIDAS: desde el 25/08/2026 la IA no
+  //   respondia y los textos de los vecinos que pedian ayuda no llegaban a "Pide ayuda" de HOY (Guille solo
+  //   mira Avisos). Una sola vez (marca "mig_ayuda_v19120" en bot_plantillas): por cada vecino con bot en
+  //   fase 05, con su telefono actual en pisos y sin "Pide ayuda" pendiente, sus mensajes de texto desde el
+  //   25/08 (sin saludos, numeros ni "ok") se ponen en la col AC de bot_expedientes, como hace el bot.
+  async function _migAyudaV19120() {
+    const sheets = getSheetsClient();
+    const rp = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
+    if ((rp.data.values || []).some(x => x && String(x[0] || "").trim() === "mig_ayuda_v19120")) return { ok: true, hecho: "ya estaba" };
+    const get = async (r) => ((await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: r })).data.values || []);
+    const [cont, exps, pis, coms] = await Promise.all([get("bot_contactos!A:E"), get("bot_expedientes!A:AE"), get("pisos!A:AV"), get("comunidades!A:P")]);
+    const t9 = (x) => String(x || "").replace(/\D/g, "").slice(-9);
+    const nk = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    const fase = {}; coms.slice(1).forEach(c => { if (c && c[1]) fase[nk(c[1])] = String(c[15] || ""); });
+    const telPiso = {}; pis.slice(1).forEach(r => { if (r && r[0] && r[1] && String(r[47] || "").trim().toUpperCase() === "BOT_WHATSAPP") telPiso[t9(r[0])] = nk(r[1]); });
+    const AMB = /^(ok|okey|okay|vale|si|s\u00ed|no|nop|perfecto|bien|claro|entendido|recibido|de acuerdo|hola|buenas|buenos d\u00edas|buenas tardes|buenas noches|gracias|muchas gracias|listo|\d+)[.!\s]*$/i;
+    const textos = {};
+    cont.slice(1).forEach(c => {
+      if (!c || String(c[3] || "").trim() !== "texto" || String(c[0] || "") < "2026-08-25") return;
+      const t = String(c[2] || "").replace(/\s+/g, " ").trim();
+      if (t.length < 12 || AMB.test(t)) return;
+      (textos[t9(c[1])] = textos[t9(c[1])] || []).push(t);
+    });
+    const cambios = [];
+    for (let i = 1; i < exps.length; i++) {
+      const r = exps[i]; if (!r || !r[0]) continue;
+      const k = t9(r[0]); const lista = textos[k]; if (!lista || !lista.length) continue;
+      if (!telPiso[k] || telPiso[k] !== nk(r[1])) continue;   // telefono actual del piso y en W
+      if (!/^05/.test(String(fase[nk(r[1])] || ""))) continue;   // comunidad en fase 05
+      if (String(r[28] || "").trim() && String(r[30] || "").trim() !== "1") continue;   // ya tiene "Pide ayuda" pendiente
+      let txt = lista.join(" \u00b7 ");
+      if (txt.length > 200) txt = txt.slice(0, 95) + " \u2026 " + txt.slice(-100);
+      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!AC" + (i + 1), valueInputOption: "RAW", requestBody: { values: [[txt]] } });
+      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!AE" + (i + 1), valueInputOption: "RAW", requestBody: { values: [[""]] } });
+      cambios.push(String(r[1] || "") + " " + String(r[2] || ""));
+    }
+    await guardarAjusteBot("mig_ayuda_v19120", new Date().toISOString().slice(0, 10) + " " + (cambios.join(", ") || "sin cambios"), false);
+    console.log("[presupuestos] v19.120 dudas recuperadas en Pide ayuda:", cambios.join(", ") || "ninguna");
+    return { ok: true, cambios };
+  }
+  setTimeout(() => { _migAyudaV19120().catch(e => console.error("[presupuestos] v19.120 dudas recuperadas:", e.message)); }, 32000);
   async function guardarAjusteBot(clave, valor, activo) {
     const sheets = getSheetsClient();
     clave = String(clave || "").trim();
