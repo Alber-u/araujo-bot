@@ -2479,6 +2479,12 @@ module.exports = function (app) {
     return { ok: true, cambios };
   }
   setTimeout(() => { _migAvisosV1960().catch(e => console.error("[presupuestos] v19.60 ajuste avisos:", e.message)); }, 20000);
+  // v121 (17/10/2026) -- texto de "Pide ayuda" legible: enlaces -> clip, espacios juntos, cortado a n caracteres.
+  function _txtAyuda(t, n) {
+    let x = String(t || "").replace(/https?:\/\/\S+/g, "\uD83D\uDCCE").replace(/\s+/g, " ").trim();
+    if (n && x.length > n) x = x.slice(0, n - 1).trim() + "\u2026";
+    return x;
+  }
   // v19.118 (criterio de Guille, 17/10/2026) -- Puesta en marcha UNICA de los cambios del bot de esa fecha en
   //   bot_plantillas (luego todo se edita en Plantillas del bot y no se vuelve a tocar; marca "mig_bot_v19118"):
   //   IA dormida (ia_activa = NO), los tres textos nuevos y "escribe LISTO" -> "responde 1" en las peticiones
@@ -2546,7 +2552,7 @@ module.exports = function (app) {
       if (!/^05/.test(String(fase[nk(r[1])] || ""))) continue;   // comunidad en fase 05
       if (String(r[28] || "").trim() && String(r[30] || "").trim() !== "1") continue;   // ya tiene "Pide ayuda" pendiente
       let txt = lista.join(" \u00b7 ");
-      if (txt.length > 200) txt = txt.slice(0, 95) + " \u2026 " + txt.slice(-100);
+      if (txt.length > 1000) txt = txt.slice(0, 1000);   // v121: entero (antes, 200 con el centro cortado)
       await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!AC" + (i + 1), valueInputOption: "RAW", requestBody: { values: [[txt]] } });
       await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!AE" + (i + 1), valueInputOption: "RAW", requestBody: { values: [[""]] } });
       cambios.push(String(r[1] || "") + " " + String(r[2] || ""));
@@ -2556,6 +2562,40 @@ module.exports = function (app) {
     return { ok: true, cambios };
   }
   setTimeout(() => { _migAyudaV19120().catch(e => console.error("[presupuestos] v19.120 dudas recuperadas:", e.message)); }, 32000);
+  // v121 (17/10/2026) -- la v19.120 guardo las dudas recuperadas cortadas por el centro (200 caracteres) y se
+  //   perdia justo la pregunta (Ardilla 9 1-19). Una sola vez (marca "mig_ayuda_v121"): donde la col AC sigue
+  //   teniendo exactamente ese texto cortado y sin revisar, se pone el texto entero.
+  async function _migAyudaV121() {
+    const sheets = getSheetsClient();
+    const rp = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
+    if ((rp.data.values || []).some(x => x && String(x[0] || "").trim() === "mig_ayuda_v121")) return { ok: true, hecho: "ya estaba" };
+    const get = async (r) => ((await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: r })).data.values || []);
+    const [cont, exps] = await Promise.all([get("bot_contactos!A:E"), get("bot_expedientes!A:AE")]);
+    const t9 = (x) => String(x || "").replace(/\D/g, "").slice(-9);
+    const AMB = /^(ok|okey|okay|vale|si|s\u00ed|no|nop|perfecto|bien|claro|entendido|recibido|de acuerdo|hola|buenas|buenos d\u00edas|buenas tardes|buenas noches|gracias|muchas gracias|listo|\d+)[.!\s]*$/i;
+    const textos = {};
+    cont.slice(1).forEach(c => {
+      if (!c || String(c[3] || "").trim() !== "texto" || String(c[0] || "") < "2026-08-25") return;
+      const t = String(c[2] || "").replace(/\s+/g, " ").trim();
+      if (t.length < 12 || AMB.test(t)) return;
+      (textos[t9(c[1])] = textos[t9(c[1])] || []).push(t);
+    });
+    const cambios = [];
+    for (let i = 1; i < exps.length; i++) {
+      const r = exps[i]; if (!r || !r[0]) continue;
+      const lista = textos[t9(r[0])]; if (!lista) continue;
+      const entero = lista.join(" \u00b7 ");
+      if (entero.length <= 200) continue;
+      const cortado = entero.slice(0, 95) + " \u2026 " + entero.slice(-100);
+      if (String(r[28] || "") !== cortado || String(r[30] || "").trim() === "1") continue;
+      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!AC" + (i + 1), valueInputOption: "RAW", requestBody: { values: [[entero.slice(0, 1000)]] } });
+      cambios.push(String(r[1] || "") + " " + String(r[2] || ""));
+    }
+    await guardarAjusteBot("mig_ayuda_v121", new Date().toISOString().slice(0, 10) + " " + (cambios.join(", ") || "sin cambios"), false);
+    console.log("[presupuestos] v121 dudas recuperadas completas:", cambios.join(", ") || "ninguna");
+    return { ok: true, cambios };
+  }
+  setTimeout(() => { _migAyudaV121().catch(e => console.error("[presupuestos] v121 dudas completas:", e.message)); }, 38000);
   async function guardarAjusteBot(clave, valor, activo) {
     const sheets = getSheetsClient();
     clave = String(clave || "").trim();
@@ -14104,8 +14144,10 @@ module.exports = function (app) {
           // v19.107 -- fase 08: se quita al pasar las pastillas de REV a OK (sin check)
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 1 auto;width:auto;min-width:0">Completo \u00b7 revisar ${_esc(p.que || "")} (fase 08)</span>`;
         } else if (p.tipo === "ayuda") {
+          // v121 (17/10/2026, criterio de Guille: "que me entere de lo que dicen") -- el texto del vecino entre
+          //   parentesis, hasta 180 caracteres y con los enlaces cambiados por un clip; al pasar el raton, entero.
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0;white-space:normal;text-align:left" title="${_esc(_txtAyuda(p.mensaje, 0))}">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " (" + _esc(_txtAyuda(p.mensaje, 180)) + ")" : ""}</span>`;
         } else {
           _campo = ""; _chkTitle = "";   // v19.111: sin check, se quita al dejarlo todo en OK
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;

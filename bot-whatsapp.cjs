@@ -1569,7 +1569,15 @@ async function marcarAtencionHumana(telefono, mensaje) {
         await sheets.spreadsheets.batchUpdate({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, requestBody: { requests: [{ appendDimension: { sheetId: sh.properties.sheetId, dimension: "COLUMNS", length: 31 - cc } }] } });
       }
     } catch (e2) { console.error("[bot-whatsapp] marcarAtencionHumana expandir col:", e2.message); }
-    await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AC" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[String(mensaje || "").slice(0, 200)]] } });
+    // v121 (17/10/2026, criterio de Guille: "que me entere de lo que dicen") -- si ya tenia una peticion sin
+    //   revisar, el mensaje nuevo se ANADE detras (" · ") en vez de borrar el anterior; hasta 1000 caracteres.
+    let _txtAy = String(mensaje || "").replace(/\s+/g, " ").trim();
+    try {
+      const _prev = ((await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AC" + rowIndex + ":AE" + rowIndex })).data.values || [[]])[0] || [];
+      if (String(_prev[0] || "").trim() && String(_prev[2] || "").trim() !== "1") _txtAy = String(_prev[0]).trim() + " \u00b7 " + _txtAy;
+    } catch (e3) {}
+    if (_txtAy.length > 1000) _txtAy = "\u2026" + _txtAy.slice(-999);
+    await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AC" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[_txtAy]] } });
     await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AE" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[""]] } });
   } catch (e) { console.error("[bot-whatsapp] marcarAtencionHumana:", e.message); }
 }
