@@ -292,6 +292,33 @@ function diasEntre(fechaIso) {
   return Math.floor((new Date() - new Date(fechaIso)) / (1000 * 60 * 60 * 24));
 }
 
+// v19.117 (criterio de Guille, 17/10/2026) -- ANCLA DEL PLAZO: el plazo de un vecino cuenta desde el
+//   DIA COMUN de su comunidad (el primer contacto del bot con cualquier vecino de ella: minimo de
+//   fecha_primer_contacto, col J de bot_expedientes), igual que la fecha limite del CRM
+//   (_fechaLimiteDocBot / _fechaContactoBot). Asi un vecino que entra tarde (piso vendido, telefono
+//   nuevo) se comporta como si el bot le hubiera escrito el primer dia: sus avisos por plazo
+//   (10/18/20) y el "quedan X dias" salen a la vez que a los demas. Su propia fecha (col J) no se
+//   toca: la siguen usando la presentacion y sus reenvios. Sin comunidad o sin datos, la propia.
+async function _anclaPlazoBot(expediente) {
+  const propia = String((expediente && expediente.fecha_primer_contacto) || "").trim();
+  const obj = String((expediente && expediente.comunidad) || "").trim().toLowerCase();
+  if (!obj) return propia;
+  try {
+    const rows = await _leerBotCompartido("bot_expedientes!A:J");
+    let minMs = null, minIso = "";
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i]; if (!r) continue;
+      if (String(r[1] || "").trim().toLowerCase() !== obj) continue;
+      const f = String(r[9] || "").trim(); if (!f) continue;
+      const t = new Date(f).getTime(); if (isNaN(t)) continue;
+      if (minMs === null || t < minMs) { minMs = t; minIso = f; }
+    }
+    if (!minIso) return propia;
+    const tp = new Date(propia).getTime();
+    return (propia && !isNaN(tp) && tp < minMs) ? propia : minIso;
+  } catch (e) { return propia; }
+}
+
 // Normaliza 0034, 34XXXXXXXXX y +34 al mismo formato
 function normalizarTelefono(telefono) {
   let t = (telefono || "").replace(/\s/g, "").trim();
@@ -1198,7 +1225,7 @@ async function responderConIA(mensaje, expediente) {
   const documentoActual = labelDocumento(expediente.documento_actual);
   const pendientes = labelsDocumentos(expediente.documentos_pendientes).join(", ");
   const opcionales = labelsDocumentos(expediente.documentos_opcionales_pendientes).join(", ");
-  const dias = diasEntre(expediente.fecha_primer_contacto);
+  const dias = diasEntre(await _anclaPlazoBot(expediente));   // v19.117
   // Si el vecino está en el paso de solicitud, usar el prompt experto en rellenar la solicitud
   const enSolicitud = expediente.documento_actual === "solicitud_firmada" ||
     (expediente.ultimo_documento_fallido === "solicitud_firmada");
@@ -1570,12 +1597,14 @@ async function crearCarpetaNotaSimple(datosVecino) {
 async function crearExpedienteInicial(telefono, datosVecino) {
   const sheets = getSheetsClient();
   const ahora = ahoraISO();
+  // v19.117 -- fecha limite (col L) desde el dia comun de la comunidad, no desde hoy.
+  const _ancla = await _anclaPlazoBot({ comunidad: (datosVecino && datosVecino.comunidad) || "", fecha_primer_contacto: ahora });
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:Z", valueInputOption: "RAW",
     requestBody: { values: [[
       telefono, (datosVecino && datosVecino.comunidad) || "", (datosVecino && datosVecino.vivienda) || "",
       (datosVecino && datosVecino.nombre) || "", "", "pregunta_tipo", "", "pendiente_clasificacion",
-      ahora, ahora, ahora, sumarDias(ahora, 20), "", "NO", "ok", "", "", "",
+      ahora, ahora, ahora, sumarDias(_ancla || ahora, 20), "", "NO", "ok", "", "", "",
       "", "", "",
       "", "", "no",
       "", "",
@@ -1812,7 +1841,7 @@ async function calcularPrioridadExpediente(telefono) {
 // - PDF critico sin clasificar
 async function calcularRequiereIntervencion(telefono, expediente) {
   try {
-    const dias = diasEntre(expediente.fecha_primer_contacto);
+    const dias = diasEntre(await _anclaPlazoBot(expediente));   // v19.117
     const tienePendientes = splitList(expediente.documentos_pendientes).length > 0;
 
     // Cerca de plazo con pendientes — subir prioridad automaticamente
@@ -1865,7 +1894,7 @@ async function calcularIndicadoresOperativosEnMemoria(expediente) {
     // Prioridad base desde documentos
     let prioridad = await calcularPrioridadExpediente(expediente.telefono);
     // Subir prioridad dinamicamente por cercanía de plazo
-    const dias = diasEntre(expediente.fecha_primer_contacto);
+    const dias = diasEntre(await _anclaPlazoBot(expediente));   // v19.117
     const tienePendientes = splitList(expediente.documentos_pendientes).length > 0;
     if (dias >= 18 && tienePendientes) {
       prioridad = "alta"; // plazo critico siempre sube a alta
@@ -2005,8 +2034,8 @@ function avisoActivo(clave) {
   }
   return true; // por defecto activo (sin fila o no desactivado)
 }
-function construirAvisoPorPlazo(expediente) {
-  const dias = diasEntre(expediente.fecha_primer_contacto);
+function construirAvisoPorPlazo(expediente, ancla) {
+  const dias = diasEntre(ancla || expediente.fecha_primer_contacto);   // v19.117: ancla = dia comun
   const horas = expediente.fecha_ultimo_contacto
     ? Math.floor((Date.now() - new Date(expediente.fecha_ultimo_contacto)) / (1000 * 60 * 60))
     : 999;
@@ -2067,7 +2096,7 @@ async function revisarYAvisarPorPlazo(expediente) {
     const pendientesArr = splitList(expediente.documentos_pendientes);
     const lista = pendientesArr.map((d) => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes";
     const _limite = tiempoAviso("t_plazo_fuera", 20);
-    let _restantes = Math.round(_limite - diasEntre(expediente.fecha_primer_contacto));
+    let _restantes = Math.round(_limite - diasEntre(await _anclaPlazoBot(expediente)));   // v19.117
     if (!isFinite(_restantes) || _restantes < 0) _restantes = 0;
     const m = txtPlant("msg_inactividad_1", "",
       { nombre: expediente.nombre || "vecino", lista: lista, dias: _restantes, "días": _restantes });
@@ -2079,7 +2108,7 @@ async function revisarYAvisarPorPlazo(expediente) {
   }
   // PLAZO total (10/18/20 dias): se mantiene. La inactividad ya no se manda en chat
   // por niveles (la lleva el Wake up de arriba), asi que aqui se ignora.
-  const aviso = construirAvisoPorPlazo(expediente);
+  const aviso = construirAvisoPorPlazo(expediente, await _anclaPlazoBot(expediente));   // v19.117
   if (!aviso) return null;
   if (aviso.alerta !== "aviso_10_dias" && aviso.alerta !== "urgente" && aviso.alerta !== "fuera_plazo") return null;
   if (expediente.alerta_plazo !== aviso.alerta) {
@@ -4506,7 +4535,7 @@ async function ejecutarJobSeguimiento() {
       const tipoDocsJob = expediente.paso_actual === "recogida_financiacion" ? "financiacion" : null;
       try { expediente = await hidratarResumenDocumentalDesdeSheets(expediente, tipoDocsJob); } catch(e) {}
       // Calcular si toca aviso proactivo
-      const aviso = construirAvisoPorPlazo(expediente);
+      const aviso = construirAvisoPorPlazo(expediente, await _anclaPlazoBot(expediente));   // v19.117
       if (!aviso) { omitidos++; continue; }
 
       // No repetir si ya se mandó este nivel de alerta
