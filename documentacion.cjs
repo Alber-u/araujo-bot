@@ -3519,7 +3519,7 @@ module.exports = function (app) {
 
   // ----- POST /documentacion/piso/pdfs-contrato (v19.100) -----
   // Contrato y carta de pago de un piso en Drive, para adjuntarlos al correo a un vecino en M
-  // (plantilla 08_CYCP_VECINO). Mismas reglas de nombre que el envio por el bot (§6.19).
+  // (plantilla 08_CYCP_VECINO). Mismas reglas de nombre que el envio por el bot (§6.17).
   app.post("/documentacion/piso/pdfs-contrato", async (req, res) => {
     if (!checkToken(req, res)) return;
     const P = app.locals.presupuestos;

@@ -697,7 +697,7 @@ module.exports = function (app) {
     // hace su factura (su 20 % del beneficio), no el día en que se cobra. El
     // nombre de la columna se conserva. Formato YYYY-MM-DD; se pone a mano en la
     // ficha en fase 09. Con valor -> "Facturado" (grupo Total facturado de HOY);
-    // vacía -> En ejecución o Factura pte, según fecha_pte_cobro (manual §3.3).
+    // vacía -> En ejecución o Factura pte, según fecha_pte_cobro (manual §3.5).
     "fecha_cobro",
     // BF en_hoy: "1" si el expediente está marcado para aparecer en HOY (reloj
     // activo junto al campo Notas de la ficha del expediente). Vacío en otro caso.
@@ -14633,7 +14633,7 @@ module.exports = function (app) {
           continue;
         }
         // v19.101 (criterio de Guille, 08/10/2026) -- 05 y 08: por el PASO de la linea de tiempo de la
-        //   fase (ventana Tiempos, §3.22), el mas avanzado arriba; a igual paso, el que mas dias lleva
+        //   fase (ventana Tiempos, §3.10), el mas avanzado arriba; a igual paso, el que mas dias lleva
         //   (05: fecha del 1er WhatsApp del bot o, sin el, de aceptacion; 08: fecha de envio de
         //   contratos y cartas de pago; la mas antigua arriba); luego por direccion. El paso se saca
         //   del MISMO badge que pinta la fila (_badgeUltimatumHoy, con los mismos argumentos).

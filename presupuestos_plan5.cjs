@@ -1,6 +1,6 @@
 // ============================================================================
 // MÓDULO PRESUPUESTOS PLAN 5 — Araujo CCPP
-// CANDADO (CONGELAR/DESCONGELAR, regla de Guille; manual §5.14-§5.15). El CANDADO es un SEGURO: al
+// CANDADO (CONGELAR/DESCONGELAR, regla de Guille; manual §5.4 y §5.18). El CANDADO es un SEGURO: al
 //   congelar, el presupuesto se queda con SUS PROPIOS datos y precios (los de ese dia, como si los
 //   hubiera tecleado el) ademas de la foto -> se toque lo que se toque en lo general, esa obra no se
 //   entera. Al DESCONGELAR se tira la foto, vuelve a estar VIVO en el punto exacto anterior al
@@ -61,7 +61,7 @@ if (typeof getPlan5Css !== "function") getPlan5Css = () => "";
 
 // Pestaña del Sheet donde se guardan los datos de cada presupuesto Plan 5.
 // Columnas: A direccion | B ccpp_id | C nº_presupuesto | D fecha | E revisión | F actualizado | G datos_json
-//           | H valores propios de la obra | I foto congelada (manual §5.14)
+//           | H valores propios de la obra | I foto congelada (manual §5.4)
 const RANGO_PLAN5 = "plan5_toma_datos!A:I";   // H = valores propios de la obra (dato/cantidad/precio); I = snapshot congelado (separado de G para no rozar el limite de 50.000 caracteres/celda)
 const RANGO_PRECIOS = "plan5_precios!A:D";
 const RANGO_MEDICIONES = "plan5_mediciones!A:G";
