@@ -189,6 +189,10 @@ const IA_TIMEOUT_MS = 7000;
 const IA_TIMEOUT_IMAGEN_MS = 15000;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const RECENT_FILE_WINDOW_MS = 4 * 60 * 60 * 1000;
+// v19.119 (17/10/2026) -- las paginas de un documento de varias paginas cuentan aunque se mandaran hace
+//   dias (antes, solo las de las ultimas 4 h): un vecino que mando el contrato por la manana y no
+//   contesto ya no se puede cerrar por la tarde (caso Ardilla 9 1-13). Solo lo usan los documentos largos.
+const VENTANA_PAGINAS_MS = 7 * 24 * 60 * 60 * 1000;
 const RETRY_WINDOW_MS = 15 * 60 * 1000;
 
 // ================= GOOGLE AUTH =================
@@ -1646,6 +1650,7 @@ async function crearExpedienteInicial(telefono, datosVecino) {
 //   con el documento pendiente, y sus recordatorios automaticos vuelven a correr desde hoy. Solo la ficha del
 //   telefono ACTUAL del piso. Devuelve true si la ha reabierto.
 async function reabrirSiFinalizado(o) {
+  await cargarPlantillas();   // v19.119
   const n = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
   const sheets = getSheetsClient();
   const rp = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:C" });
@@ -1776,7 +1781,7 @@ async function existeArchivoParaDocumento(telefono, tipoDocumento) {
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
     const ahora = new Date();
-    const limite = RECENT_FILE_WINDOW_MS;
+    const limite = VENTANA_PAGINAS_MS;   // v19.119
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (normalizarTelefono(row[0] || "") !== telNorm) continue;
@@ -1804,7 +1809,7 @@ async function obtenerMejorEstadoArchivoReciente(telefono, tipoDocumento) {
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
     const ahora = new Date();
-    const limite = RECENT_FILE_WINDOW_MS;
+    const limite = VENTANA_PAGINAS_MS;   // v19.119
     const prioridad = { "OK": 0, "REVISAR": 1, "REPETIR": 2 };
     let mejorEstado = null;
     for (let i = 1; i < rows.length; i++) {
@@ -2716,6 +2721,7 @@ function programarAutoFinPaginas(telefono, documento) {
 }
 // Cierra el documento largo de un vecino que mando paginas y no contesto. Devuelve true si lo cerro.
 async function autoCerrarDocumentoLargo(telefono, documento) {
+  await cargarPlantillas();   // v19.119
   let exp = await buscarExpedientePorTelefono(telefono);
   if (!exp || exp.paso_actual !== "recogida_documentacion" || !DOCS_LARGOS.includes(exp.documento_actual)) return false;
   if (documento && exp.documento_actual !== documento) return false;
@@ -4598,6 +4604,7 @@ async function ejecutarJobSeguimiento() {
   let _errGeneral = null;
 
   try {
+    await cargarPlantillas();   // v19.119: textos y ajustes del Sheet aunque aun no haya entrado ningun mensaje
     const expedientes = await leerTodosExpedientes();
 
     for (let expediente of expedientes) {
