@@ -2420,10 +2420,15 @@ module.exports = function (app) {
     }
     // v19.98 -- La plantilla Twilio del contrato de la fase 08 es nueva: si su fila aun no existe,
     //   se crea al guardar su codigo HX por primera vez (las demas claves siguen exigiendo fila).
-    const _CLAVES_NUEVAS = { contrato_cycp: ["contrato_cycp", "vecino", "twilio", "", "", "{{1}} via+comunidad, {{2}} piso, {{3}} fecha limite, {{4}} documento (clave/nombre.pdf)", "SI", "v19.98 - contrato y carta de pago por el bot (fase 08, boton W)"] };
+    const _CLAVES_NUEVAS = { contrato_cycp: ["contrato_cycp", "vecino", "twilio", "", "", "{{1}} via+comunidad, {{2}} piso, {{3}} fecha limite, {{4}} documento (clave/nombre.pdf)", "SI", "v19.98 - contrato y carta de pago por el bot (fase 08, boton W)"] ,
+      // v19.118 -- textos nuevos del bot (los crea _migBotV19118; si se borrara la fila, se recrea al guardar la tarjeta)
+      flujo_pagina_recibida: ["flujo_pagina_recibida", "vecino", "texto", "", "", "{documento}", "SI", "v19.118: respuesta a cada pagina de un documento de varias paginas"],
+      flujo_progreso: ["flujo_progreso", "vecino", "texto", "", "", "{n} {total}", "SI", "v19.118: contador encima de cada peticion de documento"],
+      flujo_sin_ia: ["flujo_sin_ia", "vecino", "texto", "", "", "{siguiente}", "SI", "v19.118: respuesta al texto libre del vecino con la IA dormida"] };
     if (rowIndex < 0 && _CLAVES_NUEVAS[clave]) {
       const _fn = _CLAVES_NUEVAS[clave].slice();
       if (String(datos.tipo || "").trim().toLowerCase() === "twilio") _fn[4] = String(datos.twilio_sid != null ? datos.twilio_sid : "");
+      else if (_fn[2] === "texto") _fn[3] = String(datos.texto != null ? datos.texto : "");   // v19.118
       _fn[6] = datos.activo ? "SI" : "NO";
       await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: "bot_plantillas!A:H", valueInputOption: "RAW", requestBody: { values: [_fn] } });
       return;
@@ -2474,6 +2479,42 @@ module.exports = function (app) {
     return { ok: true, cambios };
   }
   setTimeout(() => { _migAvisosV1960().catch(e => console.error("[presupuestos] v19.60 ajuste avisos:", e.message)); }, 20000);
+  // v19.118 (criterio de Guille, 17/10/2026) -- Puesta en marcha UNICA de los cambios del bot de esa fecha en
+  //   bot_plantillas (luego todo se edita en Plantillas del bot y no se vuelve a tocar; marca "mig_bot_v19118"):
+  //   IA dormida (ia_activa = NO), los tres textos nuevos y "escribe LISTO" -> "responde 1" en las peticiones
+  //   de documentos de varias paginas (solo si siguen con la frase antigua).
+  async function _migBotV19118() {
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
+    const rows = r.data.values || [];
+    const fila = (k) => rows.findIndex(x => x && String(x[0] || "").trim() === k);
+    if (fila("mig_bot_v19118") >= 0) return { ok: true, hecho: "ya estaba" };
+    const cambios = [];
+    if (fila("ia_activa") < 0) { await guardarAjusteBot("ia_activa", "NO"); cambios.push("ia_activa=NO"); }
+    const NUEVOS = {
+      flujo_pagina_recibida: "\uD83D\uDCC4 P\u00e1gina recibida.\n\nSi el documento tiene m\u00e1s p\u00e1ginas, env\u00edalas ahora.\n\nSi ya est\u00e1n todas, responde *1* y seguimos.",
+      flujo_progreso: "\uD83D\uDCCD Documento {n} de {total}",
+      flujo_sin_ia: "Gracias por tu mensaje. Lo vemos y te contestamos lo antes posible.\n\nMientras tanto, puedes seguir con tu documentaci\u00f3n:\n\n{siguiente}",
+    };
+    for (const k of Object.keys(NUEVOS)) {
+      if (fila(k) >= 0) continue;
+      await guardarPlantillaBot({ clave: k, tipo: "texto", texto: NUEVOS[k], activo: true });
+      cambios.push(k);
+    }
+    const VIEJA = "y al terminar todas las p\u00e1ginas, escribe \"LISTO\".";
+    const NUEVA = "y cuando hayas mandado todas las p\u00e1ginas, responde *1*.";
+    for (let i = 1; i < rows.length; i++) {
+      const x = rows[i]; if (!x) continue;
+      const k = String(x[0] || "").trim(), t = String(x[3] == null ? "" : x[3]);
+      if (!k || t.indexOf(VIEJA) < 0) continue;
+      await guardarPlantillaBot({ clave: k, tipo: "texto", texto: t.split(VIEJA).join(NUEVA), activo: String(x[6] || "SI").trim().toUpperCase() !== "NO" });
+      cambios.push(k);
+    }
+    await guardarAjusteBot("mig_bot_v19118", new Date().toISOString().slice(0, 10) + " " + (cambios.join(", ") || "sin cambios"), false);
+    console.log("[presupuestos] v19.118 puesta en marcha del bot:", cambios.join(", ") || "sin cambios");
+    return { ok: true, cambios };
+  }
+  setTimeout(() => { _migBotV19118().catch(e => console.error("[presupuestos] v19.118 puesta en marcha del bot:", e.message)); }, 25000);
   async function guardarAjusteBot(clave, valor, activo) {
     const sheets = getSheetsClient();
     clave = String(clave || "").trim();
@@ -9731,8 +9772,11 @@ module.exports = function (app) {
       card("seguir_expediente","doc - página siguiente",{}),
       card("flujo_falta_enviar","doc - falta enviar",{}),
       card("flujo_seguimos_largo","Doc - varias paginas",{}),
+      card("flujo_pagina_recibida","doc - página recibida (varias páginas)",{}),   // v19.118
       card("flujo_documento_completo","doc - validado",{}),
       card("flujo_sin_opcional","doc - seguir sin opcional",{}),
+      card("flujo_progreso","doc - contador ({n} de {total})",{}),   // v19.118
+      card("flujo_sin_ia","texto del vecino con la IA dormida",{}),   // v19.118
     ].map(c => "<div>" + c + "</div>").join("");
     const erroresCards = stack([["error_mensaje","error - mensaje"],["error_documento","error - doc"]]);
     const _NIV = ["muy_tolerante","tolerante","normal","estricto","muy_estricto"];
@@ -9759,6 +9803,22 @@ module.exports = function (app) {
             var NN=["muy_tolerante","tolerante","normal","estricto","muy_estricto"],EE=["Muy tolerante","Tolerante","Normal","Estricto","Muy estricto"];
             if(r)r.addEventListener("input",function(){var i=parseInt(r.value,10)||0;if(lbl)lbl.textContent=EE[i];if(hid)hid.value=NN[i];}); })();
         </script>
+      </div>`;
+    // v19.118 (criterio de Guille, 17/10/2026) -- interruptor de la IA del bot (fila ia_activa de bot_plantillas).
+    const _filaIA = plantillas.find(p => p.clave === "ia_activa");
+    const _iaOn = !!_filaIA && String(_filaIA.texto || "").trim().toUpperCase() === "SI";
+    const _bandaIA = `
+      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-general-1,#1f3a5f);padding:12px 14px;max-width:760px;margin:0 auto;color:#fff">
+        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/ia")}" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <input type="hidden" name="ia" value="${_iaOn ? "NO" : "SI"}"/>
+          <div>
+            <div style="font-weight:600;font-size:14px">🤖 IA del bot: ${_iaOn ? "ENCENDIDA" : "DORMIDA"}</div>
+            <div style="font-size:12px;color:rgba(255,255,255,.85);margin-top:4px">${_iaOn
+              ? "Revisa cada documento al llegar (OpenAI): da por buenos los correctos, pide repetir los equivocados y contesta el texto de los vecinos."
+              : "No se usa OpenAI: cada documento se acepta y queda en REVISAR para ti; el vecino solo recibe «recibido» y su texto libre te llega a Pide ayuda. Se mantiene el aviso de foto oscura o borrosa del DNI."}</div>
+          </div>
+          <button type="submit" class="ptl-btn ptl-btn-primary ptl-shrink0">${_iaOn ? "😴 Dormir" : "⚡ Encender"}</button>
+        </form>
       </div>`;
 
     // v18.121: tiempos + on/off de los avisos automaticos por plazo (ajustes en bot_plantillas)
@@ -9963,6 +10023,9 @@ module.exports = function (app) {
 
         <div class="pbf-grp">Exigencia con los DNI en jpg</div>
         ${exigencia}
+
+        <div class="pbf-grp">IA del bot</div>
+        ${_bandaIA}
 
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:14px">Todo se guarda en <code>bot_plantillas</code>.</div>
 
@@ -13678,7 +13741,10 @@ module.exports = function (app) {
           // (renunció a financiación o la completó; con documentos por revisar o todo
           // OK) ha llegado al final de SU recorrido y Guille tiene que revisarlo. Antes
           // era la última rama de un if/else y otras se lo comían: nunca aparecía.
-          if (_paso === "finalizado") {
+          // v19.118 (criterio de Guille, 17/10/2026) -- tambien la ficha REABIERTA por el bot (col AB "REABIERTA ...",
+          //   la pone reabrirSiFinalizado al marcar Guille algo en F/INCORRECTO): sigue saliendo mientras le quede
+          //   algo en REVISAR; antes desaparecia y sus documentos se quedaban sin revisar (Ardilla 9 0-3).
+          if (_paso === "finalizado" || /^REABIERTA/i.test(String(r[27] || "").trim())) {
             // v19.111 (criterio de Guille, 13/10/2026) -- igual que en la 08: sale mientras el piso no tenga
             //   toda su documentacion en OK (contador verde de la ficha) y se va sola al dejarlo todo en OK;
             //   si Guille vuelve a poner algo en F o en REV, vuelve a salir. Ya no depende del check (col AB).
@@ -16662,6 +16728,20 @@ module.exports = function (app) {
       res.redirect(urlT(token, _dx, { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/exigencia:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/ia — enciende o duerme la IA del bot (v19.118)
+  app.post("/presupuestos/plantillas-bot/ia", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const v = String(req.body.ia || "").trim().toUpperCase() === "SI" ? "SI" : "NO";
+      await guardarAjusteBot("ia_activa", v);
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/ia:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });

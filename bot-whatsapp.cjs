@@ -244,6 +244,15 @@ const EXIGENCIA_PRESETS = {
   estricto:      { ancho: 620, alto: 380, brilloRepetir: 42, nitidezRepetir: 4,   contraste: 26, nitidezRevisar: 7.5, brilloRevisar: 52 },
   muy_estricto:  { ancho: 760, alto: 460, brilloRepetir: 50, nitidezRepetir: 5,   contraste: 32, nitidezRevisar: 9,   brilloRevisar: 60 },
 };
+// v19.118 (criterio de Guille, 17/10/2026) -- INTERRUPTOR DE LA IA: fila "ia_activa" de bot_plantillas
+//   (SI/NO, banda "IA del bot" de Plantillas del bot). Sin fila o con NO, la IA esta DORMIDA: no se llama a
+//   OpenAI; cada documento se acepta, queda en REVISAR para Guille y el vecino recibe el aviso normal de
+//   "recibido" (aviso_ok) sin mensajes de "posible problema"; el texto libre va a "Pide ayuda" de HOY.
+//   Se mantiene la comprobacion de foto oscura/borrosa del DNI (no usa IA).
+function iaActiva() {
+  const p = _plantillasCache && _plantillasCache["ia_activa"];
+  return !!p && String(p.texto || "").trim().toUpperCase() === "SI";
+}
 // Nivel actual de exigencia de fotos, leido de la fila exigencia_fotos de bot_plantillas (cache). Default normal.
 function nivelExigencia() {
   if (_plantillasCache && _plantillasCache["exigencia_fotos"]) {
@@ -571,6 +580,12 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
       ? txtPlant("aviso_ok", "", { siguiente })
       : txtPlant("aviso_ok_fin", "");
   }
+  // v19.118 -- IA dormida: lo que queda en REVISAR (salvo foto oscura/borrosa) se le dice como recibido.
+  if (estadoDocumento === "REVISAR" && !iaActiva() && !/^\[revisar_calidad\]/.test(String(motivo || ""))) {
+    return siguiente
+      ? txtPlant("aviso_ok", "", { siguiente })
+      : txtPlant("aviso_ok_fin", "");
+  }
   if (estadoDocumento === "REVISAR") {
     let motivoRev = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
     if (!motivoRev) motivoRev = "su contenido se revisar\u00e1";
@@ -659,6 +674,7 @@ async function validarImagenTecnica(buffer) {
 // Llamada base a OpenAI con imagen
 async function llamarIAconImagen(systemPrompt, base64, timeout) {
   if (!process.env.OPENAI_API_KEY) return null;
+  if (!iaActiva()) return null;   // v19.118
   try {
     const response = await axios.post(
       "https://api.openai.com/v1/chat/completions",
@@ -693,6 +709,7 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
 // ===== DNI — usa gpt-4o para mayor precisión en cara delantera/trasera =====
 async function llamarGPT4oConImagen(systemPrompt, base64) {
   if (!process.env.OPENAI_API_KEY) return null;
+  if (!iaActiva()) return null;   // v19.118
   try {
     const resp = await axios.post(
       "https://api.openai.com/v1/chat/completions",
@@ -1222,6 +1239,17 @@ function buildPreguntaFinanciacion() {
 
 // ================= IA TEXTO =================
 async function responderConIA(mensaje, expediente) {
+  // v19.118 -- IA dormida: el texto libre lo lee Guille ("Pide ayuda" en HOY y aviso al equipo) y al
+  //   vecino se le contesta con flujo_sin_ia (o, sin esa fila, la respuesta guiada de siempre).
+  if (!iaActiva()) {
+    try {
+      marcarAtencionHumana(expediente.telefono, mensaje).catch(() => {});
+      notificarEquipo("atencion_humana", { nombre: expediente.nombre, comunidad: expediente.comunidad, vivienda: expediente.vivienda,
+        telefono: expediente.telefono, mensaje: String(mensaje || "").slice(0, 100), motivo: "mensaje del vecino (IA dormida)" }).catch(() => {});
+    } catch (e) {}
+    const _sig = expediente.documento_actual ? getPromptPasoActual(expediente) : "";
+    return txtPlant("flujo_sin_ia", "", { siguiente: _sig }) || respuestaGuiadaPorExpediente(expediente);
+  }
   const documentoActual = labelDocumento(expediente.documento_actual);
   const pendientes = labelsDocumentos(expediente.documentos_pendientes).join(", ");
   const opcionales = labelsDocumentos(expediente.documentos_opcionales_pendientes).join(", ");
@@ -1635,6 +1663,26 @@ async function reabrirSiFinalizado(o) {
   exp.fecha_ultimo_contacto = new Date().toISOString();
   await actualizarExpediente(rowIndex, exp);
   console.log("[bot] ficha reabierta por rechazo/falta de un documento:", tel, o.comunidad, o.vivienda, "->", exp.documento_actual);
+  // v19.118 (criterio de Guille, 17/10/2026) -- (1) marca en la col AB ("REABIERTA <fecha>") para que HOY le
+  //   siga sacando "Completo · revisar" mientras le quede algo en REVISAR (ya no esta en "finalizado");
+  //   (2) se le dice al vecino en el acto que tiene que mandar algo (plantilla Twilio "recordatorio", la
+  //   misma de los avisos por plazo, valida fuera de las 24 h), para que no se quede creyendo que termino.
+  try {
+    await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AB" + rowIndex,
+      valueInputOption: "RAW", requestBody: { values: [["REABIERTA " + new Date().toISOString()]] } });
+  } catch (e) { console.error("[bot] marca reabierta:", e.message); }
+  try {
+    if (!(await pisoActivoParaBot(tel))) throw new Error("piso no activo para el bot (M o fuera de la 05): sin aviso");
+    const _pend = splitList(exp.documentos_pendientes);
+    const _lista = _pend.map((d) => labelDocumento(d)).join(" \u00b7 ") || labelDocumento(exp.documento_actual);
+    await enviarWhatsAppPlantilla(tel, sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7"), {
+      "1": limpiarNombreVecino(exp.nombre),
+      "2": (exp.comunidad || "") + (exp.vivienda ? " " + exp.vivienda : ""),
+      "3": _lista,
+    });
+    await guardarAviso(tel, "reabierta", "enviado");
+    try { await guardarContacto(tel, "ficha_reabierta", "bot", "recordatorio: " + _lista); } catch (e) {}
+  } catch (e) { console.error("[bot] aviso de ficha reabierta:", e.message); }
   return true;
 }
 async function actualizarExpediente(rowIndex, data) {
@@ -2363,7 +2411,10 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
       const ts = Date.now();
       const imgPDF = await renderizarPrimeraPaginaPDF(bufferOriginal);
       tlog("render_pdf_solicitud", telefono, ts);
-      if (imgPDF) {
+      if (!iaActiva()) {   // v19.118: IA dormida -> a revision de Guille
+        estadoFinalPDF = "REVISAR";
+        motivoFinalPDF = "[sin_ia] pendiente de revision";
+      } else if (imgPDF) {
         const analisisSolicitud = await analizarSolicitudFirmadaConIA(imgPDF);
         tlog("ia_analisis_solicitud_pdf", telefono, ts);
         estadoFinalPDF = analisisSolicitud.estadoDocumento;
@@ -2438,7 +2489,12 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
       estadoDocumento !== "REPETIR" &&
       (contextoDoc === "coincide" || contextoDoc === "sin_clasificar" || !contextoDoc);
 
-    if (mereceAnalisisEspecifico) {
+    if (!iaActiva()) {
+      // v19.118 -- IA dormida: solo la calidad de la foto del DNI; lo demas, a revision de Guille.
+      if (validacionTecnica.estado === "REPETIR") { estadoDocumento = "REPETIR"; motivo = validacionTecnica.motivo; }
+      else if (validacionTecnica.estado === "REVISAR") { estadoDocumento = "REVISAR"; motivo = "[revisar_calidad] " + validacionTecnica.motivo; }
+      else { estadoDocumento = "REVISAR"; motivo = "[sin_ia] pendiente de revision"; }
+    } else if (mereceAnalisisEspecifico) {
       const ta = Date.now();
       // CRÍTICO: usar documentoActual (esperado por expediente), no tipoDetectado
       // tipoDetectado puede ser la clasificación general y confundir delante/detrás en DNI
@@ -2638,16 +2694,46 @@ async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, d
     }
 }
 
-async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
-    // ================= LISTO PARA DOCUMENTOS LARGOS =================
-    if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion" && msg === "listo") {
-      const hayArchivo = await existeArchivoParaDocumento(telefono, expediente.documento_actual);
-      if (!hayArchivo) {
-        return responderYLog(res, telefono, msgOriginal, "texto",
-          "Todavia no hemos recibido ningun archivo para este documento.\n\n" +
-          "Primero envialo por aqui y cuando hayas mandado todas las paginas, escribe LISTO.");
-      }
-
+// v19.118 (criterio de Guille, 17/10/2026) -- Documento de varias paginas: el vecino ya no tiene que
+//   escribir LISTO. Vale "1" (lo que pide el mensaje flujo_pagina_recibida), "listo", "si", "ya", "ok"...
+//   y, si no contesta, el bot lo da por terminado solo a los 15 minutos de la ultima pagina
+//   (temporizador en memoria + repaso en el job de cada hora, por si el servidor se reinicia).
+const _RESP_FIN_PAGINAS = ["listo", "1", "1\ufe0f\u20e3", "si", "s\u00ed", "ya", "ok", "vale", "ya esta", "ya est\u00e1", "estan todas", "est\u00e1n todas", "todas", "terminado", "fin"];
+function esFinDePaginas(msg, documentoActual) {
+  const t = String(msg || "").trim().toLowerCase().replace(/[.!]+$/, "");
+  if (t === "listo") return true;
+  return DOCS_LARGOS.includes(documentoActual) && _RESP_FIN_PAGINAS.includes(t);
+}
+const AUTO_FIN_PAGINAS_MS = 15 * 60 * 1000;
+const _timersPaginas = {};
+function programarAutoFinPaginas(telefono, documento) {
+  const k = normalizarTelefono(telefono);
+  if (_timersPaginas[k]) clearTimeout(_timersPaginas[k]);
+  _timersPaginas[k] = setTimeout(() => {
+    delete _timersPaginas[k];
+    autoCerrarDocumentoLargo(telefono, documento).catch((e) => console.error("Auto fin paginas:", e.message));
+  }, AUTO_FIN_PAGINAS_MS + 5000);
+}
+// Cierra el documento largo de un vecino que mando paginas y no contesto. Devuelve true si lo cerro.
+async function autoCerrarDocumentoLargo(telefono, documento) {
+  let exp = await buscarExpedientePorTelefono(telefono);
+  if (!exp || exp.paso_actual !== "recogida_documentacion" || !DOCS_LARGOS.includes(exp.documento_actual)) return false;
+  if (documento && exp.documento_actual !== documento) return false;
+  const tUlt = new Date(exp.fecha_ultimo_contacto || 0).getTime();
+  if (!tUlt || (Date.now() - tUlt) < AUTO_FIN_PAGINAS_MS) return false;   // ha vuelto a escribir: espera
+  try { if (!(await pisoActivoParaBot(telefono))) return false; } catch (e) { return false; }
+  if (!(await existeArchivoParaDocumento(telefono, exp.documento_actual))) return false;
+  const r = await cerrarDocumentoLargo(telefono, exp);
+  // Mensaje libre: solo dentro de la ventana de 24 h de WhatsApp (el vecino escribio hace poco).
+  if (r && r.texto && (Date.now() - tUlt) < 23 * 3600 * 1000) {
+    try { await enviarWhatsApp(telefono, r.texto); } catch (e) { console.error("Auto fin paginas envio:", e.message); }
+    try { await guardarContacto(telefono, "auto_fin_paginas", "bot", r.texto); } catch (e) {}
+  }
+  console.log("[bot] documento de varias paginas cerrado solo:", normalizarTelefono(telefono), documento || "");
+  return true;
+}
+// Nucleo comun (respuesta del vecino o cierre automatico): devuelve { texto } con lo que hay que contestar.
+async function cerrarDocumentoLargo(telefono, expediente) {
       // Comprobar calidad de las paginas recientes
       // Si todas son REPETIR, no marcar como recibido correcto
       const estadoPaginasLargo = await obtenerMejorEstadoArchivoReciente(telefono, expediente.documento_actual);
@@ -2659,10 +2745,10 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
       if (!docLargoValido) {
         expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
         await recalcularYActualizarTodo(expediente);
-        return responderYLog(res, telefono, msgOriginal, "texto",
+        return { texto:
           "Las paginas han llegado con problemas y este documento sigue pendiente.\n\n" +
           "Por favor, vuelve a enviarlo por aqui o envialo en un PDF completo.\n" +
-          "Cuando lo tengas listo, escribe LISTO de nuevo.");
+          "Cuando lo tengas, responde 1." };
       }
 
       // Motor central — pasar doc largo recien completado para evitar lag de Sheets
@@ -2670,14 +2756,27 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
       await recalcularYActualizarTodo(expediente);
       const promptSigListo = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
       if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
-        return responderYLog(res, telefono, msgOriginal, "texto",
-          txtPlant("flujo_documento_completo", "") + "\n\n" + (promptSigListo || ""));
+        return { texto: txtPlant("flujo_documento_completo", "") + "\n\n" + (promptSigListo || "") };
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
-        return responderYLog(res, telefono, msgOriginal, "texto",
-          txtPlant("flujo_documento_completo", "") + "\n\n" + buildPreguntaFinanciacion());
+        return { texto: txtPlant("flujo_documento_completo", "") + "\n\n" + buildPreguntaFinanciacion() };
       }
-      return responderYLog(res, telefono, msgOriginal, "texto", txtPlant("flujo_documento_completo", ""));
+      return { texto: txtPlant("flujo_documento_completo", "") };
+}
+
+async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
+    // ================= LISTO PARA DOCUMENTOS LARGOS =================
+    if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion" && esFinDePaginas(msg, expediente.documento_actual)) {
+      const hayArchivo = await existeArchivoParaDocumento(telefono, expediente.documento_actual);
+      if (!hayArchivo) {
+        if (String(msg || "").trim().toLowerCase() !== "listo") return undefined;   // v19.118: "1", "si"... sin paginas -> sigue el flujo normal
+        return responderYLog(res, telefono, msgOriginal, "texto",
+          "Todavia no hemos recibido ningun archivo para este documento.\n\n" +
+          "Primero envialo por aqui y cuando hayas mandado todas las paginas, responde 1.");
+      }
+      const _k = normalizarTelefono(telefono); if (_timersPaginas[_k]) { clearTimeout(_timersPaginas[_k]); delete _timersPaginas[_k]; }
+      const r = await cerrarDocumentoLargo(telefono, expediente);
+      return responderYLog(res, telefono, msgOriginal, "texto", r.texto);
     }
 }
 
@@ -2714,7 +2813,13 @@ function getPromptPasoActual(expediente) {
   const _fb = paso ? paso.prompt : "";
   const _flujoNombre = _esFin ? "financiacion" : expediente.tipo_expediente;
   const _u = _plantillaPideDe(_flujoNombre, expediente.documento_actual);
-  return txtPlant(_u.clave, _fb, _u.vars);
+  const _pide = txtPlant(_u.clave, _fb, _u.vars);
+  // v19.118 (criterio de Guille, 17/10/2026) -- contador "Documento X de N" encima de cada peticion,
+  //   para que el vecino sepa cuanto le falta y no se pare a mitad. Texto en flujo_progreso
+  //   (variables {n} y {total}); sin esa fila o desactivada, no sale.
+  const _idx = flujo.findIndex((p) => p.code === expediente.documento_actual);
+  const _prog = (_idx >= 0 && flujo.length > 1) ? txtPlant("flujo_progreso", "", { n: _idx + 1, total: flujo.length }) : "";
+  return (_prog && _pide) ? (_prog + "\n\n" + _pide) : _pide;
 }
 
 // IMPORTANTE:
@@ -3327,7 +3432,7 @@ async function handleArchivos(ctx) {
           resultado.fileName, resultado.file.webViewLink || "", origenParaSheet, resultado.estadoDocumento, resultado.motivo);
       } catch (err) { console.error("ERROR guardarDoc flujo:", err.message); }
       // Notificar al equipo si el documento necesita revision manual
-      if (resultado.estadoDocumento === "REVISAR" && resultado.motivo) {
+      if (resultado.estadoDocumento === "REVISAR" && resultado.motivo && iaActiva()) {   // v19.118: IA dormida -> sin aviso por documento
         notificarEquipo("revisar_documento", {
           nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
           vivienda: datosVecino.vivienda, telefono,
@@ -3417,12 +3522,14 @@ async function handleArchivos(ctx) {
           return responderYLog(res, telefono, "archivo", "archivo",
             "Hemos recibido " + docRecibidoLabel + ", pero estamos esperando paginas de:\n\n" +
             "• " + docEsperadoLabel + "\n\n" +
-            "Envia las paginas correctas y cuando termines escribe LISTO.");
+            "Envia las paginas correctas y cuando termines responde 1.");
         }
         expediente.fecha_ultimo_contacto = ahoraISO();
         await recalcularYActualizarTodo(expediente);
+        programarAutoFinPaginas(telefono, expediente.documento_actual);   // v19.118: red de 15 minutos
         return responderYLog(res, telefono, "archivo", "archivo",
-          "Pagina recibida\n\nPuedes seguir enviando mas paginas de este documento.\n\nCuando termines, escribe LISTO.");
+          txtPlant("flujo_pagina_recibida", "", { documento: labelDocumento(expediente.documento_actual) }) ||
+          "Pagina recibida\n\nPuedes seguir enviando mas paginas de este documento.\n\nCuando termines, responde 1.");
       }
 
       // DOCUMENTO NORMAL
@@ -3586,6 +3693,8 @@ async function handleArchivoFueraDeFlujo({ req, res, telefono, numMedia, datosVe
 // ================= DETECCION ATENCION HUMANA CON IA =================
 async function detectarNecesidadHumano(mensaje, expediente) {
   if (!mensaje || mensaje.trim().length < 5) return { escalar: false, motivo: "" };
+  // v19.118 -- IA dormida: todo texto con contenido lo lee Guille (Pide ayuda).
+  if (!iaActiva()) return (esMensajeAmbiguo(mensaje) ? { escalar: false, motivo: "" } : { escalar: true, motivo: "mensaje del vecino (IA dormida)" });
   try {
     const prompt = "Eres un asistente que analiza mensajes de vecinos en un proceso documental (Plan 5 EMASESA).\n\nMensaje del vecino: \"" + mensaje + "\"\nPaso actual: " + (expediente.paso_actual || "desconocido") + "\n\nDetermina si requiere atenci\u00f3n humana. Escalar si:\n1. Frustraci\u00f3n o enfado\n2. Pregunta sobre plazos, costes, instalaci\u00f3n o problemas t\u00e9cnicos\n3. Situaci\u00f3n especial (propietario fallecido, disputa, hipoteca)\n4. Confusi\u00f3n grave que el bot no puede resolver\n\nResponde SOLO en JSON: {\"escalar\": true/false, \"motivo\": \"raz\u00f3n breve\"}";
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -4530,6 +4639,12 @@ async function ejecutarJobSeguimiento() {
       try {
         if (!(await pisoActivoParaBot(expediente.telefono))) { omitidos++; continue; }
       } catch (e) { omitidos++; continue; }
+
+      // v19.118 -- documento de varias paginas sin contestar: se cierra solo (por si el servidor se
+      //   reinicio y se perdio el temporizador de 15 minutos).
+      if (expediente.paso_actual === "recogida_documentacion" && DOCS_LARGOS.includes(expediente.documento_actual)) {
+        try { if (await autoCerrarDocumentoLargo(expediente.telefono, expediente.documento_actual)) { enviados++; continue; } } catch (e) { console.error("Job auto fin paginas:", e.message); }
+      }
 
       // Rehidratar desde bot_documentos! para no usar datos cacheados desincronizados
       const tipoDocsJob = expediente.paso_actual === "recogida_financiacion" ? "financiacion" : null;
