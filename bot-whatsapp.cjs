@@ -3977,6 +3977,7 @@ app.get("/enviar-presentacion", async (req, res) => {
         // Crear la ficha del vecino en bot_whatsapp: marca implícita de "presentado"
         // y arranque del expediente. Evita reenvíos en próximas tandas.
         await crearExpedienteInicial(telefono, { comunidad, vivienda, nombre });
+        try { await guardarContacto(telefono, "presentacion", "bot", "Presentaci\u00f3n del bot"); } catch (eP) {}   // v126: para la conversacion
         yaConFicha.add(telefono);
         enviados++;
         detalle.push({ fila: i+1, telefono, nombre, estado: "enviado" });
@@ -4792,6 +4793,7 @@ setTimeout(() => {
           vivienda: (datos && datos.vivienda) || "",
           nombre: (datos && datos.nombre) || "",
         });
+        try { await guardarContacto(tel, "presentacion", "bot", "Presentaci\u00f3n del bot"); } catch (eP) {}   // v126: para la conversacion
         // v18.155 — Esta via (activar un piso a mano con el boton W) mandaba el
         //   WhatsApp y creaba la ficha, pero NO lo apuntaba en bot_avisos. Era la
         //   unica de las cinco vias de envio que se lo saltaba, y como los primeros

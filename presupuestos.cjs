@@ -539,7 +539,8 @@ module.exports = function (app) {
           // En HOY, al contestar un "Pide ayuda" o un "Ha respondido" se marca su check (y el aviso se va)
           var chk = (b.dataset.ayuda === '1' && fila) ? fila.querySelector('.hoy-bot-llamado') : null;
           if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); }
-          else { b.textContent = '✔'; b.title = 'Enviado'; }
+          // contestado: deja de estar pendiente (azul -> verde)
+          b.dataset.pend = '0'; b.style.background = '#1f9d55'; b.title = 'Contestado. Puedes seguir escribiéndole por el bot (menos de 24 h).';
         } catch (e) { alert('No se ha enviado: ' + e.message); bs.disabled = false; bs.textContent = 'Enviar'; }
       });
     }
@@ -14307,6 +14308,10 @@ module.exports = function (app) {
         }
       } catch (e) {}
 
+      // v126 (18/10/2026, criterio de Guille) -- robotito AZUL = el vecino tiene algo sin contestar (un "Pide ayuda"
+      //   o un "Ha respondido" sin marcar), como el "mensaje nuevo" de WhatsApp. Verde: nada pendiente y dentro de
+      //   las 24 h; rojo: mas de 24 h y nada pendiente.
+      const _pendTel = new Set(_avisosArr.filter(a => a.tipo === "ayuda" || a.tipo === "respondido").map(a => String(a.telefono || "").replace(/\D/g, "").slice(-9)).filter(Boolean));
       const renderAviso = (p) => {
         const _ccpp = _ccppPorDir[_normComu(p.comunidad)] || "";
         const _urlPiso = _ccpp ? (urlT(token, "/documentacion/expediente", { id: _ccpp }) + "#piso-" + encodeURIComponent(p.vivienda || "")) : "";
@@ -14383,7 +14388,8 @@ module.exports = function (app) {
           const _uMs = _ut ? (Date.now() - new Date(_ut).getTime()) : Infinity;
           const _ok24 = isFinite(_uMs) && _uMs < 24 * 3600 * 1000;
           const _horas = isFinite(_uMs) ? Math.floor(_uMs / 3600000) : null;
-          _botRespHtml = `<button type="button" class="hoy-bot-resp" data-ok="${_ok24 ? "1" : "0"}" data-tel="${_esc(p.telefono)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-nom="${_esc(p.nombre || "")}" data-ayuda="${(p.tipo === "ayuda" || p.tipo === "respondido") ? "1" : "0"}" title="${_ok24 ? "Contestar por el bot (escribi\u00f3 hace " + _horas + " h)" : "Han pasado m\u00e1s de 24 h" + (_horas !== null ? " (" + _horas + " h)" : "") + ": WhatsApp no deja contestar por el bot. Usa el WhatsApp normal (el blanco)."}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;background:${_ok24 ? "#1f9d55" : "#c0392b"}">\uD83E\uDD16\uD83D\uDCAC</button>`;
+          const _pend = _pendTel.has(_uk);   // v126: azul
+          _botRespHtml = `<button type="button" class="hoy-bot-resp" data-ok="${_ok24 ? "1" : "0"}" data-pend="${_pend ? "1" : "0"}" data-tel="${_esc(p.telefono)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-nom="${_esc(p.nombre || "")}" data-ayuda="${(p.tipo === "ayuda" || p.tipo === "respondido") ? "1" : "0"}" title="${(_pend ? "SIN CONTESTAR \u00b7 " : "") + (_ok24 ? "Contestar por el bot (escribi\u00f3 hace " + _horas + " h)" : "Han pasado m\u00e1s de 24 h" + (_horas !== null ? " (" + _horas + " h)" : "") + ": WhatsApp no deja contestar por el bot. Usa otra v\u00eda.")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;background:${_pend ? "#2b7de9" : (_ok24 ? "#1f9d55" : "#c0392b")}">\uD83E\uDD16\uD83D\uDCAC</button>`;
         }
         // v19.103 -- plantilla que falta o esta desactivada: no se ofrece ningun texto alternativo
         if (p.falta) _badge += `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto;width:auto" title="Cr\u00e9ala o act\u00edvala (Plantillas mail o Flujo bot) y recarga">\u26A0 Falta la plantilla ${_esc(p.falta)} o est\u00e1 desactivada</span>`;
@@ -17129,21 +17135,29 @@ module.exports = function (app) {
       const t9 = (x) => String(x || "").replace(/\D/g, "").slice(-9);
       const k = t9(req.query.tel); if (!k) return res.json({ ok: false, error: "falta el telefono" });
       const sheets = getSheetsClient();
-      const [rc, rd] = await Promise.all([
+      const [rc, rd, rx] = await Promise.all([
         sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_contactos!A:E" }),
         sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:H" }),
+        sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:J" }),
       ]);
       const docs = ((rd.data.values || []).slice(1)).filter(d => d && t9(d[0]) === k && String(d[7] || "").trim() !== "manual").map(d => ({ t: new Date(d[5] || 0).getTime(), tipo: String(d[3] || ""), usado: false }));
       const etq = (c) => { const x = String(c || "").replace(/_/g, " ").trim(); return x ? x.charAt(0).toUpperCase() + x.slice(1) : "documento"; };
       const fmt = (iso) => { const d = new Date(iso); if (isNaN(d.getTime())) return String(iso || ""); return d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
       const corto = (x, n) => { x = String(x || "").trim(); return x.length > n ? x.slice(0, n - 1).trim() + "\u2026" : x; };
       const items = [];
-      for (const c of ((rc.data.values || []).slice(1))) {
-        if (!c || t9(c[1]) !== k) continue;
+      // v126 (18/10/2026, criterio de Guille: "chat completo, desde el principio") -- la PRIMERA presentacion no
+      //   se apuntaba en bot_contactos (solo los reenvios). Desde v126 el bot la apunta; para las anteriores se
+      //   saca de la ficha del bot (bot_expedientes col J, fecha de la presentacion).
+      const _filasC = ((rc.data.values || []).slice(1)).filter(c => c && t9(c[1]) === k);
+      if (!_filasC.some(c => String(c[2] || "").trim() === "presentacion")) {
+        const _fx = ((rx.data.values || []).slice(1)).find(x => x && t9(x[0]) === k && /^\d{4}-\d{2}-\d{2}/.test(String(x[9] || "")));
+        if (_fx) items.push({ quien: "bot", fecha: fmt(_fx[9]), texto: "Presentaci\u00f3n del bot", _t: String(_fx[9]) });
+      }
+      for (const c of _filasC) {
         const f = fmt(c[0]), tipo = String(c[3] || "").trim(), cli = String(c[2] || "").trim(), bot = String(c[4] || "").trim();
         if (tipo === "equipo") { items.push({ quien: "equipo", fecha: f, texto: bot }); continue; }
         if (tipo === "bot") {
-          const txt = cli === "job_presentacion" ? "Reenv\u00edo de la presentaci\u00f3n" : (cli === "job_proactivo" ? "Recordatorio autom\u00e1tico de lo que le falta" : corto(bot, 220));
+          const txt = cli === "job_presentacion" ? "Reenv\u00edo de la presentaci\u00f3n" : cli === "presentacion" ? "Presentaci\u00f3n del bot" : (cli === "job_proactivo" ? "Recordatorio autom\u00e1tico de lo que le falta" : corto(bot, 220));
           items.push({ quien: "bot", fecha: f, texto: txt }); continue;
         }
         if (tipo === "archivo_fuera") {   // v126: piso con el que el bot no trabaja: el archivo no se guarda
@@ -17162,6 +17176,17 @@ module.exports = function (app) {
         }
         if (bot) items.push({ quien: "bot", fecha: f, texto: corto(bot, 220) });
       }
+      // la presentacion sacada de la ficha va en su sitio por fecha (el resto ya viene en orden)
+      const _pi = items.findIndex(x => x._t);
+      if (_pi === 0 && items.length > 1) {
+        const p0 = items.shift(); let pos = 0;
+        const _ts = (c) => String(c[0] || "");
+        const antes = _filasC.filter(c => _ts(c) < p0._t).length;
+        // cuantos items generan esas filas previas (1 por fila + 1 si llevan respuesta del bot)
+        let n = 0; for (const c of _filasC) { if (_ts(c) >= p0._t) break; n += 1 + ((String(c[3] || "").trim() !== "equipo" && String(c[3] || "").trim() !== "bot" && String(c[4] || "").trim()) ? 1 : 0); }
+        pos = antes ? n : 0; items.splice(pos, 0, p0);
+      }
+      items.forEach(x => { delete x._t; });
       res.json({ ok: true, items });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
     } catch (e) {
       console.error("[presupuestos] GET /hoy/conversacion:", e.message);
@@ -17169,6 +17194,23 @@ module.exports = function (app) {
     }
   });
 
+  async function _marcarContestado(tel) {
+    const k = String(tel || "").replace(/\D/g, "").slice(-9); if (!k) return;
+    const sheets = getSheetsClient();
+    const ex = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AE" })).data.values || [];
+    for (let i = 1; i < ex.length; i++) {
+      const f = ex[i]; if (!f || String(f[0] || "").replace(/\D/g, "").slice(-9) !== k) continue;
+      if (String(f[28] || "").trim() && String(f[30] || "").trim() !== "1")
+        await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!AE" + (i + 1), valueInputOption: "RAW", requestBody: { values: [["1"]] } });
+    }
+    const pi = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AZ" })).data.values || [];
+    for (let i = 1; i < pi.length; i++) {
+      const f = pi[i]; if (!f || String(f[0] || "").replace(/\D/g, "").slice(-9) !== k) continue;
+      const act = {}; String(f[51] || "").split(";").forEach(x => { const m = String(x).match(/^\s*([A-Z0-9]+)=(\S+)/); if (m) act[m[1]] = m[2]; });
+      act.R = new Date().toISOString();
+      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "pisos!AZ" + (i + 1), valueInputOption: "RAW", requestBody: { values: [[Object.keys(act).map(x => x + "=" + act[x]).join(";")]] } });
+    }
+  }
   // POST /presupuestos/hoy/responder-bot  (v122) -- Guille contesta a un vecino desde Avisos POR EL BOT.
   //   body: tel, texto, ayuda (1 = es una "Pide ayuda"). El bot comprueba la ventana de 24 h de WhatsApp.
   app.post("/presupuestos/hoy/responder-bot", async (req, res) => {
@@ -17178,6 +17220,9 @@ module.exports = function (app) {
       if (!bot || typeof bot.responderVecino !== "function") return res.status(500).json({ ok: false, error: "bot no disponible" });
       const r = await bot.responderVecino(String(req.body.tel || ""), String(req.body.texto || ""));
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
+      // v126 (criterio de Guille) -- contestado = ya no esta pendiente: se marca su "Pide ayuda" (bot_expedientes
+      //   col AE = 1) y su "Ha respondido" (pisos col AZ R=ahora), conteste desde HOY o desde la ficha.
+      try { await _marcarContestado(String(req.body.tel || "")); } catch (eM) { console.error("[presupuestos] responder-bot marcar contestado:", eM.message); }
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] POST /hoy/responder-bot:", e.message);

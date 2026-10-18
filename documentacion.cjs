@@ -776,11 +776,12 @@ module.exports = function (app) {
       const _ms = _ub ? (Date.now() - new Date(_ub).getTime()) : NaN;
       const _okR = isFinite(_ms) && _ms < 24 * 3600 * 1000;
       const _hR = isFinite(_ms) ? Math.floor(_ms / 3600000) : null;
-      const _colR = _okR ? "#1f9d55" : (_ub ? "#c0392b" : "#9aa0a6");
-      const _titR = _okR ? "Ver la conversaci\u00f3n y contestar por el bot (escribi\u00f3 hace " + _hR + " h)"
+      const _pendR = !!opciones.pendBot;   // v126: azul = sin contestar
+      const _colR = _pendR ? "#2b7de9" : _okR ? "#1f9d55" : (_ub ? "#c0392b" : "#9aa0a6");
+      const _titR = (_pendR ? "SIN CONTESTAR \u00b7 " : "") + (_okR ? "Ver la conversaci\u00f3n y contestar por el bot (escribi\u00f3 hace " + _hR + " h)"
         : (_ub ? "Ver la conversaci\u00f3n. Han pasado m\u00e1s de 24 h (" + _hR + " h): WhatsApp no deja contestar por el bot; usa otra v\u00eda."
-          : "Nunca ha escrito al bot: solo se ve lo que le ha mandado el bot (si le ha mandado algo).");
-      _robotBtn = `<button type="button" class="hoy-bot-resp ptl-vec-robot" data-ok="${_okR ? "1" : "0"}" data-tel="${esc(telefono || "")}" data-com="${esc(opciones.comRobot || "")}" data-viv="${esc(vivienda || "")}" data-nom="${esc(nombre || "")}" data-ayuda="0" title="${esc(_titR)}" style="border:0;border-radius:4px;padding:1px 3px;margin-left:3px;font-size:11px;line-height:1.2;cursor:pointer;color:#fff;vertical-align:middle;background:${_colR}">\uD83E\uDD16\uD83D\uDCAC</button>`;
+          : "Nunca ha escrito al bot: solo se ve lo que le ha mandado el bot (si le ha mandado algo)."));
+      _robotBtn = `<button type="button" class="hoy-bot-resp ptl-vec-robot" data-ok="${_okR ? "1" : "0"}" data-pend="${_pendR ? "1" : "0"}" data-tel="${esc(telefono || "")}" data-com="${esc(opciones.comRobot || "")}" data-viv="${esc(vivienda || "")}" data-nom="${esc(nombre || "")}" data-ayuda="0" title="${esc(_titR)}" style="border:0;border-radius:4px;padding:1px 3px;margin-left:3px;font-size:11px;line-height:1.2;cursor:pointer;color:#fff;vertical-align:middle;background:${_colR}">\uD83E\uDD16\uD83D\uDCAC</button>`;
     }
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
@@ -814,7 +815,7 @@ module.exports = function (app) {
     </tr>`;
   }
 
-  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias, mailVecino, histMails, avisoM3, azMap, msgIni05, ultBot }) {
+  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias, mailVecino, histMails, avisoM3, azMap, msgIni05, ultBot, ultFuera, ayudaPend }) {
     const docsPisoCompletos = docsManuales.piso || [];
     const docsCcppCompletos = docsManuales.ccpp || [];
 
@@ -1094,6 +1095,14 @@ module.exports = function (app) {
         // v126 -- robotito: comunidad (para el recuadro) y ultimo mensaje del vecino al bot
         comRobot: comu.direccion || comu.comunidad || "",
         ultBot: (ultBot || {})[String(p.telefono || "").replace(/\D/g, "").slice(-9)],
+        // v126 -- azul: algo sin contestar (Pide ayuda sin marcar, o "Ha respondido" posterior a su marca R de la col AZ)
+        pendBot: (() => {
+          const k9 = String(p.telefono || "").replace(/\D/g, "").slice(-9); if (!k9) return false;
+          if ((ayudaPend || {})[k9]) return true;
+          const uf = (ultFuera || {})[k9]; if (!uf) return false;
+          const mR = String((azMap || {})[String(p.vivienda || "").trim().toLowerCase()] || "").match(/(?:^|;)\s*R=([^;\s]+)/);
+          return uf > (mR ? mR[1] : "");
+        })(),
         globoHist: _globoPiso(p),   // v19.102: comunicaciones registradas de ese vecino
         // v19.98 -- fase 08: fecha del contrato enviado por el bot (globo del boton W)
         es08: _es08,
@@ -2811,7 +2820,7 @@ module.exports = function (app) {
         const botDatos = await leerBotDatos(comu).catch(() => ({ docsByPiso: {}, tipoByPiso: {}, descByPiso: {} }));
         // v126 (18/10/2026, criterio de Guille) -- robotito de cada piso: ultimo mensaje del vecino al bot
         //   (bot_contactos, texto/archivo) por telefono (ultimos 9 digitos); "" = nunca ha escrito.
-        const _ultBot = {};
+        const _ultBot = {}, _ultFuera = {}, _ayudaPend = {};   // v126: + ultimo mensaje "fuera" y Pide ayuda sin marcar
         try {
           const _rcB = await getSheets().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:D" });
           for (const f of ((_rcB.data.values || []).slice(1))) {
@@ -2819,6 +2828,11 @@ module.exports = function (app) {
             const k = String(f[1] || "").replace(/\D/g, "").slice(-9); if (!k) continue;
             if (!(k in _ultBot)) _ultBot[k] = "";
             if (/^(texto|archivo)(_fase08|_fuera)?$/.test(String(f[3] || "").trim()) && String(f[0] || "") > _ultBot[k]) _ultBot[k] = String(f[0] || "");
+            if (/_fuera$/.test(String(f[3] || "").trim()) && String(f[0] || "") > (_ultFuera[k] || "")) _ultFuera[k] = String(f[0] || "");
+          }
+          const _rxB = await getSheets().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:AE" });
+          for (const f of ((_rxB.data.values || []).slice(1))) {
+            if (f && String(f[28] || "").trim() && String(f[30] || "").trim() !== "1") _ayudaPend[String(f[0] || "").replace(/\D/g, "").slice(-9)] = true;
           }
         } catch (eB) { console.warn("[documentacion] robotito bot_contactos:", eB.message); }
         const _msgWaM3 = await _leerMsgWaM3();   // v18.128 (hoy: M5, WhatsApp manual)
@@ -2876,7 +2890,7 @@ module.exports = function (app) {
           msgIni05: _msgIni05,
           prorrogaDias: _prorrogaDias,
           comu, pisos, expedientes, docsManuales, estadosCcpp, esc: P.esc, fmtTlf, token, botDatos,
-          ultBot: _ultBot,   // v126
+          ultBot: _ultBot, ultFuera: _ultFuera, ayudaPend: _ayudaPend,   // v126
         });
       } catch (e) {
         console.warn("[documentacion] no se pudo construir cajita manual:", e.message);
