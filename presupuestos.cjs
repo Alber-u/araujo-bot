@@ -547,19 +547,57 @@ module.exports = function (app) {
     async function avisoMBot(b) {
       var q = '¿Enviar AHORA por el bot el ' + (b.dataset.etq || 'aviso') + ' del ' + (b.dataset.piso || '') + ' (' + (b.dataset.nom || '') + ')?'
         + '\n\n' + (b.dataset.com || '') + '\nFalta: ' + (b.dataset.pend || '') + '\nFecha límite: ' + (b.dataset.fecha || '');
-      if (!(await window.ptlConfirmarEnvio(q, 'Enviar por el bot', { tel: b.dataset.tel || '' }))) return;
-      b.disabled = true; var antes = b.textContent; b.textContent = '…';
+      // texto de la plantilla con sus datos (v126); dentro de las 24 h se puede cambiar y sale como mensaje normal
+      var prev = '', edit = b.dataset.ok === '1';
       try {
-        var r = await fetch(U.mbot, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ tel: b.dataset.tel || '', clave: b.dataset.clave || '', nombre: b.dataset.nom || '', comunidad: b.dataset.com || '', piso: b.dataset.piso || '', pendiente: b.dataset.pend || '', fecha: b.dataset.fecha || '', etiqueta: b.dataset.etq || '' }).toString() });
+        var pr = await fetch(U.mtexto + (U.mtexto.indexOf('?') < 0 ? '?' : '&') + new URLSearchParams({ clave: b.dataset.clave || '', nombre: b.dataset.nom || '', comunidad: b.dataset.com || '', piso: b.dataset.piso || '', pendiente: b.dataset.pend || '', fecha: b.dataset.fecha || '' }).toString());
+        var pd = await pr.json(); if (pd && pd.ok) prev = pd.texto || '';
+      } catch (e) {}
+      var res = await window.ptlConfirmarEnvio(q, 'Enviar por el bot', { tel: b.dataset.tel || '', preview: prev, editable: !!(prev && edit) });
+      if (!res) return;
+      var libre = (res && typeof res === 'object' && String(res.texto || '').trim() && String(res.texto).trim() !== String(prev).trim()) ? String(res.texto).trim() : '';
+      b.disabled = true; var antes = b.innerHTML; b.textContent = '…';
+      try {
+        var r = libre
+          ? await fetch(U.resp, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ tel: b.dataset.tel || '', texto: libre }).toString() })
+          : await fetch(U.mbot, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({ tel: b.dataset.tel || '', clave: b.dataset.clave || '', nombre: b.dataset.nom || '', comunidad: b.dataset.com || '', piso: b.dataset.piso || '', pendiente: b.dataset.pend || '', fecha: b.dataset.fecha || '', etiqueta: b.dataset.etq || '' }).toString() });
         var d = await r.json().catch(function () { return {}; });
-        if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); b.disabled = false; b.textContent = antes; return; }
+        if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); b.disabled = false; b.innerHTML = antes; return; }
         var fila = b.closest('.hoy-exp-fila');
         var chk = fila ? fila.querySelector('.hoy-bot-llamado') : null;
-        if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); }
-        if (fila) setTimeout(function () { if (fila.parentNode) fila.remove(); }, 400);
-      } catch (e) { alert('No se ha enviado: ' + e.message); b.disabled = false; b.textContent = antes; }
+        if (chk) { if (!chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); } }
+        else if (b.dataset.campo) {
+          // en la ficha no hay check: se marca igual que en HOY (mismo campo)
+          try { await fetch(U.marcar, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ tel: b.dataset.telcheck || b.dataset.tel || '', campo: b.dataset.campo, valor: '1', comunidad: b.dataset.comm || '', vivienda: b.dataset.viv || '' }).toString() }); } catch (e2) {}
+        }
+        if (fila) { setTimeout(function () { if (fila.parentNode) fila.remove(); }, 400); return; }
+        // ficha: vuelve a ser el robotito de siempre (su color por las 24 h, sin punto)
+        b.classList.remove('hoy-m-bot'); b.disabled = false; b.innerHTML = '\uD83E\uDD16\uD83D\uDCAC';
+        b.style.background = b.dataset.colbase || '#9aa0a6'; b.title = 'Aviso enviado. ' + (b.dataset.titbase || '');
+      } catch (e) { alert('No se ha enviado: ' + e.message); b.disabled = false; b.innerHTML = antes; }
     }
+    // v126 -- FICHA: el robotito del vecino con un aviso M pendiente sale verde con punto y lo envia como en HOY
+    var _robotsM = function () {
+      if (!document.querySelector('.ptl-vec-robot') || !U.avisosM) return;
+      fetch(U.avisosM).then(function (r) { return r.json(); }).then(function (d) {
+        if (!d || !d.ok) return;
+        var n9 = function (x) { return String(x || '').replace(/\D/g, '').slice(-9); };
+        var nk = function (x) { return String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase(); };
+        document.querySelectorAll('.ptl-vec-robot').forEach(function (b) {
+          var a = (d.avisos || []).find(function (x) { return n9(x.tel) === n9(b.dataset.tel) && nk(x.vivienda) === nk(b.dataset.viv); });
+          if (!a) return;
+          b.dataset.colbase = b.style.background; b.dataset.titbase = b.title;
+          b.classList.add('hoy-m-bot');
+          b.dataset.clave = a.clave; b.dataset.etq = a.etiqueta; b.dataset.nom = a.nombre || b.dataset.nom; b.dataset.piso = a.piso; b.dataset.pend = a.pendiente; b.dataset.fecha = a.fecha;
+          b.dataset.campo = a.campo; b.dataset.telcheck = a.telCheck; b.dataset.comm = a.comPiso;
+          b.dataset.com = a.comunidad || b.dataset.com;   // via + comunidad, para la plantilla
+          b.style.background = '#1f9d55'; b.title = a.etiqueta + ' pendiente: pulsa para enviarlo por el bot';
+          if (!b.querySelector('.ptl-bot-pend')) { var s = document.createElement('span'); s.className = 'ptl-bot-pend'; s.style.cssText = 'position:absolute;top:-3px;right:-4px;width:9px;height:9px;border-radius:50%;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)'; b.appendChild(s); }
+        });
+      }).catch(function () {});
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _robotsM); else setTimeout(_robotsM, 0);   // la caja va despues del script
     document.addEventListener('click', function (ev) {
       if (!ev.target.closest) return;
       var m = ev.target.closest('.hoy-m-bot');
@@ -574,7 +612,8 @@ module.exports = function (app) {
     });
   }
   function _scriptVecinoBot(token) {
-    const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot") };
+    const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"),
+      mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }) };
     return "(" + _clienteVecinoBot.toString() + ")(" + JSON.stringify(U) + ");";
   }
   function urlT(token, path, params) {
@@ -5520,11 +5559,22 @@ module.exports = function (app) {
           + '<div data-t="1" style="font-weight:700;font-size:14px;margin-bottom:8px"></div>'
           + '<div data-conv="1" style="display:none;max-height:300px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
           + '<div data-m="1" style="font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word"></div>'
+          + '<div data-pv="1" style="display:none;margin-top:10px"><div data-pvt="1" style="font-size:11px;font-weight:700;color:#555;margin-bottom:3px"></div>'
+          + '<div data-pvr="1" style="display:none;font-size:12.5px;line-height:1.4;white-space:pre-wrap;word-break:break-word;border:1px solid #cfe0f5;background:#e6f1fb;border-radius:8px;padding:6px 8px;max-height:220px;overflow:auto"></div>'
+          + '<textarea data-pve="1" rows="8" style="display:none;width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:12.5px"></textarea></div>'
           + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
           + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-c="1">Cancelar</button>'
           + '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-e="1">Enviar</button></div></div>';
         fondo.querySelector('[data-t]').textContent = titulo || 'Enviar por el bot';
         fondo.querySelector('[data-m]').textContent = String(texto || '');
+        // v126 -- vista previa del mensaje: opc.preview (texto) y opc.editable (dentro de las 24 h se puede cambiar)
+        var _pvE = null;
+        if (opc && opc.preview) {
+          fondo.querySelector('[data-pv]').style.display = 'block';
+          fondo.querySelector('[data-pvt]').textContent = opc.editable ? 'Mensaje que se enviará (puedes cambiarlo: está dentro de las 24 h)' : 'Mensaje que se enviará (plantilla de WhatsApp: no se puede cambiar)';
+          if (opc.editable) { _pvE = fondo.querySelector('[data-pve]'); _pvE.style.display = 'block'; _pvE.value = String(opc.preview); }
+          else { var _pr = fondo.querySelector('[data-pvr]'); _pr.style.display = 'block'; _pr.textContent = String(opc.preview); }
+        }
         var tel = opc && opc.tel ? String(opc.tel) : '';
         if (tel && U && U.conv) {
           var cont = fondo.querySelector('[data-conv]');
@@ -5548,7 +5598,7 @@ module.exports = function (app) {
         var tecla = function (e) { if (e.key === 'Escape') { e.preventDefault(); fin(false); } };
         document.addEventListener('keydown', tecla, true);
         fondo.querySelector('[data-c]').addEventListener('click', function () { fin(false); });
-        fondo.querySelector('[data-e]').addEventListener('click', function () { fin(true); });
+        fondo.querySelector('[data-e]').addEventListener('click', function () { fin(_pvE ? { texto: _pvE.value } : true); });
         fondo.addEventListener('click', function (e) { if (e.target === fondo) fin(false); });
         document.body.appendChild(fondo);
         setTimeout(function () { var b = fondo.querySelector('[data-e]'); if (b) b.focus(); }, 30);
@@ -14290,6 +14340,11 @@ module.exports = function (app) {
 
         _avisosArr.sort((a, b) => (a.ts == null ? Infinity : a.ts) - (b.ts == null ? Infinity : b.ts));
       } catch (e) { console.error("[presupuestos] HOY avisos:", e.message); _avisosArr = []; }
+      // v126 (18/10/2026, criterio de Guille) -- la ficha pide los avisos M pendientes (?soloAvisosM=1) para que su
+      //   robotito salga verde con punto y deje enviarlos igual que en HOY.
+      if (String(req.query.soloAvisosM || "") === "1") {
+        return res.json({ ok: true, avisos: _avisosArr.filter(a => a.botM).map(a => Object.assign({ tel: a.telefono || "", comPiso: a.comunidad || "", vivienda: a.vivienda || "", campo: a.campo || "", telCheck: a.telCheck || a.telefono || "" }, a.botM)) });
+      }
 
       const _normComu = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
       const _ccppPorDir = {};
@@ -14400,7 +14455,7 @@ module.exports = function (app) {
         //   escribir por WhatsApp, y con un M pendiente si se puede: va con plantilla). Abre la ventana de envio con
         //   la conversacion. Siempre con circulito azul: te toca a ti (enviarle el M).
         const _mBotHtml = p.botM
-          ? `<button type="button" class="hoy-m-bot" data-tel="${_esc(p.telefono || "")}" data-clave="${_esc(p.botM.clave)}" data-etq="${_esc(p.botM.etiqueta)}" data-nom="${_esc(p.botM.nombre)}" data-com="${_esc(p.botM.comunidad)}" data-piso="${_esc(p.botM.piso)}" data-pend="${_esc(p.botM.pendiente)}" data-fecha="${_esc(p.botM.fecha)}" title="${_esc("Enviar por el bot: " + p.botM.etiqueta + " (plantilla " + p.botM.clave + ")")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;position:relative;background:#1f9d55">\uD83E\uDD16\uD83D\uDCAC${true ? `<span class="ptl-bot-pend" style="position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:50%;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span>` : ""}</button>`   /* v126: mismo robotito que en la ficha (WhatsApp por el bot) */
+          ? `<button type="button" class="hoy-m-bot" data-tel="${_esc(p.telefono || "")}" data-clave="${_esc(p.botM.clave)}" data-etq="${_esc(p.botM.etiqueta)}" data-nom="${_esc(p.botM.nombre)}" data-com="${_esc(p.botM.comunidad)}" data-piso="${_esc(p.botM.piso)}" data-pend="${_esc(p.botM.pendiente)}" data-fecha="${_esc(p.botM.fecha)}" data-ok="${(() => { const _u = _ultVecinoBot[String(p.telefono || "").replace(/\D/g, "").slice(-9)] || ""; return _u && (Date.now() - new Date(_u).getTime()) < 24 * 3600 * 1000 ? "1" : "0"; })()}" title="${_esc("Enviar por el bot: " + p.botM.etiqueta + " (plantilla " + p.botM.clave + ")")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;position:relative;background:#1f9d55">\uD83E\uDD16\uD83D\uDCAC${true ? `<span class="ptl-bot-pend" style="position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:50%;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span>` : ""}</button>`   /* v126: mismo robotito que en la ficha (WhatsApp por el bot) */
           : "";
         const _waHtml = _mailHtml ? _mailHtml : _mBotHtml ? _mBotHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}"${p.registra ? ` class="hoy-wa-registra" data-reg="${_esc(p.registra)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}"` : ""} onclick="if(this.classList.contains('hoy-wa-registra')&&window.__hoyRegistraWa)window.__hoyRegistraWa(this);var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
@@ -17251,6 +17306,26 @@ module.exports = function (app) {
     } catch (e) {
       console.error("[presupuestos] POST /hoy/responder-bot:", e.message);
       res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // GET /presupuestos/hoy/aviso-texto (v126, criterio de Guille: "poner el mensaje que le vamos a enviar") -- el
+  //   texto de la plantilla Twilio del aviso M con sus 5 variables ya puestas, para ensenarlo antes de enviar.
+  app.get("/presupuestos/hoy/aviso-texto", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const q = req.query || {};
+      const pl = await leerPlantillasBot();
+      const f = pl.find(x => x.clave === String(q.clave || ""));
+      if (!f || !String(f.twilio_sid || "").trim()) return res.json({ ok: false, error: "falta el c\u00f3digo Twilio de la plantilla" });
+      let txt = await obtenerTextoTwilio(f.twilio_sid);
+      if (!txt) return res.json({ ok: false, error: "no se pudo leer el texto de Twilio" });
+      const v = { 1: q.nombre || "vecino/a", 2: q.comunidad || "-", 3: q.piso || "-", 4: q.pendiente || "la documentaci\u00f3n de su vivienda", 5: q.fecha || "-" };
+      txt = String(txt).replace(/\{\{\s*(\d+)\s*\}\}/g, (m, n) => (v[n] != null ? String(v[n]) : m));
+      res.json({ ok: true, texto: txt });
+    } catch (e) {
+      console.error("[presupuestos] GET /hoy/aviso-texto:", e.message);
+      res.json({ ok: false, error: e.message });
     }
   });
 
