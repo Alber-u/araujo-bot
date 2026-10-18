@@ -499,7 +499,14 @@ module.exports = function (app) {
           g.style.cssText = 'max-width:82%;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.3;white-space:pre-wrap;word-break:break-word;background:' + (it.quien === 'vecino' ? '#f1efe8' : (it.quien === 'equipo' ? '#d6f0df' : '#e6f1fb'));
           var h = document.createElement('div'); h.style.cssText = 'font-size:10px;color:#666;margin-bottom:2px;font-weight:600';
           h.textContent = (it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || '');
-          var t = document.createElement('div'); t.textContent = it.texto || '';
+          var t = document.createElement('div');
+          if (it.titulo) {   // v126: envio con plantilla: titulo y, al pinchar, el texto exacto que le llego
+            var tt = document.createElement('div'); tt.style.cssText = 'cursor:pointer;font-weight:600;text-decoration:underline dotted';
+            tt.textContent = '\uD83D\uDCCB ' + it.titulo + ' \u25B8'; tt.title = 'Pincha para ver el mensaje tal cual le lleg\u00f3';
+            var tb = document.createElement('div'); tb.style.cssText = 'display:none;margin-top:4px;padding-top:4px;border-top:1px dashed #9bb8d8'; tb.textContent = it.texto || '';
+            tt.addEventListener('click', function () { var ab = tb.style.display === 'none'; tb.style.display = ab ? 'block' : 'none'; tt.textContent = '\uD83D\uDCCB ' + it.titulo + (ab ? ' \u25BE' : ' \u25B8'); });
+            t.appendChild(tt); t.appendChild(tb);
+          } else t.textContent = it.texto || '';
           g.appendChild(h); g.appendChild(t); w.appendChild(g); cont.appendChild(w);
         });
         cont.scrollTop = cont.scrollHeight;
@@ -2677,6 +2684,20 @@ module.exports = function (app) {
     return { ok: true, cambios };
   }
   setTimeout(() => { _migAvisosMV126().catch(e => console.error("[presupuestos] v126 avisos M texto entero:", e.message)); }, 50000);
+  // v126 -- foto UNICA (18/10/2026) del texto de las plantillas "presentacion" y "recordatorio" de Twilio, para
+  //   ensenar tal cual los envios antiguos que no guardaban su texto (espejo_presentacion / espejo_recordatorio).
+  async function _migEspejoV126() {
+    const pl = await leerPlantillasBot();
+    for (const k of ["presentacion", "recordatorio"]) {
+      if (pl.some(x => x.clave === "espejo_" + k)) continue;
+      const f = pl.find(x => x.clave === k);
+      const tx = f && f.twilio_sid ? await obtenerTextoTwilio(f.twilio_sid) : "";
+      if (!tx) { console.error("[presupuestos] v126 espejo: no se pudo leer la plantilla " + k + "; se reintentara al arrancar"); continue; }
+      await guardarAjusteBot("espejo_" + k, tx, false);
+      console.log("[presupuestos] v126 espejo: guardada la foto de la plantilla", k);
+    }
+  }
+  setTimeout(() => { _migEspejoV126().catch(e => console.error("[presupuestos] v126 espejo:", e.message)); }, 56000);
   async function _migBotV19118() {
     const sheets = getSheetsClient();
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
@@ -5623,7 +5644,14 @@ module.exports = function (app) {
               g.style.cssText = 'max-width:82%;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.3;white-space:pre-wrap;word-break:break-word;background:' + (it.quien === 'vecino' ? '#f1efe8' : (it.quien === 'equipo' ? '#d6f0df' : '#e6f1fb'));
               var h = document.createElement('div'); h.style.cssText = 'font-size:10px;color:#666;margin-bottom:2px;font-weight:600';
               h.textContent = (it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || '');
-              var x = document.createElement('div'); x.textContent = it.texto || '';
+              var x = document.createElement('div');
+          if (it.titulo) {   // v126: envio con plantilla: titulo y, al pinchar, el texto exacto que le llego
+            var tt = document.createElement('div'); tt.style.cssText = 'cursor:pointer;font-weight:600;text-decoration:underline dotted';
+            tt.textContent = '\uD83D\uDCCB ' + it.titulo + ' \u25B8'; tt.title = 'Pincha para ver el mensaje tal cual le lleg\u00f3';
+            var tb = document.createElement('div'); tb.style.cssText = 'display:none;margin-top:4px;padding-top:4px;border-top:1px dashed #9bb8d8'; tb.textContent = it.texto || '';
+            tt.addEventListener('click', function () { var ab = tb.style.display === 'none'; tb.style.display = ab ? 'block' : 'none'; tt.textContent = '\uD83D\uDCCB ' + it.titulo + (ab ? ' \u25BE' : ' \u25B8'); });
+            x.appendChild(tt); x.appendChild(tb);
+          } else x.textContent = it.texto || '';
               g.appendChild(h); g.appendChild(x); w.appendChild(g); cont.appendChild(w);
             });
             cont.scrollTop = cont.scrollHeight;
@@ -17243,6 +17271,7 @@ module.exports = function (app) {
   // GET /presupuestos/hoy/conversacion?tel=  (v125, 18/10/2026) -- TODOS los mensajes con ese vecino por el bot:
   //   lo que escribio (texto o documentos, con su nombre), lo que le contesto el bot (resumido) y lo que le
   //   contesto Guille desde HOY. Sale de bot_contactos (+ bot_documentos para saber que documento mando).
+  const _CLI_PLANT = /^(presentacion|job_presentacion|job_proactivo|ficha_reabierta|cambio_tipo|envio_contrato|aviso_m:.*)$/;   // v126: envios con plantilla
   app.get("/presupuestos/hoy/conversacion", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
@@ -17265,14 +17294,20 @@ module.exports = function (app) {
       const _filasC = ((rc.data.values || []).slice(1)).filter(c => c && t9(c[1]) === k);
       if (!_filasC.some(c => String(c[2] || "").trim() === "presentacion")) {
         const _fx = ((rx.data.values || []).slice(1)).find(x => x && t9(x[0]) === k && /^\d{4}-\d{2}-\d{2}/.test(String(x[9] || "")));
-        if (_fx) items.push({ quien: "bot", fecha: fmt(_fx[9]), texto: "Presentaci\u00f3n del bot", _t: String(_fx[9]) });
+        if (_fx) items.push({ quien: "bot", fecha: fmt(_fx[9]), _leg: "presentacion", texto: "", _t: String(_fx[9]) });
       }
       for (const c of _filasC) {
         const f = fmt(c[0]), tipo = String(c[3] || "").trim(), cli = String(c[2] || "").trim(), bot = String(c[4] || "").trim();
         if (tipo === "equipo") { items.push({ quien: "equipo", fecha: f, texto: bot }); continue; }
         if (tipo === "bot") {
-          const txt = /^aviso_m:/.test(cli) ? bot : cli === "job_presentacion" ? "Reenv\u00edo de la presentaci\u00f3n" : cli === "presentacion" ? "Presentaci\u00f3n del bot" : (cli === "job_proactivo" ? "Recordatorio autom\u00e1tico de lo que le falta" : corto(bot, 220));
-          items.push({ quien: "bot", fecha: f, texto: txt }); continue;
+          // v126 (criterio de Guille: "un espejo de lo que el vecino ha visto") -- los envios con PLANTILLA salen con
+          //   su titulo y, al pinchar, el texto exacto; el resto (mensajes normales) entero.
+          if (_CLI_PLANT.test(cli)) {
+            const cut = bot.indexOf("\n\n");
+            if (cut > 0 && /plantilla [^)]+\)$/.test(bot.slice(0, cut).trim())) items.push({ quien: "bot", fecha: f, titulo: bot.slice(0, cut).trim(), texto: bot.slice(cut + 2).trim() });
+            else items.push({ quien: "bot", fecha: f, _leg: cli, _bot: bot, texto: "" });   // guardado antes de v126: se completa abajo
+          } else items.push({ quien: "bot", fecha: f, texto: bot });
+          continue;
         }
         if (tipo === "archivo_fuera") {   // v126: piso con el que el bot no trabaja: el archivo no se guarda
           items.push({ quien: "vecino", fecha: f, texto: "\uD83D\uDCCE Ha mandado un archivo (no se guarda: el bot no trabaja con este piso; p\u00eddeselo por otra v\u00eda)" + (cli ? "\n" + cli : "") });
@@ -17288,7 +17323,29 @@ module.exports = function (app) {
         } else {
           items.push({ quien: "vecino", fecha: f, texto: cli });
         }
-        if (bot) items.push({ quien: "bot", fecha: f, texto: corto(bot, 220) });
+        if (bot) items.push({ quien: "bot", fecha: f, texto: bot });   // v126: entero (espejo)
+      }
+      // v126 -- envios con plantilla guardados antes de v126 (sin el texto): titulo + texto de la plantilla con los
+      //   datos del vecino. Se usa la foto de la plantilla guardada el 18/10/2026 (espejo_presentacion /
+      //   espejo_recordatorio de bot_plantillas) para que no cambie aunque cambie la plantilla en Twilio.
+      if (items.some(x => x._leg)) {
+        const pl = await leerPlantillasBot();
+        const _snap = async (k) => { const s = pl.find(x => x.clave === "espejo_" + k); if (s && String(s.texto || "").trim()) return String(s.texto); const f = pl.find(x => x.clave === k); return f && f.twilio_sid ? await obtenerTextoTwilio(f.twilio_sid) : ""; };
+        const pis = ((await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:E" })).data.values || []).slice(1);
+        const pp = pis.find(r => r && t9(r[0]) === k) || [];
+        const nom = _p5NombreWa(String(pp[4] || "")) || "vecino/a", comViv = (String(pp[1] || "") + (pp[2] ? " " + pp[2] : "")).trim();
+        const fill = (tx, v) => tx ? String(tx).replace(/\{\{\s*(\d+)\s*\}\}/g, (m, n) => (v[n] != null ? String(v[n]) : m)) : "(texto no guardado)";
+        const sP = await _snap("presentacion"), sR = await _snap("recordatorio");
+        for (const x of items) {
+          if (!x._leg) continue;
+          const b = String(x._bot || "");
+          if (x._leg === "presentacion") { x.titulo = "Presentaci\u00f3n del bot (plantilla presentacion)"; x.texto = fill(sP, { 1: nom }); }
+          else if (x._leg === "job_presentacion") { x.titulo = "Reenv\u00edo de la presentaci\u00f3n (plantilla presentacion)"; x.texto = fill(sP, { 1: nom }); }
+          else if (x._leg === "job_proactivo") { x.titulo = "Recordatorio autom\u00e1tico de lo que le falta (plantilla recordatorio)"; x.texto = fill(sR, { 1: nom, 2: comViv, 3: "(la lista de lo que le faltaba ese d\u00eda no se guard\u00f3)" }); }
+          else if (x._leg === "ficha_reabierta") { x.titulo = "Recordatorio: ficha reabierta, le falta algo (plantilla recordatorio)"; x.texto = fill(sR, { 1: nom, 2: comViv, 3: b.replace(/^recordatorio:\s*/, "") }); }
+          else if (x._leg === "cambio_tipo") { const m = b.match(/^Tipo cambiado a (\S*)\. Le falta: (.*)$/); x.titulo = "Cambio de tipo" + (m ? " a " + m[1] : "") + ": lo que le falta (plantilla recordatorio)"; x.texto = fill(sR, { 1: nom, 2: comViv, 3: m ? m[2] : "" }); }
+          else { x.titulo = b || "Env\u00edo con plantilla"; x.texto = "(texto no guardado)"; }
+        }
       }
       // la presentacion sacada de la ficha va en su sitio por fecha (el resto ya viene en orden)
       const _pi = items.findIndex(x => x._t);
@@ -17300,7 +17357,7 @@ module.exports = function (app) {
         let n = 0; for (const c of _filasC) { if (_ts(c) >= p0._t) break; n += 1 + ((String(c[3] || "").trim() !== "equipo" && String(c[3] || "").trim() !== "bot" && String(c[4] || "").trim()) ? 1 : 0); }
         pos = antes ? n : 0; items.splice(pos, 0, p0);
       }
-      items.forEach(x => { delete x._t; });
+      items.forEach(x => { delete x._t; delete x._leg; delete x._bot; });
       res.json({ ok: true, items });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
     } catch (e) {
       console.error("[presupuestos] GET /hoy/conversacion:", e.message);
@@ -18053,6 +18110,7 @@ module.exports = function (app) {
   // documentación; cambia solo lo que se pinta encima/debajo).
   app.locals.presupuestos = {
     _scriptVecinoBot,   // v126: robotito de la caja Datos documentacion
+    obtenerTextoTwilio,   // v126: el bot guarda el texto exacto de cada plantilla enviada (espejo)
     leerComunidades,
     buscarComunidadPorId,
     construirDatalists,

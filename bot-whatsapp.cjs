@@ -140,7 +140,19 @@ async function enviarWhatsAppPlantilla(to, contentSid, variables, seguirEntrega)
   };
   if (seguirEntrega !== false) _msg.statusCallback = String(process.env.BASE_URL || "https://araujo-bot.onrender.com").replace(/\/+$/, "") + "/twilio-estado";
   await twilioClient.messages.create(_msg);
+  // v126 (criterio de Guille: "un espejo de lo que el vecino ha visto") -- devuelve el texto exacto enviado (la
+  //   plantilla de Twilio con sus variables), para guardarlo en la conversacion. Si no se puede leer, "".
+  try { return await _espejoPlantilla(contentSid, varsLimpias); } catch (e) { return ""; }
 }
+async function _espejoPlantilla(sid, vars) {
+  const P = app.locals && app.locals.presupuestos;
+  if (!P || typeof P.obtenerTextoTwilio !== "function") return "";
+  const tx = await P.obtenerTextoTwilio(sid);
+  if (!tx) return "";
+  return String(tx).replace(/\{\{\s*(\d+)\s*\}\}/g, (m, n) => (vars && vars[n] != null ? String(vars[n]) : m));
+}
+// v126 -- lo que se guarda de un envio con plantilla: "TITULO" + linea en blanco + el texto exacto (si se tiene)
+function _conEspejo(titulo, espejo, sinEspejo) { return espejo ? titulo + "\n\n" + String(espejo).trim() : (sinEspejo || titulo); }
 
 // ================= DEDUPLICACION POR MessageSid =================
 // Evita reprocesar el mismo mensaje si Twilio reintenta el webhook.
@@ -1698,9 +1710,10 @@ async function enviarAvisoM(telefono, clave, v) {
   if (!tel) return { ok: false, error: "falta el telefono" };
   const r = (x, def) => { x = String(x == null ? "" : x).replace(/\s+/g, " ").trim(); return x || def; };
   const vars = { 1: r(v.nombre, "vecino/a"), 2: r(v.comunidad, "-"), 3: r(v.piso, "-"), 4: r(v.pendiente, "la documentaci\u00f3n de su vivienda"), 5: r(v.fecha, "-") };
-  await enviarWhatsAppPlantilla(tel, sid, vars);
-  const resumen = (v.etiqueta ? v.etiqueta + " por el bot" : "Aviso por el bot") + " (plantilla " + clave + ")"
-    + (v.textoCompleto ? "\n\n" + String(v.textoCompleto).trim() : ": falta " + vars[4] + "; fecha l\u00edmite " + vars[5]);   // v126: el texto entero que se envio
+  const _esp = await enviarWhatsAppPlantilla(tel, sid, vars);
+  const _tit = (v.etiqueta ? v.etiqueta + " por el bot" : "Aviso por el bot") + " (plantilla " + clave + ")";
+  const _txt = _esp || String(v.textoCompleto || "").trim();
+  const resumen = _txt ? _tit + "\n\n" + _txt : _tit + ": falta " + vars[4] + "; fecha l\u00edmite " + vars[5];   // v126: el texto entero que se envio
   try { await guardarContacto(tel, "aviso_m:" + clave, "bot", resumen); } catch (e) {}
   try { await guardarAviso(tel, clave, "enviado"); } catch (e) {}
   return { ok: true };
@@ -1752,9 +1765,9 @@ async function avisarCambioTipo(o) {
   const _lista = _pend.map((d) => labelDocumento(d)).join(" \u00b7 ") || labelDocumento(exp.documento_actual);
   const sid = sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7");
   if (!sid) return { ok: false, error: "la plantilla Twilio recordatorio est\u00e1 desactivada" };
-  await enviarWhatsAppPlantilla(f.tel, sid, { "1": limpiarNombreVecino(exp.nombre), "2": (exp.comunidad || "") + (exp.vivienda ? " " + exp.vivienda : ""), "3": _lista });
+  const _esp = await enviarWhatsAppPlantilla(f.tel, sid, { "1": limpiarNombreVecino(exp.nombre), "2": (exp.comunidad || "") + (exp.vivienda ? " " + exp.vivienda : ""), "3": _lista });
   try { await guardarAviso(f.tel, "cambio_tipo", "enviado"); } catch (e) {}
-  try { await guardarContacto(f.tel, "cambio_tipo", "bot", "Tipo cambiado a " + (exp.tipo_expediente || "") + ". Le falta: " + _lista); } catch (e) {}
+  try { await guardarContacto(f.tel, "cambio_tipo", "bot", _conEspejo("Cambio de tipo a " + (exp.tipo_expediente || "") + ": lo que le falta (plantilla recordatorio)", _esp, "Tipo cambiado a " + (exp.tipo_expediente || "") + ". Le falta: " + _lista)); } catch (e) {}
   return { ok: true };
 }
 async function reabrirSiFinalizado(o) {
@@ -1788,13 +1801,13 @@ async function reabrirSiFinalizado(o) {
     if (!(await pisoActivoParaBot(tel))) throw new Error("piso no activo para el bot (M o fuera de la 05): sin aviso");
     const _pend = splitList(exp.documentos_pendientes);
     const _lista = _pend.map((d) => labelDocumento(d)).join(" \u00b7 ") || labelDocumento(exp.documento_actual);
-    await enviarWhatsAppPlantilla(tel, sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7"), {
+    const _esp = await enviarWhatsAppPlantilla(tel, sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7"), {
       "1": limpiarNombreVecino(exp.nombre),
       "2": (exp.comunidad || "") + (exp.vivienda ? " " + exp.vivienda : ""),
       "3": _lista,
     });
     await guardarAviso(tel, "reabierta", "enviado");
-    try { await guardarContacto(tel, "ficha_reabierta", "bot", "recordatorio: " + _lista); } catch (e) {}
+    try { await guardarContacto(tel, "ficha_reabierta", "bot", _conEspejo("Recordatorio: ficha reabierta, le falta algo (plantilla recordatorio)", _esp, "recordatorio: " + _lista)); } catch (e) {}
   } catch (e) { console.error("[bot] aviso de ficha reabierta:", e.message); }
   return true;
 }
@@ -4024,13 +4037,13 @@ app.get("/enviar-presentacion", async (req, res) => {
       if (yaConFicha.has(telefono)) { omitidos++; detalle.push({ fila: i+1, telefono, estado: "ya_presentado" }); continue; }
 
       try {
-        await enviarWhatsAppPlantilla(telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
+        const _espP = await enviarWhatsAppPlantilla(telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
           "1": limpiarNombreVecino(nombre),   // v19.98: nombre sin anotaciones
         });
         // Crear la ficha del vecino en bot_whatsapp: marca implícita de "presentado"
         // y arranque del expediente. Evita reenvíos en próximas tandas.
         await crearExpedienteInicial(telefono, { comunidad, vivienda, nombre });
-        try { await guardarContacto(telefono, "presentacion", "bot", "Presentaci\u00f3n del bot"); } catch (eP) {}   // v126: para la conversacion
+        try { await guardarContacto(telefono, "presentacion", "bot", _conEspejo("Presentaci\u00f3n del bot (plantilla presentacion)", _espP, "Presentaci\u00f3n del bot")); } catch (eP) {}   // v126: para la conversacion
         yaConFicha.add(telefono);
         enviados++;
         detalle.push({ fila: i+1, telefono, nombre, estado: "enviado" });
@@ -4514,7 +4527,7 @@ async function enviarContratoPiso(o) {
     const nombre = _nombreArchivoSeguro((o.soloContrato ? "CONTRATO " : "CONTRATO Y CARTA DE PAGO ") + piso.vivienda) + ".pdf";
     const clave = _guardarMediaContrato(pdf, nombre);
     const comuTxt = ((o.tipoVia ? o.tipoVia + " " : "") + piso.comunidad).trim();
-    await enviarWhatsAppPlantilla(tel, sid, { "1": comuTxt, "2": piso.vivienda, "3": o.fechaLimite || "", "4": clave + "/" + nombre });
+    const _espC = await enviarWhatsAppPlantilla(tel, sid, { "1": comuTxt, "2": piso.vivienda, "3": o.fechaLimite || "", "4": clave + "/" + nombre });
     // Ficha y marcas (si algo de esto falla, el mensaje ya ha salido: se avisa en el registro)
     const ahora = ahoraISO();
     let primeroDelPiso = true;
@@ -4524,7 +4537,7 @@ async function enviarContratoPiso(o) {
       if (ficha) await _escribirFicha08(ficha.rowIndex, ficha.enviado || ahora, [], ahora);
     } catch (eF) { console.error("enviarContratoPiso: ficha no actualizada:", tel, eF.message); avisos.push("no se pudo apuntar el env\u00edo en la ficha del bot"); }
     try { await guardarAviso(tel, "contrato_cycp", "manual_boton"); } catch (e) {}
-    try { await guardarContacto(tel, "envio_contrato", "bot", (o.soloContrato ? "Contrato" : "Contrato y carta de pago") + " enviados (" + pagTotal + " p\u00e1g.)"); } catch (e) {}
+    try { await guardarContacto(tel, "envio_contrato", "bot", _conEspejo((o.soloContrato ? "Contrato" : "Contrato y carta de pago") + " enviados (" + pagTotal + " p\u00e1g., plantilla contrato_cycp)", _espC)); } catch (e) {}
     return { ok: true, estado: "enviado", fecha: (ficha && ficha.enviado) || ahora, primeroDelPiso, paginas: pagTotal, avisos };
   } catch (e) {
     console.error("enviarContratoPiso error:", o && o.vivienda, e.message);
@@ -4744,11 +4757,11 @@ async function ejecutarJobSeguimiento() {
         if (expediente.alerta_plazo === _nivelP) { omitidos++; continue; }
         if (_nivelP === "presentacion_1" && expediente.alerta_plazo === "presentacion_2") { omitidos++; continue; }
         try {
-          await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), { "1": limpiarNombreVecino(expediente.nombre) });   // v19.98: nombre sin anotaciones
+          const _espJ = await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), { "1": limpiarNombreVecino(expediente.nombre) });   // v19.98: nombre sin anotaciones
           expediente.alerta_plazo = _nivelP;
           await actualizarExpediente(expediente.rowIndex, expediente);
           await guardarAviso(expediente.telefono, _nivelP, "job_presentacion");
-          try { await guardarContacto(expediente.telefono, "job_presentacion", "bot", "reenvio presentacion"); } catch(e) {}
+          try { await guardarContacto(expediente.telefono, "job_presentacion", "bot", _conEspejo("Reenv\u00edo de la presentaci\u00f3n (plantilla presentacion)", _espJ, "reenvio presentacion")); } catch(e) {}
           console.log("Job presentacion: reenviada a", normalizarTelefono(expediente.telefono), _nivelP);
           enviados++;
           await new Promise(r => setTimeout(r, 1500));
@@ -4786,7 +4799,7 @@ async function ejecutarJobSeguimiento() {
       try {
         const pendientesArr = splitList(expediente.documentos_pendientes);
         const listaPendientes = pendientesArr.map(d => labelDocumento(d)).join(" \u00b7 ") || "documentos pendientes";   // v19.92: las variables de Twilio no admiten saltos de linea
-        await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7"), {
+        const _espR = await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7"), {
           "1": limpiarNombreVecino(expediente.nombre),   // v19.98: nombre sin anotaciones
           "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
           "3": listaPendientes,
@@ -4796,7 +4809,7 @@ async function ejecutarJobSeguimiento() {
         await actualizarExpediente(expediente.rowIndex, expediente);
         await guardarAviso(expediente.telefono, aviso.tipo, "job_proactivo");
         console.log("Job: enviado a", normalizarTelefono(expediente.telefono), aviso.tipo);
-        try { await guardarContacto(expediente.telefono, "job_proactivo", "bot", aviso.mensaje || aviso.tipo); } catch(e) {}
+        try { await guardarContacto(expediente.telefono, "job_proactivo", "bot", _conEspejo("Recordatorio autom\u00e1tico de lo que le falta (plantilla recordatorio)", _espR, aviso.mensaje || aviso.tipo)); } catch(e) {}
         enviados++;
         // Pausa breve entre envíos para no saturar la API de Twilio
         await new Promise(r => setTimeout(r, 1500));
@@ -4840,7 +4853,7 @@ setTimeout(() => {
       try {
         const ficha = await buscarExpedientePorTelefono(tel);
         if (ficha) return { ok: true, estado: "ya_presentado" };
-        await enviarWhatsAppPlantilla(tel, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
+        const _espW = await enviarWhatsAppPlantilla(tel, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
           "1": limpiarNombreVecino(datos && datos.nombre),   // v19.98: nombre sin anotaciones
         });
         await crearExpedienteInicial(tel, {
@@ -4848,7 +4861,7 @@ setTimeout(() => {
           vivienda: (datos && datos.vivienda) || "",
           nombre: (datos && datos.nombre) || "",
         });
-        try { await guardarContacto(tel, "presentacion", "bot", "Presentaci\u00f3n del bot"); } catch (eP) {}   // v126: para la conversacion
+        try { await guardarContacto(tel, "presentacion", "bot", _conEspejo("Presentaci\u00f3n del bot (plantilla presentacion)", _espW, "Presentaci\u00f3n del bot")); } catch (eP) {}   // v126: para la conversacion
         // v18.155 — Esta via (activar un piso a mano con el boton W) mandaba el
         //   WhatsApp y creaba la ficha, pero NO lo apuntaba en bot_avisos. Era la
         //   unica de las cinco vias de envio que se lo saltaba, y como los primeros
