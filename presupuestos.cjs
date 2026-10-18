@@ -547,7 +547,7 @@ module.exports = function (app) {
     async function avisoMBot(b) {
       var q = '¿Enviar AHORA por el bot el ' + (b.dataset.etq || 'aviso') + ' del ' + (b.dataset.piso || '') + ' (' + (b.dataset.nom || '') + ')?'
         + '\n\n' + (b.dataset.com || '') + '\nFalta: ' + (b.dataset.pend || '') + '\nFecha límite: ' + (b.dataset.fecha || '');
-      if (!(await window.ptlConfirmarEnvio(q))) return;
+      if (!(await window.ptlConfirmarEnvio(q, 'Enviar por el bot', { tel: b.dataset.tel || '' }))) return;
       b.disabled = true; var antes = b.textContent; b.textContent = '…';
       try {
         var r = await fetch(U.mbot, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -5508,20 +5508,42 @@ module.exports = function (app) {
   // v126 (18/10/2026, criterio de Guille: "un aviso de cancelar o enviar, UNIFICADOS todos los mensajes de ese
   //   tipo") -- ventana UNICA para confirmar cualquier envio por el bot (presentacion al pasar a W o al cambiar el
   //   telefono, contrato y carta de pago de la 08, avisos M de HOY): el texto y dos botones, Cancelar y Enviar.
-  //   Va en todas las paginas (pageHtml). Uso: if (!(await window.ptlConfirmarEnvio(texto))) return;
-  function _clienteConfirmarEnvio() {
-    window.ptlConfirmarEnvio = function (texto, titulo) {
+  //   Va en todas las paginas (pageHtml). Uso: if (!(await window.ptlConfirmarEnvio(texto, titulo, { tel }))) return;
+  //   Con { tel } (criterio de Guille, 18/10/2026: "que ademas se vea la conversacion") muestra arriba la
+  //   conversacion de ese vecino con el bot, abierta en lo ultimo; si no hay mensajes, no sale el recuadro.
+  function _clienteConfirmarEnvio(U) {
+    window.ptlConfirmarEnvio = function (texto, titulo, opc) {
       return new Promise(function (resolver) {
         var fondo = document.createElement('div');
         fondo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center';
-        fondo.innerHTML = '<div style="background:#fff;color:#111;border-radius:10px;padding:14px 16px;width:min(480px,94vw);box-shadow:0 8px 30px rgba(0,0,0,.3);text-align:left">'
+        fondo.innerHTML = '<div style="background:#fff;color:#111;border-radius:10px;padding:14px 16px;width:min(620px,94vw);box-shadow:0 8px 30px rgba(0,0,0,.3);text-align:left">'
           + '<div data-t="1" style="font-weight:700;font-size:14px;margin-bottom:8px"></div>'
+          + '<div data-conv="1" style="display:none;max-height:300px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
           + '<div data-m="1" style="font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word"></div>'
           + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
           + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-c="1">Cancelar</button>'
           + '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-e="1">Enviar</button></div></div>';
         fondo.querySelector('[data-t]').textContent = titulo || 'Enviar por el bot';
         fondo.querySelector('[data-m]').textContent = String(texto || '');
+        var tel = opc && opc.tel ? String(opc.tel) : '';
+        if (tel && U && U.conv) {
+          var cont = fondo.querySelector('[data-conv]');
+          fetch(U.conv + (U.conv.indexOf('?') < 0 ? '?' : '&') + 'tel=' + encodeURIComponent(tel)).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d || !d.ok || !d.items || !d.items.length) return;
+            cont.style.display = 'block';
+            d.items.forEach(function (it) {
+              var w = document.createElement('div');
+              w.style.cssText = 'display:flex;margin:4px 0;justify-content:' + (it.quien === 'vecino' ? 'flex-start' : 'flex-end');
+              var g = document.createElement('div');
+              g.style.cssText = 'max-width:82%;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.3;white-space:pre-wrap;word-break:break-word;background:' + (it.quien === 'vecino' ? '#f1efe8' : (it.quien === 'equipo' ? '#d6f0df' : '#e6f1fb'));
+              var h = document.createElement('div'); h.style.cssText = 'font-size:10px;color:#666;margin-bottom:2px;font-weight:600';
+              h.textContent = (it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || '');
+              var x = document.createElement('div'); x.textContent = it.texto || '';
+              g.appendChild(h); g.appendChild(x); w.appendChild(g); cont.appendChild(w);
+            });
+            cont.scrollTop = cont.scrollHeight;
+          }).catch(function () {});
+        }
         var fin = function (v) { document.removeEventListener('keydown', tecla, true); fondo.remove(); resolver(v); };
         var tecla = function (e) { if (e.key === 'Escape') { e.preventDefault(); fin(false); } };
         document.addEventListener('keydown', tecla, true);
@@ -5606,7 +5628,7 @@ module.exports = function (app) {
       <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
     </div>
   </nav>
-  <script>(${_clienteConfirmarEnvio.toString()})();</script>
+  <script>(${_clienteConfirmarEnvio.toString()})(${JSON.stringify({ conv: urlT(token, "/presupuestos/hoy/conversacion") })});</script>
   <div class="ptl-page">
     ${content}
   </div>
@@ -14376,7 +14398,7 @@ module.exports = function (app) {
           : "";
         // v126 -- aviso M por el bot: boton azul en vez del blanco
         const _mBotHtml = p.botM
-          ? `<button type="button" class="hoy-m-bot" data-tel="${_esc(p.telefono || "")}" data-clave="${_esc(p.botM.clave)}" data-etq="${_esc(p.botM.etiqueta)}" data-nom="${_esc(p.botM.nombre)}" data-com="${_esc(p.botM.comunidad)}" data-piso="${_esc(p.botM.piso)}" data-pend="${_esc(p.botM.pendiente)}" data-fecha="${_esc(p.botM.fecha)}" title="${_esc("Enviar por el bot: " + p.botM.etiqueta + " (plantilla " + p.botM.clave + ")")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;background:#1f6fb2">\uD83E\uDD16\uD83D\uDCE8</button>`
+          ? `<button type="button" class="hoy-m-bot" data-tel="${_esc(p.telefono || "")}" data-clave="${_esc(p.botM.clave)}" data-etq="${_esc(p.botM.etiqueta)}" data-nom="${_esc(p.botM.nombre)}" data-com="${_esc(p.botM.comunidad)}" data-piso="${_esc(p.botM.piso)}" data-pend="${_esc(p.botM.pendiente)}" data-fecha="${_esc(p.botM.fecha)}" title="${_esc("Enviar por el bot: " + p.botM.etiqueta + " (plantilla " + p.botM.clave + ")")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;background:#2b7de9">\uD83E\uDD16\uD83D\uDCAC</button>`   /* v126: mismo robotito que en la ficha (WhatsApp por el bot) */
           : "";
         const _waHtml = _mailHtml ? _mailHtml : _mBotHtml ? _mBotHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}"${p.registra ? ` class="hoy-wa-registra" data-reg="${_esc(p.registra)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}"` : ""} onclick="if(this.classList.contains('hoy-wa-registra')&&window.__hoyRegistraWa)window.__hoyRegistraWa(this);var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`

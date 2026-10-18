@@ -2313,7 +2313,7 @@ module.exports = function (app) {
             var _esW = !!(_swW && _swW.dataset.modo === 'BOT_WHATSAPP');
             var _enviarPres = false;
             if (ri && _esW && _telN && _telN !== _telO && !ES_FASE_08) {   // v19.98: en 08 no se manda la presentacion
-              _enviarPres = await window.ptlConfirmarEnvio('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?');
+              _enviarPres = await window.ptlConfirmarEnvio('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?', 'Enviar por el bot', { tel: _telN });
               if (_enviarPres) fd.append('enviar_presentacion', '1');
             }
             try {
@@ -2587,18 +2587,20 @@ module.exports = function (app) {
             if (typeof repintarAbiertos === 'function') repintarAbiertos();
             return true;
           }
+          // v126 -- telefono de la fila del piso (para ensenar su conversacion en la ventana de envio)
+          function _telFila(btn) { var f = btn.closest('tr'); var i = f ? f.querySelector('.ptl-vec-telefono') : null; return i ? String(i.value || '') : ''; }
           async function _clickSwitch08(btn) {
             var viv = btn.dataset.vivienda || '';
             var que = SOLO_CONTRATO ? 'el contrato' : 'el contrato y la carta de pago';
             if (btn.dataset.modo === 'BOT_WHATSAPP') {
               var ya = btn.dataset.contratoBot ? ('Ya se le envi\u00f3 por el bot el ' + btn.dataset.contratoBot + '.\\n\\n') : '';
-              if (await window.ptlConfirmarEnvio(ya + '\u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?')) { await _enviarContrato08(btn); return; }
+              if (await window.ptlConfirmarEnvio(ya + '\u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?', 'Enviar por el bot', { tel: _telFila(btn) })) { await _enviarContrato08(btn); return; }
               if (!confirm('\u00bfPasar el ' + viv + ' a manual (M)? El bot dejar\u00e1 de atenderle.')) return;
               await _cambiarModoPiso08(btn, 'MANUAL');
               return;
             }
             if (!(await _cambiarModoPiso08(btn, 'BOT_WHATSAPP'))) return;
-            if (await window.ptlConfirmarEnvio('Piso activado para el bot. \u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?')) await _enviarContrato08(btn);
+            if (await window.ptlConfirmarEnvio('Piso activado para el bot. \u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?', 'Enviar por el bot', { tel: _telFila(btn) })) await _enviarContrato08(btn);
           }
           document.querySelectorAll('.ptl-bot-switch-piso').forEach(function(btn){
             btn.addEventListener('click', async function(){
