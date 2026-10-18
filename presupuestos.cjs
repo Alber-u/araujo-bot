@@ -16988,7 +16988,7 @@ module.exports = function (app) {
     }
   });
 
-  // GET /presupuestos/hoy/conversacion?tel=  (v125, 18/10/2026) -- los ultimos 15 mensajes con ese vecino por el bot:
+  // GET /presupuestos/hoy/conversacion?tel=  (v125, 18/10/2026) -- TODOS los mensajes con ese vecino por el bot:
   //   lo que escribio (texto o documentos, con su nombre), lo que le contesto el bot (resumido) y lo que le
   //   contesto Guille desde HOY. Sale de bot_contactos (+ bot_documentos para saber que documento mando).
   app.get("/presupuestos/hoy/conversacion", async (req, res) => {
@@ -17026,7 +17026,7 @@ module.exports = function (app) {
         }
         if (bot) items.push({ quien: "bot", fecha: f, texto: corto(bot, 220) });
       }
-      res.json({ ok: true, items: items.slice(-15) });
+      res.json({ ok: true, items });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
     } catch (e) {
       console.error("[presupuestos] GET /hoy/conversacion:", e.message);
       res.json({ ok: false, error: e.message });
