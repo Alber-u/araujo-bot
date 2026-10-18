@@ -14194,7 +14194,7 @@ module.exports = function (app) {
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
           ${_notaHtml}
-          <div class="hoy-av-badges" style="flex:0 0 50%;max-width:50%;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden">${_badge}</div>
+          <div class="hoy-av-badges" style="flex:0 0 50%;max-width:50%;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden;contain:inline-size">${_badge}</div>   <!-- v124 (18/10/2026): contain para no ensanchar la pagina -->
           <div style="flex:0 0 64px;display:flex;align-items:center;justify-content:flex-end;gap:4px">${_waHtml}${_botRespHtml}</div>
         </div>`;
       };
