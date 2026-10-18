@@ -476,6 +476,106 @@ module.exports = function (app) {
 
   // Construye una URL añadiendo automáticamente el token si existe.
   // params puede ser un objeto { fase: "01_CONTACTO", q: "alberche" }
+  // v126 (18/10/2026, criterio de Guille) -- codigo de navegador COMPARTIDO por HOY y por la caja Datos
+  //   documentacion de la ficha: el robotito (.hoy-bot-resp) abre la conversacion del vecino con el bot (verde:
+  //   ademas se le puede contestar; rojo: han pasado mas de 24 h, solo leer; gris: nunca ha escrito al bot) y el
+  //   boton azul (.hoy-m-bot) envia un aviso M por el bot con su plantilla de Twilio. Antes (v122-v125) vivia
+  //   dentro del script de HOY. Se inserta con _scriptVecinoBot(token) (en documentacion.cjs via app.locals).
+  function _clienteVecinoBot(U) {
+    if (window.__vecinoBotListo) return; window.__vecinoBotListo = true;
+    var conTel = function (u, tel) { return u + (u.indexOf('?') < 0 ? '?' : '&') + 'tel=' + encodeURIComponent(tel || ''); };
+    async function conversacion(b, cont) {
+      cont.textContent = 'Cargando la conversación...';
+      try {
+        var r = await fetch(conTel(U.conv, b.dataset.tel));
+        var d = await r.json();
+        if (!d || !d.ok) { cont.textContent = 'No se pudo leer la conversación.'; return; }
+        cont.innerHTML = '';
+        if (!d.items.length) { cont.textContent = 'No hay mensajes con el bot.'; return; }
+        d.items.forEach(function (it) {
+          var w = document.createElement('div');
+          w.style.cssText = 'display:flex;margin:4px 0;justify-content:' + (it.quien === 'vecino' ? 'flex-start' : 'flex-end');
+          var g = document.createElement('div');
+          g.style.cssText = 'max-width:82%;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.3;white-space:pre-wrap;word-break:break-word;background:' + (it.quien === 'vecino' ? '#f1efe8' : (it.quien === 'equipo' ? '#d6f0df' : '#e6f1fb'));
+          var h = document.createElement('div'); h.style.cssText = 'font-size:10px;color:#666;margin-bottom:2px;font-weight:600';
+          h.textContent = (it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || '');
+          var t = document.createElement('div'); t.textContent = it.texto || '';
+          g.appendChild(h); g.appendChild(t); w.appendChild(g); cont.appendChild(w);
+        });
+        cont.scrollTop = cont.scrollHeight;
+      } catch (e) { cont.textContent = 'No se pudo leer la conversación: ' + e.message; }
+    }
+    function abrirVecino(b) {
+      var ok = b.dataset.ok === '1';
+      var fila = b.closest('.hoy-exp-fila');
+      var fondo = document.createElement('div');
+      fondo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
+      fondo.innerHTML = '<div style="background:#fff;color:#111;border-radius:10px;padding:14px;width:min(620px,94vw);box-shadow:0 8px 30px rgba(0,0,0,.3);text-align:left">'
+        + '<div style="font-weight:700;font-size:14px;margin-bottom:2px">' + (ok ? 'Contestar por el bot' : 'Conversación con el vecino') + '</div>'
+        + '<div data-sub="1" style="font-size:12px;color:#555;margin-bottom:8px"></div>'
+        + '<div data-conv="1" style="max-height:320px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
+        + (ok ? '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
+              : '<div data-rojo="1" style="font-size:12px;color:#a32d2d;font-weight:600"></div>')
+        + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-x="1">' + (ok ? 'Cancelar' : 'Cerrar') + '</button>'
+        + (ok ? '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-s="1">Enviar</button>' : '') + '</div></div>';
+      fondo.querySelector('[data-sub]').textContent = (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + (b.dataset.nom ? ' · ' + b.dataset.nom : '');
+      if (!ok) fondo.querySelector('[data-rojo]').textContent = b.title || '';
+      document.body.appendChild(fondo);
+      var cerrar = function () { fondo.remove(); };
+      fondo.querySelector('[data-x]').addEventListener('click', cerrar);
+      fondo.addEventListener('click', function (e) { if (e.target === fondo) cerrar(); });
+      conversacion(b, fondo.querySelector('[data-conv]'));
+      if (!ok) return;
+      var ta = fondo.querySelector('textarea'); setTimeout(function () { ta.focus(); }, 30);
+      fondo.querySelector('[data-s]').addEventListener('click', async function () {
+        var txt = (ta.value || '').trim(); if (!txt) { ta.focus(); return; }
+        var bs = this; bs.disabled = true; bs.textContent = 'Enviando...';
+        try {
+          var r = await fetch(U.resp, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ tel: b.dataset.tel || '', texto: txt, ayuda: b.dataset.ayuda || '0', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '' }).toString() });
+          var d = await r.json().catch(function () { return {}; });
+          if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); bs.disabled = false; bs.textContent = 'Enviar'; return; }
+          cerrar();
+          // En HOY, al contestar un "Pide ayuda" o un "Ha respondido" se marca su check (y el aviso se va)
+          var chk = (b.dataset.ayuda === '1' && fila) ? fila.querySelector('.hoy-bot-llamado') : null;
+          if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); }
+          else { b.textContent = '✔'; b.title = 'Enviado'; }
+        } catch (e) { alert('No se ha enviado: ' + e.message); bs.disabled = false; bs.textContent = 'Enviar'; }
+      });
+    }
+    async function avisoMBot(b) {
+      var q = '¿Enviar AHORA por el bot el ' + (b.dataset.etq || 'aviso') + ' del ' + (b.dataset.piso || '') + ' (' + (b.dataset.nom || '') + ')?'
+        + '\n\n' + (b.dataset.com || '') + '\nFalta: ' + (b.dataset.pend || '') + '\nFecha límite: ' + (b.dataset.fecha || '');
+      if (!(await window.ptlConfirmarEnvio(q))) return;
+      b.disabled = true; var antes = b.textContent; b.textContent = '…';
+      try {
+        var r = await fetch(U.mbot, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ tel: b.dataset.tel || '', clave: b.dataset.clave || '', nombre: b.dataset.nom || '', comunidad: b.dataset.com || '', piso: b.dataset.piso || '', pendiente: b.dataset.pend || '', fecha: b.dataset.fecha || '', etiqueta: b.dataset.etq || '' }).toString() });
+        var d = await r.json().catch(function () { return {}; });
+        if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); b.disabled = false; b.textContent = antes; return; }
+        var fila = b.closest('.hoy-exp-fila');
+        var chk = fila ? fila.querySelector('.hoy-bot-llamado') : null;
+        if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); }
+        if (fila) setTimeout(function () { if (fila.parentNode) fila.remove(); }, 400);
+      } catch (e) { alert('No se ha enviado: ' + e.message); b.disabled = false; b.textContent = antes; }
+    }
+    document.addEventListener('click', function (ev) {
+      if (!ev.target.closest) return;
+      var m = ev.target.closest('.hoy-m-bot');
+      if (m) { ev.preventDefault(); avisoMBot(m); return; }
+      var b = ev.target.closest('.hoy-bot-resp');
+      if (!b) {
+        var bd = ev.target.closest('.hoy-av-badges'); if (!bd || ev.target.closest('button, a, input')) return;
+        var fl = bd.closest('.hoy-exp-fila'); b = fl ? fl.querySelector('.hoy-bot-resp') : null; if (!b) return;
+      }
+      ev.preventDefault();
+      abrirVecino(b);
+    });
+  }
+  function _scriptVecinoBot(token) {
+    const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot") };
+    return "(" + _clienteVecinoBot.toString() + ")(" + JSON.stringify(U) + ");";
+  }
   function urlT(token, path, params) {
     const usp = new URLSearchParams();
     if (params) {
@@ -2424,7 +2524,9 @@ module.exports = function (app) {
       // v19.118 -- textos nuevos del bot (los crea _migBotV19118; si se borrara la fila, se recrea al guardar la tarjeta)
       flujo_pagina_recibida: ["flujo_pagina_recibida", "vecino", "texto", "", "", "{documento}", "SI", "v19.118: respuesta a cada pagina de un documento de varias paginas"],
       flujo_progreso: ["flujo_progreso", "vecino", "texto", "", "", "{n} {total}", "SI", "v19.118: contador encima de cada peticion de documento"],
-      flujo_sin_ia: ["flujo_sin_ia", "vecino", "texto", "", "", "{siguiente}", "SI", "v19.118: respuesta al texto libre del vecino con la IA dormida"] };
+      flujo_sin_ia: ["flujo_sin_ia", "vecino", "texto", "", "", "{siguiente}", "SI", "v19.118: respuesta al texto libre del vecino con la IA dormida"],
+      // v126 -- avisos M por el bot (plantillas de Alberto): la fila se crea al guardar su HX
+      ..._FILAS_AVISOS_M };
     if (rowIndex < 0 && _CLAVES_NUEVAS[clave]) {
       const _fn = _CLAVES_NUEVAS[clave].slice();
       if (String(datos.tipo || "").trim().toLowerCase() === "twilio") _fn[4] = String(datos.twilio_sid != null ? datos.twilio_sid : "");
@@ -2489,6 +2591,17 @@ module.exports = function (app) {
   //   bot_plantillas (luego todo se edita en Plantillas del bot y no se vuelve a tocar; marca "mig_bot_v19118"):
   //   IA dormida (ia_activa = NO), los tres textos nuevos y "escribe LISTO" -> "responde 1" en las peticiones
   //   de documentos de varias paginas (solo si siguen con la frase antigua).
+  // v126 (18/10/2026, criterio de Guille) -- avisos M1/M2/M3 de HOY POR EL BOT con las 4 plantillas Twilio
+  //   (Utility) que hizo Alberto. Clave = nombre de la plantilla en Twilio; 5 variables. Como el contrato_cycp
+  //   (criterio unificado): el codigo HX vive SOLO en bot_plantillas; la fila se crea al pegarlo y guardar su
+  //   tarjeta en Flujo bot (columna "A pisos"). Sin codigo, HOY avisa "Falta la plantilla ...".
+  const _VARS_AVISOS_M = "{{1}} nombre, {{2}} via y comunidad, {{3}} piso, {{4}} lo que falta, {{5}} fecha limite";
+  const _FILAS_AVISOS_M = {
+    plan5_recordatorio_m1: ["plan5_recordatorio_m1", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M1 amable en plazo (fase 05 y 08), por el bot al pulsar en HOY"],
+    plan5_recordatorio_prorroga: ["plan5_recordatorio_prorroga", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M2 (05) / M3 (08) amable durante la prorroga, por el bot al pulsar en HOY"],
+    plan5_aviso_vencido_doc: ["plan5_aviso_vencido_doc", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M2 duro (fase 05, plazo vencido), por el bot al pulsar en HOY"],
+    plan5_aviso_vencido_cycp: ["plan5_aviso_vencido_cycp", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M3 duro (fase 08, plazo vencido), por el bot al pulsar en HOY"],
+  };
   async function _migBotV19118() {
     const sheets = getSheetsClient();
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
@@ -5391,6 +5504,34 @@ module.exports = function (app) {
   // =================================================================
   // LAYOUT HTML (CSS embebido, prefijo "ptl-" para no chocar con index.cjs)
   // =================================================================
+  // v126 (18/10/2026, criterio de Guille: "un aviso de cancelar o enviar, UNIFICADOS todos los mensajes de ese
+  //   tipo") -- ventana UNICA para confirmar cualquier envio por el bot (presentacion al pasar a W o al cambiar el
+  //   telefono, contrato y carta de pago de la 08, avisos M de HOY): el texto y dos botones, Cancelar y Enviar.
+  //   Va en todas las paginas (pageHtml). Uso: if (!(await window.ptlConfirmarEnvio(texto))) return;
+  function _clienteConfirmarEnvio() {
+    window.ptlConfirmarEnvio = function (texto, titulo) {
+      return new Promise(function (resolver) {
+        var fondo = document.createElement('div');
+        fondo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center';
+        fondo.innerHTML = '<div style="background:#fff;color:#111;border-radius:10px;padding:14px 16px;width:min(480px,94vw);box-shadow:0 8px 30px rgba(0,0,0,.3);text-align:left">'
+          + '<div data-t="1" style="font-weight:700;font-size:14px;margin-bottom:8px"></div>'
+          + '<div data-m="1" style="font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word"></div>'
+          + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
+          + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-c="1">Cancelar</button>'
+          + '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-e="1">Enviar</button></div></div>';
+        fondo.querySelector('[data-t]').textContent = titulo || 'Enviar por el bot';
+        fondo.querySelector('[data-m]').textContent = String(texto || '');
+        var fin = function (v) { document.removeEventListener('keydown', tecla, true); fondo.remove(); resolver(v); };
+        var tecla = function (e) { if (e.key === 'Escape') { e.preventDefault(); fin(false); } };
+        document.addEventListener('keydown', tecla, true);
+        fondo.querySelector('[data-c]').addEventListener('click', function () { fin(false); });
+        fondo.querySelector('[data-e]').addEventListener('click', function () { fin(true); });
+        fondo.addEventListener('click', function (e) { if (e.target === fondo) fin(false); });
+        document.body.appendChild(fondo);
+        setTimeout(function () { var b = fondo.querySelector('[data-e]'); if (b) b.focus(); }, 30);
+      });
+    };
+  }
   function pageHtml(titulo, breadcrumbs, content, token, opts) {
     opts = opts || {};
     const bc = breadcrumbs && breadcrumbs.length > 1
@@ -5464,6 +5605,7 @@ module.exports = function (app) {
       <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
     </div>
   </nav>
+  <script>(${_clienteConfirmarEnvio.toString()})();</script>
   <div class="ptl-page">
     ${content}
   </div>
@@ -10064,7 +10206,10 @@ module.exports = function (app) {
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-w" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">W</span>A pisos (automáticos)`) +
         presentcard() + sleepcard() + plazocard() + wakecard() + twcard("contrato_cycp", "Twilio - contrato CyCP (fase 08, bot\u00f3n W)") +   /* v19.107: el contrato (fase 08) despues de los de la 05 */
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">M</span>A pisos (manuales)`) +
-        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m1c", "Aviso M1", 5) + wamanualcard("m3", "Aviso M3", 11) +   /* v19.110: M1 de la fase 08 */ wamanualcard("ini05", "Inicio doc", 0, true) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
+        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m1c", "Aviso M1", 5) + wamanualcard("m3", "Aviso M3", 11) +
+        /* v126: los M1/M2/M3 de HOY salen POR EL BOT con estas plantillas de Twilio (pegar aqui su codigo HX) */
+        twcard("plan5_recordatorio_m1", "Twilio - M1 amable (05 y 08)") + twcard("plan5_recordatorio_prorroga", "Twilio - M2/M3 amable (pr\u00f3rroga)") +
+        twcard("plan5_aviso_vencido_doc", "Twilio - M2 duro (05)") + twcard("plan5_aviso_vencido_cycp", "Twilio - M3 duro (08)") +   /* v19.110: M1 de la fase 08 */ wamanualcard("ini05", "Inicio doc", 0, true) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -13647,6 +13792,7 @@ module.exports = function (app) {
         let _diaM3 = 11, _msgWaM4 = "", _msgWaM5 = ""; // v19.19/28 — M3 fase 08; M4 envio CyCP; M5 WhatsApp manual
         let _diaM1c = 5, _msgWaM1c = "";   // v19.110 — M1 de la fase 08 (a mitad del plazo de los contratos)
         let _msgWaM1n = "", _msgWaM2n = "", _msgIni05 = "";   // v19.102 — M1/M2 neutros e inicio de documentacion por WhatsApp manual
+        const _sidAvM = {};   // v126 — plantillas Twilio de los avisos M con su HX y activas
         try {
           const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
           const _plr = (_pl.data.values || []);
@@ -13670,6 +13816,8 @@ module.exports = function (app) {
             else if (_k === "msg_wa_m1n") _msgWaM1n = _rawv;
             else if (_k === "msg_wa_m2n") _msgWaM2n = _rawv;
             else if (_k === "msg_wa_ini05") _msgIni05 = _rawv;
+            else if (/^plan5_(recordatorio_m1|recordatorio_prorroga|aviso_vencido_doc|aviso_vencido_cycp)$/.test(_k) && /^HX/.test(String(_plr[i][4] || "").trim())
+              && String(_plr[i][6] || "SI").trim().toUpperCase() !== "NO") _sidAvM[_k] = 1;   // v126
           }
         } catch (e) {}
         // v19.103 -- plantillas de correo de la cadena: si faltan o estan desactivadas, la tarjeta lo dice
@@ -14013,6 +14161,14 @@ module.exports = function (app) {
               const nom = String(pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
               const v = { nombre: nom, via, comunidad: c.direccion || c.comunidad || "", piso: viv, fL: _fmtD(dL), fP: _fmtD(dP), conced, pend: pendTxt, es08 };
               const base = { comunidad: pr[1] || "", vivienda: viv, nombre: nom, telefono: pr[0] || "", canal, fecha: _fmtD(dIni), ts: dIni.getTime(), dias, flag: false };
+              // v126 (18/10/2026, criterio de Guille) -- los avisos que iban por WhatsApp (bot o manual, con movil)
+              //   salen POR EL BOT con su plantilla de Twilio al pulsar.
+              //   Sin su codigo HX en Flujo bot (o desactivada): "Falta la plantilla Twilio ..." y sin boton.
+              //   Criterio de Guille (18/10/2026): con movil, por el bot (aunque este en M con email); sin movil, correo.
+              const _botM = (clave, etiqueta, fecha) => !movil ? null
+                : !_sidAvM[clave] ? { falta: "Twilio " + clave }
+                : { clave, etiqueta, fecha, nombre: _p5NombreWa(nom), comunidad: (via ? via + " " : "") + (c.direccion || c.comunidad || ""), piso: viv, pendiente: pendTxt };
+              const _fVig = conced ? _fmtD(dP) : _fmtD(dL);   // fecha limite vigente (con prorroga, la suya)
               // 2) Inicio de la cadena
               const inicio = es08
                 ? _max(bot && _mk(bot[32]), ult("08_CYCP_VECINO"), az.M4)
@@ -14039,9 +14195,10 @@ module.exports = function (app) {
                   // solo comunidades que pasan a 08 desde la v19.110 (Diego Puerta 1 y Tarfia 53 van por el canal manual)
                   if (_isoD(dIni) < (process.env.AVISOS_LEGADO_M1C || "2026-10-13")) continue;
                   if (_max(az.C1, ult("08_REC_M1_VECINO"))) continue;
-                  const _faltaC1 = canal === "mail" ? (_mailPlOk["08_REC_M1_VECINO"] ? "" : "08-RECORDATORIO M1 (VECINO)") : ((canal === "bot" || canal === "wa") && !String(_msgWaM1c).trim() ? "Aviso M1 (fase 08)" : "");
+                  const _bmC1 = _botM("plan5_recordatorio_m1", "Recordatorio M1", _fmtD(dL));
+                  const _faltaC1 = _bmC1 ? (_bmC1.falta || "") : canal === "mail" ? (_mailPlOk["08_REC_M1_VECINO"] ? "" : "08-RECORDATORIO M1 (VECINO)") : (((canal === "bot" || canal === "wa") && !String(_msgWaM1c).trim() ? "Aviso M1 (fase 08)" : ""));
                   _avisosArr.push(Object.assign({ tipo: "m08", subtipo: 1, duro: false, falta: _faltaC1, mailFase: (canal === "mail" && !_faltaC1) ? "08_REC_M1_VECINO" : "",
-                    waMsg: ((canal === "bot" || canal === "wa") && !_faltaC1) ? _subAv(_msgWaM1c, v) : "", campo: "az:C1", telCheck: pr[0] || "" }, base));
+                    waMsg: ((canal === "bot" || canal === "wa") && !_faltaC1) ? _subAv(_msgWaM1c, v) : "", campo: "az:C1", telCheck: pr[0] || "", botM: (_bmC1 && !_bmC1.falta) ? _bmC1 : null }, base));
                   continue;
                 }
                 if (etapa !== "amable2" && etapa !== "duro") continue;
@@ -14049,8 +14206,9 @@ module.exports = function (app) {
                 const marca = _max(_mk(pr[50]), ult("08_REC_M3_VECINO"));
                 if (etapa === "amable2" && marca) continue;
                 if (etapa === "duro" && marca && marca >= BM) continue;
-                const _faltaM3 = canal === "mail" ? (_mailPlOk["08_REC_M3_VECINO"] ? "" : "08-RECORDATORIO M3 (VECINO)") : ((canal === "bot" || canal === "wa") && !String(_msgWaM3).trim() ? "Aviso M3" : "");
-                _avisosArr.push(Object.assign({ tipo: "cycp", duro: etapa === "duro", mailFase: (canal === "mail" && !_faltaM3) ? "08_REC_M3_VECINO" : "", waMsg: ((canal === "bot" || canal === "wa") && !_faltaM3) ? _subAv(_msgWaM3, v) : "", campo: "aviso_m3", falta: _faltaM3 }, base));
+                const _bmM3 = etapa === "duro" ? _botM("plan5_aviso_vencido_cycp", "Recordatorio M3 (duro)", _fVig) : _botM("plan5_recordatorio_prorroga", "Recordatorio M3", _fmtD(dP));
+                const _faltaM3 = _bmM3 ? (_bmM3.falta || "") : canal === "mail" ? (_mailPlOk["08_REC_M3_VECINO"] ? "" : "08-RECORDATORIO M3 (VECINO)") : (((canal === "bot" || canal === "wa") && !String(_msgWaM3).trim() ? "Aviso M3" : ""));
+                _avisosArr.push(Object.assign({ tipo: "cycp", duro: etapa === "duro", mailFase: (canal === "mail" && !_faltaM3) ? "08_REC_M3_VECINO" : "", waMsg: ((canal === "bot" || canal === "wa") && !_faltaM3) ? _subAv(_msgWaM3, v) : "", campo: "aviso_m3", falta: _faltaM3, botM: (_bmM3 && !_bmM3.falta) ? _bmM3 : null }, base));
               } else {
                 const m1 = _max(bot && _mk(bot[26]), ult("05_REC_M1_VECINO"), az.M1);
                 const m2 = _max(bot && _mk(bot[31]), ult("05_REC_M2_VECINO"), az.M2);
@@ -14063,14 +14221,49 @@ module.exports = function (app) {
                 const txt = (canal === "bot" && mudo) ? (st === 1 ? _msgWaM1 : _msgWaM2) : (st === 1 ? _msgWaM1n : _msgWaM2n);
                 const conFicha = canal === "bot" && !!bot;
                 const _mfR = st === 1 ? "05_REC_M1_VECINO" : "05_REC_M2_VECINO";
-                const _faltaR = canal === "mail" ? (_mailPlOk[_mfR] ? "" : "05-RECORDATORIO M" + st + " (VECINO)")
-                  : ((canal === "bot" || canal === "wa") && !String(txt).trim() ? ("Aviso M" + st + ((canal === "bot" && mudo) ? "" : " (texto neutro)")) : "");
+                const _bmR = st === 1 ? _botM("plan5_recordatorio_m1", "Recordatorio M1", _fmtD(dL))
+                  : (etapa === "duro" ? _botM("plan5_aviso_vencido_doc", "Recordatorio M2 (duro)", _fVig) : _botM("plan5_recordatorio_prorroga", "Recordatorio M2", _fmtD(dP)));
+                const _faltaR = _bmR ? (_bmR.falta || "") : canal === "mail" ? (_mailPlOk[_mfR] ? "" : "05-RECORDATORIO M" + st + " (VECINO)")
+                  : (((canal === "bot" || canal === "wa") && !String(txt).trim() ? ("Aviso M" + st + ((canal === "bot" && mudo) ? "" : " (texto neutro)")) : ""));
                 _avisosArr.push(Object.assign({ tipo: "m05", subtipo: st, duro: etapa === "duro", falta: _faltaR, mailFase: (canal === "mail" && !_faltaR) ? _mfR : "", waMsg: ((canal === "bot" || canal === "wa") && !_faltaR) ? _subAv(txt, v) : "",
-                  campo: conFicha ? (st === 1 ? "llamado" : "llamado2") : ("az:M" + st), telCheck: conFicha ? (bot[0] || "") : (pr[0] || "") }, base));
+                  campo: conFicha ? (st === 1 ? "llamado" : "llamado2") : ("az:M" + st), telCheck: conFicha ? (bot[0] || "") : (pr[0] || ""), botM: (_bmR && !_bmR.falta) ? _bmR : null }, base));
               }
             }
           }
         } catch (eC) { console.error("[presupuestos] HOY cadena de avisos:", eC.message); }
+
+        // v126 -- los avisos M que van por el bot (o a los que les falta su plantilla Twilio) no llevan correo ni
+        //   WhatsApp de la empresa: solo el boton azul (o el aviso de la plantilla que falta).
+        for (const a of _avisosArr) {
+          if (a.botM || (a.falta && /^Twilio /.test(a.falta))) { a.mailFase = ""; a.waMsg = ""; a.canal = "bot"; }
+        }
+        // v126 (18/10/2026, criterio de Guille) -- "Ha respondido": el vecino de un piso con el que el bot no trabaja
+        //   (en M, o su comunidad fuera de la 05) ha escrito al numero del bot (p. ej. contestando a un aviso M que
+        //   salio por el bot). El bot lo guarda (bot_contactos texto_fuera / archivo_fuera) sin contestar; aqui sale
+        //   lo escrito desde la ultima vez que Guille lo marco como visto (pisos col AZ, "R=<fecha y hora>").
+        try {
+          const _t9R = (x) => String(x || "").replace(/\D/g, "").slice(-9);
+          const _bcF = await _leerHoy("bot_contactos!A:D");
+          const _porTelR = {};
+          for (const f of ((_bcF.data && _bcF.data.values) || []).slice(1)) {
+            const _tp = String(f && f[3] || "").trim();
+            if (!f || (_tp !== "texto_fuera" && _tp !== "archivo_fuera")) continue;
+            const k = _t9R(f[1]); if (!k) continue;
+            const _tx = String(f[2] || "").replace(/\s+/g, " ").trim();
+            (_porTelR[k] = _porTelR[k] || []).push({ t: String(f[0] || ""), txt: _tp === "archivo_fuera" ? ("\uD83D\uDCCE archivo" + (_tx ? " " + _tx : "")) : _tx });
+          }
+          for (let i = 1; i < _piRowsAll.length; i++) {
+            const pr = _piRowsAll[i]; if (!pr || !pr[0] || !String(pr[2] || "").trim()) continue;
+            const k = _t9R(pr[0]); const lista = _porTelR[k]; if (!lista) continue;
+            delete _porTelR[k];   // un aviso por telefono
+            const _mR = String(pr[51] || "").match(/(?:^|;)\s*R=([^;\s]+)/);
+            const nuevos = lista.filter(x => x.t > (_mR ? _mR[1] : "")).sort((a, b) => a.t < b.t ? -1 : 1);
+            if (!nuevos.length) continue;
+            const _fR = _fFecha(nuevos[nuevos.length - 1].t);
+            _avisosArr.push({ tipo: "respondido", dias: 0, flag: false, waMsg: "", mensaje: nuevos.map(x => x.txt).filter(Boolean).join(" \u00b7 "), fecha: _fR.txt, ts: _fR.ts,
+              comunidad: pr[1] || "", vivienda: String(pr[2] || "").trim(), nombre: String(pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim(), telefono: pr[0] || "", campo: "az:R" });
+          }
+        } catch (eR) { console.error("[presupuestos] HOY ha respondido:", eR.message); }
 
         _avisosArr.sort((a, b) => (a.ts == null ? Infinity : a.ts) - (b.ts == null ? Infinity : b.ts));
       } catch (e) { console.error("[presupuestos] HOY avisos:", e.message); _avisosArr = []; }
@@ -14095,7 +14288,7 @@ module.exports = function (app) {
       try {
         const _bcR = await _leerHoy("bot_contactos!A:D");
         for (const f of ((_bcR.data && _bcR.data.values) || []).slice(1)) {
-          if (!f || !/^(texto|archivo)(_fase08)?$/.test(String(f[3] || "").trim())) continue;
+          if (!f || !/^(texto|archivo)(_fase08|_fuera)?$/.test(String(f[3] || "").trim())) continue;   // v126: + _fuera
           const k = String(f[1] || "").replace(/\D/g, "").slice(-9), t = String(f[0] || "");
           if (k && (!_ultVecinoBot[k] || t > _ultVecinoBot[k])) _ultVecinoBot[k] = t;
         }
@@ -14160,6 +14353,10 @@ module.exports = function (app) {
           //   parentesis, hasta 180 caracteres y con los enlaces cambiados por un clip; al pasar el raton, entero.
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0" title="${_esc(_txtAyuda(p.mensaje, 0))}">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " (" + _esc(_txtAyuda(p.mensaje, 180)) + ")" : ""}</span>`;
+        } else if (p.tipo === "respondido") {
+          // v126 -- vecino de un piso con el que el bot no trabaja que ha escrito al numero del bot
+          _campo = "az:R"; _chkTitle = "Marcar como visto";
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0" title="${_esc(_txtAyuda(p.mensaje, 0))}">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Ha respondido${p.mensaje ? " (" + _esc(_txtAyuda(p.mensaje, 180)) + ")" : ""}</span>`;
         } else {
           _campo = ""; _chkTitle = "";   // v19.111: sin check, se quita al dejarlo todo en OK
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
@@ -14172,17 +14369,21 @@ module.exports = function (app) {
         const _mailHtml = (p.mailFase && _ccpp)
           ? `<a href="${_esc(urlT(token, "/documentacion/expediente", { id: _ccpp, mailaviso: p.mailFase, piso: p.vivienda || "" }) + "#piso-" + encodeURIComponent(p.vivienda || ""))}" class="hoy-aviso-mail" title="Abrir el correo de recordatorio ya escrito" style="flex:0 0 auto;text-decoration:none;font-size:14px;line-height:1">${ICONO_MAIL}</a>`
           : "";
-        const _waHtml = _mailHtml ? _mailHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
+        // v126 -- aviso M por el bot: boton azul en vez del blanco
+        const _mBotHtml = p.botM
+          ? `<button type="button" class="hoy-m-bot" data-tel="${_esc(p.telefono || "")}" data-clave="${_esc(p.botM.clave)}" data-etq="${_esc(p.botM.etiqueta)}" data-nom="${_esc(p.botM.nombre)}" data-com="${_esc(p.botM.comunidad)}" data-piso="${_esc(p.botM.piso)}" data-pend="${_esc(p.botM.pendiente)}" data-fecha="${_esc(p.botM.fecha)}" title="${_esc("Enviar por el bot: " + p.botM.etiqueta + " (plantilla " + p.botM.clave + ")")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;background:#1f6fb2">\uD83E\uDD16\uD83D\uDCE8</button>`
+          : "";
+        const _waHtml = _mailHtml ? _mailHtml : _mBotHtml ? _mBotHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}"${p.registra ? ` class="hoy-wa-registra" data-reg="${_esc(p.registra)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}"` : ""} onclick="if(this.classList.contains('hoy-wa-registra')&&window.__hoyRegistraWa)window.__hoyRegistraWa(this);var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
           : "";
         // v122 -- boton de contestar POR EL BOT (en "Pide ayuda" y "Completo · revisar"): verde < 24 h, rojo si no.
         let _botRespHtml = "";
-        if ((p.tipo === "ayuda" || p.tipo === "completo") && p.telefono) {
+        if ((p.tipo === "ayuda" || p.tipo === "completo" || p.tipo === "respondido") && p.telefono) {   // v126: + Ha respondido
           const _uk = String(p.telefono).replace(/\D/g, "").slice(-9), _ut = _ultVecinoBot[_uk] || "";
           const _uMs = _ut ? (Date.now() - new Date(_ut).getTime()) : Infinity;
           const _ok24 = isFinite(_uMs) && _uMs < 24 * 3600 * 1000;
           const _horas = isFinite(_uMs) ? Math.floor(_uMs / 3600000) : null;
-          _botRespHtml = `<button type="button" class="hoy-bot-resp" data-ok="${_ok24 ? "1" : "0"}" data-tel="${_esc(p.telefono)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-nom="${_esc(p.nombre || "")}" data-ayuda="${p.tipo === "ayuda" ? "1" : "0"}" title="${_ok24 ? "Contestar por el bot (escribi\u00f3 hace " + _horas + " h)" : "Han pasado m\u00e1s de 24 h" + (_horas !== null ? " (" + _horas + " h)" : "") + ": WhatsApp no deja contestar por el bot. Usa el WhatsApp normal (el blanco)."}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;background:${_ok24 ? "#1f9d55" : "#c0392b"}">\uD83E\uDD16\uD83D\uDCAC</button>`;
+          _botRespHtml = `<button type="button" class="hoy-bot-resp" data-ok="${_ok24 ? "1" : "0"}" data-tel="${_esc(p.telefono)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-nom="${_esc(p.nombre || "")}" data-ayuda="${(p.tipo === "ayuda" || p.tipo === "respondido") ? "1" : "0"}" title="${_ok24 ? "Contestar por el bot (escribi\u00f3 hace " + _horas + " h)" : "Han pasado m\u00e1s de 24 h" + (_horas !== null ? " (" + _horas + " h)" : "") + ": WhatsApp no deja contestar por el bot. Usa el WhatsApp normal (el blanco)."}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;background:${_ok24 ? "#1f9d55" : "#c0392b"}">\uD83E\uDD16\uD83D\uDCAC</button>`;
         }
         // v19.103 -- plantilla que falta o esta desactivada: no se ofrece ningun texto alternativo
         if (p.falta) _badge += `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto;width:auto" title="Cr\u00e9ala o act\u00edvala (Plantillas mail o Flujo bot) y recarga">\u26A0 Falta la plantilla ${_esc(p.falta)} o est\u00e1 desactivada</span>`;
@@ -15741,77 +15942,8 @@ module.exports = function (app) {
 
             // v123 -- cada aviso en un renglon: el texto entero al pasar el raton (si no lo trae ya)
             document.querySelectorAll('.hoy-av-badges > .ptl-fila-badge').forEach(function(b){ if (!b.title) b.title = (b.textContent || '').replace(/\\s+/g, ' ').trim(); });
-            // v122 -- contestar al vecino POR EL BOT desde una tarjeta de Avisos (boton verde/rojo junto al blanco).
-            // v125 (18/10/2026, criterio de Guille) -- el recuadro ensena antes LA CONVERSACION con ese vecino (lo que
-            //   escribio al bot, lo que le contesto el bot y lo que le contestaste desde HOY); se abre tambien al pulsar
-            //   el texto del aviso. En rojo se puede leer pero no enviar (hay que usar el WhatsApp blanco).
-            async function _hoyConversacion(b, cont) {
-              cont.textContent = 'Cargando la conversación...';
-              try {
-                var r = await fetch('${urlT(token, "/presupuestos/hoy/conversacion")}' + '&tel=' + encodeURIComponent(b.dataset.tel || ''));
-                var d = await r.json();
-                if (!d || !d.ok) { cont.textContent = 'No se pudo leer la conversación.'; return; }
-                cont.innerHTML = '';
-                if (!d.items.length) { cont.textContent = 'No hay mensajes con el bot.'; return; }
-                d.items.forEach(function(it){
-                  var w = document.createElement('div');
-                  w.style.cssText = 'display:flex;margin:4px 0;justify-content:' + (it.quien === 'vecino' ? 'flex-start' : 'flex-end');
-                  var g = document.createElement('div');
-                  g.style.cssText = 'max-width:82%;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.3;white-space:pre-wrap;word-break:break-word;background:' + (it.quien === 'vecino' ? '#f1efe8' : (it.quien === 'equipo' ? '#d6f0df' : '#e6f1fb'));
-                  var h = document.createElement('div'); h.style.cssText = 'font-size:10px;color:#666;margin-bottom:2px;font-weight:600';
-                  h.textContent = (it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde HOY)' : 'Bot')) + ' · ' + (it.fecha || '');
-                  var t = document.createElement('div'); t.textContent = it.texto || '';
-                  g.appendChild(h); g.appendChild(t); w.appendChild(g); cont.appendChild(w);
-                });
-                cont.scrollTop = cont.scrollHeight;
-              } catch (e) { cont.textContent = 'No se pudo leer la conversación: ' + e.message; }
-            }
-            function _hoyAbrirVecino(b) {
-              var ok = b.dataset.ok === '1';
-              var fila = b.closest('.hoy-exp-fila');
-              var fondo = document.createElement('div');
-              fondo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
-              fondo.innerHTML = '<div style="background:#fff;color:#111;border-radius:10px;padding:14px;width:min(620px,94vw);box-shadow:0 8px 30px rgba(0,0,0,.3)">'
-                + '<div style="font-weight:700;font-size:14px;margin-bottom:2px">' + (ok ? 'Contestar por el bot' : 'Conversación con el vecino') + '</div>'
-                + '<div data-sub="1" style="font-size:12px;color:#555;margin-bottom:8px"></div>'
-                + '<div data-conv="1" style="max-height:320px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
-                + (ok ? '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
-                      : '<div data-rojo="1" style="font-size:12px;color:#a32d2d;font-weight:600"></div>')
-                + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-x="1">' + (ok ? 'Cancelar' : 'Cerrar') + '</button>'
-                + (ok ? '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-s="1">Enviar</button>' : '') + '</div></div>';
-              fondo.querySelector('[data-sub]').textContent = (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + ' · ' + (b.dataset.nom || '');
-              if (!ok) fondo.querySelector('[data-rojo]').textContent = b.title || '';
-              document.body.appendChild(fondo);
-              var cerrar = function(){ fondo.remove(); };
-              fondo.querySelector('[data-x]').addEventListener('click', cerrar);
-              fondo.addEventListener('click', function(e){ if (e.target === fondo) cerrar(); });
-              _hoyConversacion(b, fondo.querySelector('[data-conv]'));
-              if (!ok) return;
-              var ta = fondo.querySelector('textarea'); setTimeout(function(){ ta.focus(); }, 30);
-              fondo.querySelector('[data-s]').addEventListener('click', async function(){
-                var txt = (ta.value || '').trim(); if (!txt) { ta.focus(); return; }
-                var bs = this; bs.disabled = true; bs.textContent = 'Enviando...';
-                try {
-                  var r = await fetch('${urlT(token, "/presupuestos/hoy/responder-bot")}', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-                    body: new URLSearchParams({ tel: b.dataset.tel || '', texto: txt, ayuda: b.dataset.ayuda || '0', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '' }).toString() });
-                  var d = await r.json().catch(function(){ return {}; });
-                  if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); bs.disabled = false; bs.textContent = 'Enviar'; return; }
-                  cerrar();
-                  if (b.dataset.ayuda === '1' && fila) { var chk = fila.querySelector('.hoy-bot-llamado[data-campo="revisado_ayuda"]'); if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); } }
-                  else { b.textContent = '✔'; b.title = 'Enviado'; }
-                } catch (e) { alert('No se ha enviado: ' + e.message); bs.disabled = false; bs.textContent = 'Enviar'; }
-              });
-            }
-            document.addEventListener('click', function(ev){
-              if (!ev.target.closest) return;
-              var b = ev.target.closest('.hoy-bot-resp');
-              if (!b) {
-                var bd = ev.target.closest('.hoy-av-badges'); if (!bd || ev.target.closest('button, a, input')) return;
-                var fl = bd.closest('.hoy-exp-fila'); b = fl ? fl.querySelector('.hoy-bot-resp') : null; if (!b) return;
-              }
-              ev.preventDefault();
-              _hoyAbrirVecino(b);
-            });
+            // v122-v125 -- contestar / leer la conversacion por el bot; v126: codigo compartido con la ficha (_clienteVecinoBot)
+            ${_scriptVecinoBot(token)}
 
             // v17.78 — Helper unificado de feedback de guardado.
             // OK   → recuadro verde (borde+relleno) 5s y vuelve al normal.
@@ -17014,6 +17146,10 @@ module.exports = function (app) {
           const txt = cli === "job_presentacion" ? "Reenv\u00edo de la presentaci\u00f3n" : (cli === "job_proactivo" ? "Recordatorio autom\u00e1tico de lo que le falta" : corto(bot, 220));
           items.push({ quien: "bot", fecha: f, texto: txt }); continue;
         }
+        if (tipo === "archivo_fuera") {   // v126: piso con el que el bot no trabaja: el archivo no se guarda
+          items.push({ quien: "vecino", fecha: f, texto: "\uD83D\uDCCE Ha mandado un archivo (no se guarda: el bot no trabaja con este piso; p\u00eddeselo por otra v\u00eda)" + (cli ? "\n" + cli : "") });
+          continue;
+        }
         if (/^archivo/.test(tipo)) {
           // el documento guardado justo antes de apuntar el mensaje (el mas cercano, sin repetir)
           const tc = new Date(c[0] || 0).getTime();
@@ -17049,6 +17185,26 @@ module.exports = function (app) {
     }
   });
 
+  // POST /presupuestos/hoy/aviso-bot  (v126, criterio de Guille 18/10/2026) -- envia un aviso M1/M2/M3 de HOY
+  //   POR EL BOT con su plantilla de Twilio, al telefono del vecino.
+  //   body: tel, clave (nombre de la plantilla), nombre, comunidad, piso, pendiente, fecha, etiqueta.
+  app.post("/presupuestos/hoy/aviso-bot", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const bot = app.locals.botWhatsapp;
+      if (!bot || typeof bot.enviarAvisoM !== "function") return res.status(500).json({ ok: false, error: "bot no disponible" });
+      const b = req.body || {};
+      const dest = String(b.tel || "");
+      if (dest.replace(/\D/g, "").length < 9) return res.status(400).json({ ok: false, error: "el vecino no tiene tel\u00e9fono" });
+      const r = await bot.enviarAvisoM(dest, String(b.clave || ""), { nombre: b.nombre, comunidad: b.comunidad, piso: b.piso, pendiente: b.pendiente, fecha: b.fecha, etiqueta: String(b.etiqueta || "") });
+      if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] POST /hoy/aviso-bot:", e.message);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // POST /presupuestos/hoy-bot-llamado - marca "Llamado" de un piso (caja Sin responder) en bot_expedientes col AA, por telefono (v18.163)
   app.post("/presupuestos/hoy-bot-llamado", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -17080,7 +17236,7 @@ module.exports = function (app) {
       //   sin ficha de bot (o por otro camino): pisos col AZ "aviso_manual", con el formato
       //   "INI=aaaa-mm-dd;M1=...;M2=...;M4=...". INI/M4 = inicio (documentacion / contrato) enviado;
       //   M1/M2 = recordatorio enviado. valor "1" pone la fecha de hoy; vacio la quita.
-      if (/^az:(INI|M1|M2|M4|C1)$/.test(campo)) {   // v19.110: C1 = M1 de la fase 08
+      if (/^az:(INI|M1|M2|M4|C1|R)$/.test(campo)) {   // v19.110: C1 = M1 de la fase 08; v126: R = "Ha respondido" visto (fecha y hora)
         const clave = campo.slice(3);
         const _ndAz = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
         const com = String(req.body.comunidad || "").trim().toLowerCase();
@@ -17107,7 +17263,7 @@ module.exports = function (app) {
         }
         const actual = {};
         String((rowsP[rowP - 1] || [])[51] || "").split(";").forEach(x => { const m = String(x).match(/^\s*([A-Z0-9]+)=(\S+)/); if (m) actual[m[1]] = m[2]; });
-        if (valor === "1") actual[clave] = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+        if (valor === "1") actual[clave] = clave === "R" ? new Date().toISOString() : new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
         else delete actual[clave];
         const txt = Object.keys(actual).map(k => k + "=" + actual[k]).join(";");
         await sheetsP.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "pisos!AZ" + rowP, valueInputOption: "RAW", requestBody: { values: [[txt]] } });
@@ -17708,6 +17864,7 @@ module.exports = function (app) {
   // ficha (ahora la ficha de un CCPP es la misma esté en presupuestos o en
   // documentación; cambia solo lo que se pinta encima/debajo).
   app.locals.presupuestos = {
+    _scriptVecinoBot,   // v126: robotito de la caja Datos documentacion
     leerComunidades,
     buscarComunidadPorId,
     construirDatalists,

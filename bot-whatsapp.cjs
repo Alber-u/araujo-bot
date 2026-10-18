@@ -1501,6 +1501,14 @@ async function _leerBotCompartido(range) {
   const r = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range });
   return r.data.values || [];
 }
+// v126 -- el telefono es de algun piso de la pestana pisos (col A)?
+async function _telEnPisos(telefono) {
+  const telNorm = _telE164(telefono);
+  if (!telNorm) return false;
+  const pisos = await _leerBotCompartido("pisos!A:AV");
+  for (let i = 1; i < pisos.length; i++) { if (pisos[i] && _telE164(pisos[i][0] || "") === telNorm) return true; }
+  return false;
+}
 async function pisoActivoParaBot(telefono) {
   const telNorm = normalizarTelefono(telefono);
   // 1) piso por teléfono (col A): leer comunidad (B) y bot_piso_activo (AV = idx 47)
@@ -1661,15 +1669,39 @@ async function crearExpedienteInicial(telefono, datosVecino) {
 //   el WhatsApp de la empresa, que WhatsApp capa por "propaganda"). Solo con texto libre dentro de las 24 h
 //   desde el ultimo mensaje del vecino al bot (regla de WhatsApp); fuera de ese plazo devuelve error y en HOY
 //   el boton sale en rojo. Se apunta en bot_contactos con tipo "equipo" (no cuenta como mensaje del vecino).
+// v126 -- telefono con prefijo: desde la ficha llegan 9 cifras ("634-245-060") y WhatsApp necesita +34.
+function _telE164(x) { const n = normalizarTelefono(String(x || "")); return /^[6789]\d{8}$/.test(n) ? "+34" + n : n; }
 async function responderVecino(telefono, texto) {
-  const tel = normalizarTelefono(telefono), t = String(texto || "").trim();
+  const tel = _telE164(telefono), t = String(texto || "").trim();
   if (!tel || !t) return { ok: false, error: "faltan el telefono o el texto" };
   const rows = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:D" })).data.values || []);
   let ult = "";
-  for (const f of rows.slice(1)) { if (f && normalizarTelefono(f[1] || "") === tel && /^(texto|archivo)(_fase08)?$/.test(String(f[3] || "").trim()) && String(f[0] || "") > ult) ult = String(f[0]); }
+  const _k9 = tel.replace(/\D/g, "").slice(-9);
+  for (const f of rows.slice(1)) { if (f && String(f[1] || "").replace(/\D/g, "").slice(-9) === _k9 && /^(texto|archivo)(_fase08|_fuera)?$/.test(String(f[3] || "").trim()) && String(f[0] || "") > ult) ult = String(f[0]); }   // v126: _fuera = piso con el que el bot no trabaja
   if (!ult || (Date.now() - new Date(ult).getTime()) >= 24 * 3600 * 1000) return { ok: false, error: "han pasado mas de 24 h desde su ultimo mensaje al bot: usa el WhatsApp normal" };
   await enviarWhatsApp(tel, t);
   try { await guardarContacto(tel, "respuesta_equipo", "equipo", t); } catch (e) {}
+  return { ok: true };
+}
+// v126 (18/10/2026, criterio de Guille) -- avisos M1/M2/M3 de HOY POR EL BOT con las plantillas Twilio de
+//   Alberto (Utility, 5 variables: {{1}} nombre, {{2}} via y comunidad, {{3}} piso, {{4}} lo que falta,
+//   {{5}} fecha limite). Solo cuando Guille pulsa el boton. El codigo HX sale SOLO de bot_plantillas (clave =
+//   nombre de la plantilla en Twilio; se pega en Flujo bot), como el contrato_cycp: sin codigo, no se envia.
+const _AVISOS_M = ["plan5_recordatorio_m1", "plan5_recordatorio_prorroga", "plan5_aviso_vencido_doc", "plan5_aviso_vencido_cycp"];
+async function enviarAvisoM(telefono, clave, v) {
+  v = v || {};
+  if (!_AVISOS_M.includes(clave)) return { ok: false, error: "plantilla desconocida: " + clave };
+  await cargarPlantillas(true);
+  const sid = sidPlant(clave, null);
+  if (!sid) return { ok: false, error: "falta el c\u00f3digo Twilio de la plantilla " + clave + " (Flujo bot) o est\u00e1 desactivada" };
+  const tel = _telE164(telefono);
+  if (!tel) return { ok: false, error: "falta el telefono" };
+  const r = (x, def) => { x = String(x == null ? "" : x).replace(/\s+/g, " ").trim(); return x || def; };
+  const vars = { 1: r(v.nombre, "vecino/a"), 2: r(v.comunidad, "-"), 3: r(v.piso, "-"), 4: r(v.pendiente, "la documentaci\u00f3n de su vivienda"), 5: r(v.fecha, "-") };
+  await enviarWhatsAppPlantilla(tel, sid, vars);
+  const resumen = (v.etiqueta ? v.etiqueta + " por el bot" : "Aviso por el bot") + " (plantilla " + clave + "): falta " + vars[4] + "; fecha l\u00edmite " + vars[5];
+  try { await guardarContacto(tel, "aviso_m:" + clave, "bot", resumen); } catch (e) {}
+  try { await guardarAviso(tel, clave, "enviado"); } catch (e) {}
   return { ok: true };
 }
 async function reabrirSiFinalizado(o) {
@@ -4006,6 +4038,16 @@ app.post("/whatsapp", async (req, res) => {
     _modoBot = await modoBotTelefono(telefonoKey);
     req._modoBot = _modoBot;
     if (!_modoBot) {
+      // v126 (18/10/2026, criterio de Guille) -- si el telefono es de un piso (en M, o su comunidad fuera de la
+      //   05: el bot no trabaja con el), lo que escriba se GUARDA (bot_contactos, tipo texto_fuera /
+      //   archivo_fuera) para que a Guille le salga "Ha respondido" en HOY. El bot sigue sin contestar nada.
+      try {
+        if (await _telEnPisos(telefonoKey)) {
+          const _bodyF = String(req.body.Body || "").trim();
+          await guardarContacto(telefonoKey, _bodyF, numMedia > 0 ? "archivo_fuera" : "texto_fuera", "");
+          console.log("Filtro bot: piso no activo, mensaje guardado (Ha respondido):", telefonoKey);
+        }
+      } catch (eF) { console.error("Filtro bot: guardar mensaje fuera:", eF.message); }
       console.log("Filtro bot: piso no activo, ignorado:", telefonoKey);
       marcarProcesado(messageSid);
       const twimlOff = new twilio.twiml.MessagingResponse();
@@ -4730,6 +4772,7 @@ setTimeout(() => {
   app.locals.botWhatsapp = {
     reabrirSiFinalizado,   // v19.114
     responderVecino,       // v122
+    enviarAvisoM,          // v126
     salud: _saludBot,   // v19.96: para el aviso de sistema de HOY
     // v19.98 -- contratos por el bot en fase 08 (los usa documentacion.cjs, boton W)
     enviarContratoPiso,

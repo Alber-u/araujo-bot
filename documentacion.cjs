@@ -767,6 +767,21 @@ module.exports = function (app) {
       ? `<a class="ptl-vec-mail" href="#" data-mail="${esc(JSON.stringify(_mv))}" onclick="return window.__ptlMailVecino ? window.__ptlMailVecino(this, event) : false;" title="Enviar correo (${esc(_mv.fase === "05_DOC_VECINO" ? "documentaci\u00f3n" : "contrato y carta de pago")})" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle;${_hayMail ? "" : "display:none"}">${ICONO_MAIL}</a>`
       : "";
     const _waBtnV = (_mv && _hayMail && _waBtn) ? _waBtn.replace('style="', 'style="display:none;') : _waBtn;
+    // v126 (18/10/2026, criterio de Guille) -- robotito detras del WhatsApp blanco, como en HOY: abre la
+    //   conversacion del vecino con el bot. Verde: escribio hace menos de 24 h (se le puede contestar por el bot);
+    //   rojo: mas de 24 h (solo leer); gris: nunca ha escrito al bot (solo se ve lo que le mando el bot).
+    let _robotBtn = "";
+    if (!esCcpp && _wa) {
+      const _ub = opciones.ultBot;
+      const _ms = _ub ? (Date.now() - new Date(_ub).getTime()) : NaN;
+      const _okR = isFinite(_ms) && _ms < 24 * 3600 * 1000;
+      const _hR = isFinite(_ms) ? Math.floor(_ms / 3600000) : null;
+      const _colR = _okR ? "#1f9d55" : (_ub ? "#c0392b" : "#9aa0a6");
+      const _titR = _okR ? "Ver la conversaci\u00f3n y contestar por el bot (escribi\u00f3 hace " + _hR + " h)"
+        : (_ub ? "Ver la conversaci\u00f3n. Han pasado m\u00e1s de 24 h (" + _hR + " h): WhatsApp no deja contestar por el bot; usa otra v\u00eda."
+          : "Nunca ha escrito al bot: solo se ve lo que le ha mandado el bot (si le ha mandado algo).");
+      _robotBtn = `<button type="button" class="hoy-bot-resp ptl-vec-robot" data-ok="${_okR ? "1" : "0"}" data-tel="${esc(telefono || "")}" data-com="${esc(opciones.comRobot || "")}" data-viv="${esc(vivienda || "")}" data-nom="${esc(nombre || "")}" data-ayuda="0" title="${esc(_titR)}" style="border:0;border-radius:4px;padding:1px 3px;margin-left:3px;font-size:11px;line-height:1.2;cursor:pointer;color:#fff;vertical-align:middle;background:${_colR}">\uD83E\uDD16\uD83D\uDCAC</button>`;
+    }
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
       : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
@@ -790,7 +805,7 @@ module.exports = function (app) {
       ${celdaNombre}
       ${celdaNotas}
       ${celdaTelefono}
-      <td class="ptl-vec-wa-celda">${_waBtnV}${_mailBtn}</td>
+      <td class="ptl-vec-wa-celda">${_waBtnV}${_mailBtn}${_robotBtn}</td>
       <td class="ptl-vec-docs">${docsHtml}</td>
       <td class="ptl-vec-acciones ptl-vec-acciones-docs">${acciones}</td>
     </tr>
@@ -799,7 +814,7 @@ module.exports = function (app) {
     </tr>`;
   }
 
-  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias, mailVecino, histMails, avisoM3, azMap, msgIni05 }) {
+  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias, mailVecino, histMails, avisoM3, azMap, msgIni05, ultBot }) {
     const docsPisoCompletos = docsManuales.piso || [];
     const docsCcppCompletos = docsManuales.ccpp || [];
 
@@ -1076,6 +1091,9 @@ module.exports = function (app) {
         //   SIN el respaldo de la comunidad que usa _contactoDe: si este piso nunca
         //   pasó por el bot no debe salir fecha ninguna ("Contacto no iniciado").
         fechaBot: String(_cbp[String(p.vivienda || "").trim().toLowerCase()] || "").trim(),
+        // v126 -- robotito: comunidad (para el recuadro) y ultimo mensaje del vecino al bot
+        comRobot: comu.direccion || comu.comunidad || "",
+        ultBot: (ultBot || {})[String(p.telefono || "").replace(/\D/g, "").slice(-9)],
         globoHist: _globoPiso(p),   // v19.102: comunicaciones registradas de ese vecino
         // v19.98 -- fase 08: fecha del contrato enviado por el bot (globo del boton W)
         es08: _es08,
@@ -1282,7 +1300,7 @@ module.exports = function (app) {
         .ptl-vec-tabla .ptl-vec-acciones { white-space: nowrap; }
         /* v17.13 — Pegar Teléfono ↔ Docs ↔ acciones */
         .ptl-vec-tabla tbody td.ptl-vec-tlf-celda { padding-right: 0; }
-        .ptl-vec-tabla td.ptl-vec-wa-celda { text-align: center; padding: 0 2px; }
+        .ptl-vec-tabla td.ptl-vec-wa-celda { text-align: center; padding: 0 2px; white-space: nowrap; }   /* v126: WhatsApp y robotito en la misma linea */
         .ptl-vec-tabla td.ptl-vec-wa-celda .ptl-vec-wa { font-size: 15px; text-decoration: none; line-height: 1; }
         .ptl-vec-tabla tbody td.ptl-vec-docs { padding-left: 0; padding-right: 0; }
         /* v17.22 — Celda final de cada fila piso: 3 botones (⏰ ＋ ✕) en grid
@@ -1350,15 +1368,16 @@ module.exports = function (app) {
           <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-vec-btn-anadir-manual ptl-btn-uniforme">+ Añadir piso</button>
         </span>
       </div>
+      <script>${(app.locals.presupuestos && app.locals.presupuestos._scriptVecinoBot) ? app.locals.presupuestos._scriptVecinoBot(token) : ""}</script>   <!-- v126: robotito (recuadro de la conversacion) -->
       <table class="ptl-vec-tabla">
         <thead>
           <tr>
             <th style="width:76px">Piso</th>
             <th style="width:41px"></th>
-            <th>Nombre</th>
-            <th style="width:390px">Notas</th>
+            <th style="width:180px">Nombre</th>   <!-- v126: nombre mas estrecho; notas se lleva el resto -->
+            <th>Notas</th>
             <th style="width:85px">Teléfono</th>
-            <th style="width:30px"></th>
+            <th style="width:62px"></th>   <!-- v126: WhatsApp + robotito -->
             <th style="width:54px">Docs</th>
             <th style="width:64px"></th>
           </tr>
@@ -2285,7 +2304,7 @@ module.exports = function (app) {
             var _esW = !!(_swW && _swW.dataset.modo === 'BOT_WHATSAPP');
             var _enviarPres = false;
             if (ri && _esW && _telN && _telN !== _telO && !ES_FASE_08) {   // v19.98: en 08 no se manda la presentacion
-              _enviarPres = confirm('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?');
+              _enviarPres = await window.ptlConfirmarEnvio('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?');
               if (_enviarPres) fd.append('enviar_presentacion', '1');
             }
             try {
@@ -2564,13 +2583,13 @@ module.exports = function (app) {
             var que = SOLO_CONTRATO ? 'el contrato' : 'el contrato y la carta de pago';
             if (btn.dataset.modo === 'BOT_WHATSAPP') {
               var ya = btn.dataset.contratoBot ? ('Ya se le envi\u00f3 por el bot el ' + btn.dataset.contratoBot + '.\\n\\n') : '';
-              if (confirm(ya + '\u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?')) { await _enviarContrato08(btn); return; }
+              if (await window.ptlConfirmarEnvio(ya + '\u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?')) { await _enviarContrato08(btn); return; }
               if (!confirm('\u00bfPasar el ' + viv + ' a manual (M)? El bot dejar\u00e1 de atenderle.')) return;
               await _cambiarModoPiso08(btn, 'MANUAL');
               return;
             }
             if (!(await _cambiarModoPiso08(btn, 'BOT_WHATSAPP'))) return;
-            if (confirm('Piso activado para el bot. \u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?')) await _enviarContrato08(btn);
+            if (await window.ptlConfirmarEnvio('Piso activado para el bot. \u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?')) await _enviarContrato08(btn);
           }
           document.querySelectorAll('.ptl-bot-switch-piso').forEach(function(btn){
             btn.addEventListener('click', async function(){
@@ -2584,7 +2603,7 @@ module.exports = function (app) {
               var nuevo = esBot ? 'MANUAL' : 'BOT_WHATSAPP';
               btn.disabled = true;
               try {
-                var enviarPres = (nuevo === 'BOT_WHATSAPP') && confirm('Piso activado para el bot. ¿Enviar AHORA el mensaje de presentacion a este vecino por WhatsApp?');
+                var enviarPres = (nuevo === 'BOT_WHATSAPP') && await window.ptlConfirmarEnvio('Piso activado para el bot. ¿Enviar AHORA el mensaje de presentacion a este vecino por WhatsApp?');
                 var _params = { ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: btn.dataset.vivienda || '', modo: nuevo };
                 if (enviarPres) _params.enviar_presentacion = '1';
                 var body = new URLSearchParams(_params);
@@ -2790,6 +2809,18 @@ module.exports = function (app) {
         // v19.93 (criterio de Guille): ya NO se borran filas repetidas de bot_documentos; se quedan
         // todos los documentos que suba el vecino. La pastilla muestra la fila mas reciente.
         const botDatos = await leerBotDatos(comu).catch(() => ({ docsByPiso: {}, tipoByPiso: {}, descByPiso: {} }));
+        // v126 (18/10/2026, criterio de Guille) -- robotito de cada piso: ultimo mensaje del vecino al bot
+        //   (bot_contactos, texto/archivo) por telefono (ultimos 9 digitos); "" = nunca ha escrito.
+        const _ultBot = {};
+        try {
+          const _rcB = await getSheets().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:D" });
+          for (const f of ((_rcB.data.values || []).slice(1))) {
+            if (!f) continue;
+            const k = String(f[1] || "").replace(/\D/g, "").slice(-9); if (!k) continue;
+            if (!(k in _ultBot)) _ultBot[k] = "";
+            if (/^(texto|archivo)(_fase08|_fuera)?$/.test(String(f[3] || "").trim()) && String(f[0] || "") > _ultBot[k]) _ultBot[k] = String(f[0] || "");
+          }
+        } catch (eB) { console.warn("[documentacion] robotito bot_contactos:", eB.message); }
         const _msgWaM3 = await _leerMsgWaM3();   // v18.128 (hoy: M5, WhatsApp manual)
         const _msgWaM4 = await _leerMsgWaM4();   // v19.28 (envio CyCP, fase 08)
         const _msgIni05 = await _leerMsgIni05();   // v19.102 (inicio de documentacion por WhatsApp manual, fase 05)
@@ -2845,6 +2876,7 @@ module.exports = function (app) {
           msgIni05: _msgIni05,
           prorrogaDias: _prorrogaDias,
           comu, pisos, expedientes, docsManuales, estadosCcpp, esc: P.esc, fmtTlf, token, botDatos,
+          ultBot: _ultBot,   // v126
         });
       } catch (e) {
         console.warn("[documentacion] no se pudo construir cajita manual:", e.message);
