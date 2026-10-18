@@ -2642,6 +2642,41 @@ module.exports = function (app) {
     plan5_aviso_vencido_doc: ["plan5_aviso_vencido_doc", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M2 duro (fase 05, plazo vencido), por el bot al pulsar en HOY"],
     plan5_aviso_vencido_cycp: ["plan5_aviso_vencido_cycp", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M3 duro (fase 08, plazo vencido), por el bot al pulsar en HOY"],
   };
+  // v126 (18/10/2026, criterio de Guille: "guardalos para que no varien en el futuro") -- los avisos M que se
+  //   mandaron el 18/10 antes de guardar el texto entero (solo "falta ...; fecha limite ...") se completan UNA vez
+  //   con el texto de la plantilla de Twilio y los datos del vecino, y se guardan asi en bot_contactos col E
+  //   (marca "mig_avisos_m_v126"). Desde entonces el texto entero se guarda al enviar.
+  async function _migAvisosMV126() {
+    const sheets = getSheetsClient();
+    const pl = await leerPlantillasBot();
+    if (pl.some(x => x.clave === "mig_avisos_m_v126")) return { ok: true, hecho: "ya estaba" };
+    const _RE_M = /^(.*) por el bot \(plantilla (\S+)\): falta (.*); fecha l\u00edmite (.*)$/;
+    const t9 = (x) => String(x || "").replace(/\D/g, "").slice(-9);
+    const nk = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    const bc = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_contactos!A:E" })).data.values || [];
+    const pis = ((await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:E" })).data.values || []).slice(1);
+    const comus = await leerComunidades();
+    const textos = {};
+    const cambios = [];
+    for (let i = 1; i < bc.length; i++) {
+      const c = bc[i]; if (!c || !/^aviso_m:/.test(String(c[2] || ""))) continue;
+      const m = String(c[4] || "").match(_RE_M); if (!m) continue;
+      const f = pl.find(y => y.clave === m[2]); if (!f || !f.twilio_sid) continue;
+      if (textos[m[2]] === undefined) textos[m[2]] = await obtenerTextoTwilio(f.twilio_sid);
+      const tx = textos[m[2]]; if (!tx) continue;
+      const pp = pis.find(r => r && t9(r[0]) === t9(c[1])) || [];
+      const cc = comus.find(x => nk(x.direccion) === nk(pp[1]) || nk(x.comunidad) === nk(pp[1])) || {};
+      const vv = { 1: _p5NombreWa(String(pp[4] || "")) || "vecino/a", 2: ((cc.tipo_via ? cc.tipo_via + " " : "") + (cc.direccion || cc.comunidad || pp[1] || "")).trim(), 3: pp[2] || "-", 4: m[3], 5: m[4] };
+      const nuevo = m[1] + " por el bot (plantilla " + m[2] + ")\n\n" + String(tx).replace(/\{\{\s*(\d+)\s*\}\}/g, (mm, n) => (vv[n] != null ? String(vv[n]) : mm));
+      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_contactos!E" + (i + 1), valueInputOption: "RAW", requestBody: { values: [[nuevo]] } });
+      cambios.push(String(pp[1] || "") + " " + String(pp[2] || ""));
+    }
+    if (Object.values(textos).some(x => !x)) { console.error("[presupuestos] v126 avisos M: no se pudo leer alguna plantilla de Twilio; se reintentara al arrancar"); return { ok: false }; }
+    await guardarAjusteBot("mig_avisos_m_v126", new Date().toISOString().slice(0, 10) + " " + (cambios.join(", ") || "sin cambios"), false);
+    console.log("[presupuestos] v126 avisos M con su texto entero:", cambios.join(", ") || "ninguno");
+    return { ok: true, cambios };
+  }
+  setTimeout(() => { _migAvisosMV126().catch(e => console.error("[presupuestos] v126 avisos M texto entero:", e.message)); }, 50000);
   async function _migBotV19118() {
     const sheets = getSheetsClient();
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
@@ -17255,28 +17290,6 @@ module.exports = function (app) {
         }
         if (bot) items.push({ quien: "bot", fecha: f, texto: corto(bot, 220) });
       }
-      // v126 -- avisos M enviados antes de guardar el texto entero (solo "falta X; fecha limite Y"): se rehace el
-      //   texto con la plantilla de Twilio y los datos del vecino, para verlo tal cual se le envio.
-      try {
-        const _RE_M = /^(.*) por el bot \(plantilla (\S+)\): falta (.*); fecha l\u00edmite (.*)$/;
-        const viejos = items.filter(x => x.quien === "bot" && _RE_M.test(String(x.texto || "")));
-        if (viejos.length) {
-          const pis = ((await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:E" })).data.values || []).slice(1);
-          const pp = pis.find(r => r && t9(r[0]) === k) || [];
-          const comus = await leerComunidades();
-          const nk = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
-          const cc = comus.find(c => nk(c.direccion) === nk(pp[1]) || nk(c.comunidad) === nk(pp[1])) || {};
-          const pl = await leerPlantillasBot();
-          for (const x of viejos) {
-            const m = String(x.texto).match(_RE_M);
-            const f = pl.find(y => y.clave === m[2]);
-            const tx = f && f.twilio_sid ? await obtenerTextoTwilio(f.twilio_sid) : "";
-            if (!tx) continue;
-            const vv = { 1: _p5NombreWa(String(pp[4] || "")) || "vecino/a", 2: ((cc.tipo_via ? cc.tipo_via + " " : "") + (cc.direccion || cc.comunidad || pp[1] || "")).trim(), 3: pp[2] || "-", 4: m[3], 5: m[4] };
-            x.texto = m[1] + " por el bot (plantilla " + m[2] + ")\n\n" + String(tx).replace(/\{\{\s*(\d+)\s*\}\}/g, (mm, n) => (vv[n] != null ? String(vv[n]) : mm));
-          }
-        }
-      } catch (eV) { console.error("[presupuestos] conversacion avisos M antiguos:", eV.message); }
       // la presentacion sacada de la ficha va en su sitio por fecha (el resto ya viene en orden)
       const _pi = items.findIndex(x => x._t);
       if (_pi === 0 && items.length > 1) {
