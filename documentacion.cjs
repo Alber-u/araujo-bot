@@ -1300,7 +1300,7 @@ module.exports = function (app) {
         .ptl-vec-tabla .ptl-vec-acciones { white-space: nowrap; }
         /* v17.13 — Pegar Teléfono ↔ Docs ↔ acciones */
         .ptl-vec-tabla tbody td.ptl-vec-tlf-celda { padding-right: 0; }
-        .ptl-vec-tabla td.ptl-vec-wa-celda { text-align: center; padding: 0 2px; white-space: nowrap; }   /* v126: WhatsApp y robotito en la misma linea */
+        .ptl-vec-tabla td.ptl-vec-wa-celda { text-align: center; padding: 0 2px; white-space: nowrap; text-overflow: clip; }   /* v126: WhatsApp y robotito en la misma linea */
         .ptl-vec-tabla td.ptl-vec-wa-celda .ptl-vec-wa { font-size: 15px; text-decoration: none; line-height: 1; }
         .ptl-vec-tabla tbody td.ptl-vec-docs { padding-left: 0; padding-right: 0; }
         /* v17.22 — Celda final de cada fila piso: 3 botones (⏰ ＋ ✕) en grid
@@ -1377,7 +1377,7 @@ module.exports = function (app) {
             <th style="width:180px">Nombre</th>   <!-- v126: nombre mas estrecho; notas se lleva el resto -->
             <th>Notas</th>
             <th style="width:85px">Teléfono</th>
-            <th style="width:62px"></th>   <!-- v126: WhatsApp + robotito -->
+            <th style="width:84px"></th>   <!-- v126: WhatsApp + robotito -->
             <th style="width:54px">Docs</th>
             <th style="width:64px"></th>
           </tr>
