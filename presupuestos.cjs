@@ -539,8 +539,8 @@ module.exports = function (app) {
           // En HOY, al contestar un "Pide ayuda" o un "Ha respondido" se marca su check (y el aviso se va)
           var chk = (b.dataset.ayuda === '1' && fila) ? fila.querySelector('.hoy-bot-llamado') : null;
           if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); }
-          // contestado: deja de estar pendiente (azul -> verde)
-          b.dataset.pend = '0'; b.style.background = '#1f9d55'; b.title = 'Contestado. Puedes seguir escribiéndole por el bot (menos de 24 h).';
+          // contestado: ya no le espera nada (se quita el circulito)
+          b.dataset.pend = '0'; var pto = b.querySelector('.ptl-bot-pend'); if (pto) pto.remove(); b.title = 'Contestado. Puedes seguir escribiéndole por el bot (menos de 24 h).';
         } catch (e) { alert('No se ha enviado: ' + e.message); bs.disabled = false; bs.textContent = 'Enviar'; }
       });
     }
@@ -14330,9 +14330,9 @@ module.exports = function (app) {
         }
       } catch (e) {}
 
-      // v126 (18/10/2026, criterio de Guille) -- robotito AZUL = el vecino tiene algo sin contestar (un "Pide ayuda"
-      //   o un "Ha respondido" sin marcar), como el "mensaje nuevo" de WhatsApp. Verde: nada pendiente y dentro de
-      //   las 24 h; rojo: mas de 24 h y nada pendiente.
+      // v126 (18/10/2026, criterio de Guille) -- el COLOR del robotito dice si se le puede hablar por el bot (verde < 24 h,
+      //   rojo > 24 h) y un CIRCULITO amarillo en la esquina, que te espera una respuesta (un "Pide ayuda" o un "Ha
+      //   respondido" sin marcar), como el numerito de mensajes sin leer de WhatsApp. Se quita al contestar o al marcar.
       const _pendTel = new Set(_avisosArr.filter(a => a.tipo === "ayuda" || a.tipo === "respondido").map(a => String(a.telefono || "").replace(/\D/g, "").slice(-9)).filter(Boolean));
       const renderAviso = (p) => {
         const _ccpp = _ccppPorDir[_normComu(p.comunidad)] || "";
@@ -14396,9 +14396,11 @@ module.exports = function (app) {
         const _mailHtml = (p.mailFase && _ccpp)
           ? `<a href="${_esc(urlT(token, "/documentacion/expediente", { id: _ccpp, mailaviso: p.mailFase, piso: p.vivienda || "" }) + "#piso-" + encodeURIComponent(p.vivienda || ""))}" class="hoy-aviso-mail" title="Abrir el correo de recordatorio ya escrito" style="flex:0 0 auto;text-decoration:none;font-size:14px;line-height:1">${ICONO_MAIL}</a>`
           : "";
-        // v126 -- aviso M por el bot: boton azul en vez del blanco
+        // v126 -- aviso M por el bot: el mismo robotito, en VERDE (criterio de Guille: el color dice si se le puede
+        //   escribir por WhatsApp, y con un M pendiente si se puede: va con plantilla). Abre la ventana de envio con
+        //   la conversacion. Circulito amarillo si ademas le espera una respuesta tuya.
         const _mBotHtml = p.botM
-          ? `<button type="button" class="hoy-m-bot" data-tel="${_esc(p.telefono || "")}" data-clave="${_esc(p.botM.clave)}" data-etq="${_esc(p.botM.etiqueta)}" data-nom="${_esc(p.botM.nombre)}" data-com="${_esc(p.botM.comunidad)}" data-piso="${_esc(p.botM.piso)}" data-pend="${_esc(p.botM.pendiente)}" data-fecha="${_esc(p.botM.fecha)}" title="${_esc("Enviar por el bot: " + p.botM.etiqueta + " (plantilla " + p.botM.clave + ")")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;background:#2b7de9">\uD83E\uDD16\uD83D\uDCAC</button>`   /* v126: mismo robotito que en la ficha (WhatsApp por el bot) */
+          ? `<button type="button" class="hoy-m-bot" data-tel="${_esc(p.telefono || "")}" data-clave="${_esc(p.botM.clave)}" data-etq="${_esc(p.botM.etiqueta)}" data-nom="${_esc(p.botM.nombre)}" data-com="${_esc(p.botM.comunidad)}" data-piso="${_esc(p.botM.piso)}" data-pend="${_esc(p.botM.pendiente)}" data-fecha="${_esc(p.botM.fecha)}" title="${_esc("Enviar por el bot: " + p.botM.etiqueta + " (plantilla " + p.botM.clave + ")")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;position:relative;background:#1f9d55">\uD83E\uDD16\uD83D\uDCAC${_pendTel.has(String(p.telefono || "").replace(/\D/g, "").slice(-9)) ? `<span class="ptl-bot-pend" style="position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:50%;background:#f5c518;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span>` : ""}</button>`   /* v126: mismo robotito que en la ficha (WhatsApp por el bot) */
           : "";
         const _waHtml = _mailHtml ? _mailHtml : _mBotHtml ? _mBotHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}"${p.registra ? ` class="hoy-wa-registra" data-reg="${_esc(p.registra)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}"` : ""} onclick="if(this.classList.contains('hoy-wa-registra')&&window.__hoyRegistraWa)window.__hoyRegistraWa(this);var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
@@ -14410,8 +14412,8 @@ module.exports = function (app) {
           const _uMs = _ut ? (Date.now() - new Date(_ut).getTime()) : Infinity;
           const _ok24 = isFinite(_uMs) && _uMs < 24 * 3600 * 1000;
           const _horas = isFinite(_uMs) ? Math.floor(_uMs / 3600000) : null;
-          const _pend = _pendTel.has(_uk);   // v126: azul
-          _botRespHtml = `<button type="button" class="hoy-bot-resp" data-ok="${_ok24 ? "1" : "0"}" data-pend="${_pend ? "1" : "0"}" data-tel="${_esc(p.telefono)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-nom="${_esc(p.nombre || "")}" data-ayuda="${(p.tipo === "ayuda" || p.tipo === "respondido") ? "1" : "0"}" title="${(_pend ? "SIN CONTESTAR \u00b7 " : "") + (_ok24 ? "Contestar por el bot (escribi\u00f3 hace " + _horas + " h)" : "Han pasado m\u00e1s de 24 h" + (_horas !== null ? " (" + _horas + " h)" : "") + ": WhatsApp no deja contestar por el bot. Usa otra v\u00eda.")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;background:${_pend ? "#2b7de9" : (_ok24 ? "#1f9d55" : "#c0392b")}">\uD83E\uDD16\uD83D\uDCAC</button>`;
+          const _pend = _pendTel.has(_uk);   // v126: circulito de "te espera una respuesta"
+          _botRespHtml = `<button type="button" class="hoy-bot-resp" data-ok="${_ok24 ? "1" : "0"}" data-pend="${_pend ? "1" : "0"}" data-tel="${_esc(p.telefono)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-nom="${_esc(p.nombre || "")}" data-ayuda="${(p.tipo === "ayuda" || p.tipo === "respondido") ? "1" : "0"}" title="${(_pend ? "TE ESPERA UNA RESPUESTA \u00b7 " : "") + (_ok24 ? "Contestar por el bot (escribi\u00f3 hace " + _horas + " h)" : "Han pasado m\u00e1s de 24 h" + (_horas !== null ? " (" + _horas + " h)" : "") + ": WhatsApp no deja contestar por el bot. Usa otra v\u00eda.")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;position:relative;background:${_ok24 ? "#1f9d55" : "#c0392b"}">\uD83E\uDD16\uD83D\uDCAC${_pend ? `<span class="ptl-bot-pend" style="position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:50%;background:#f5c518;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span>` : ""}</button>`;
         }
         // v19.103 -- plantilla que falta o esta desactivada: no se ofrece ningun texto alternativo
         if (p.falta) _badge += `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto;width:auto" title="Cr\u00e9ala o act\u00edvala (Plantillas mail o Flujo bot) y recarga">\u26A0 Falta la plantilla ${_esc(p.falta)} o est\u00e1 desactivada</span>`;
