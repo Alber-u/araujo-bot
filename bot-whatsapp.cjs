@@ -1699,7 +1699,8 @@ async function enviarAvisoM(telefono, clave, v) {
   const r = (x, def) => { x = String(x == null ? "" : x).replace(/\s+/g, " ").trim(); return x || def; };
   const vars = { 1: r(v.nombre, "vecino/a"), 2: r(v.comunidad, "-"), 3: r(v.piso, "-"), 4: r(v.pendiente, "la documentaci\u00f3n de su vivienda"), 5: r(v.fecha, "-") };
   await enviarWhatsAppPlantilla(tel, sid, vars);
-  const resumen = (v.etiqueta ? v.etiqueta + " por el bot" : "Aviso por el bot") + " (plantilla " + clave + "): falta " + vars[4] + "; fecha l\u00edmite " + vars[5];
+  const resumen = (v.etiqueta ? v.etiqueta + " por el bot" : "Aviso por el bot") + " (plantilla " + clave + ")"
+    + (v.textoCompleto ? "\n\n" + String(v.textoCompleto).trim() : ": falta " + vars[4] + "; fecha l\u00edmite " + vars[5]);   // v126: el texto entero que se envio
   try { await guardarContacto(tel, "aviso_m:" + clave, "bot", resumen); } catch (e) {}
   try { await guardarAviso(tel, clave, "enviado"); } catch (e) {}
   return { ok: true };

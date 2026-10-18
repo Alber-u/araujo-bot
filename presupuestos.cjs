@@ -17236,7 +17236,7 @@ module.exports = function (app) {
         const f = fmt(c[0]), tipo = String(c[3] || "").trim(), cli = String(c[2] || "").trim(), bot = String(c[4] || "").trim();
         if (tipo === "equipo") { items.push({ quien: "equipo", fecha: f, texto: bot }); continue; }
         if (tipo === "bot") {
-          const txt = cli === "job_presentacion" ? "Reenv\u00edo de la presentaci\u00f3n" : cli === "presentacion" ? "Presentaci\u00f3n del bot" : (cli === "job_proactivo" ? "Recordatorio autom\u00e1tico de lo que le falta" : corto(bot, 220));
+          const txt = /^aviso_m:/.test(cli) ? bot : cli === "job_presentacion" ? "Reenv\u00edo de la presentaci\u00f3n" : cli === "presentacion" ? "Presentaci\u00f3n del bot" : (cli === "job_proactivo" ? "Recordatorio autom\u00e1tico de lo que le falta" : corto(bot, 220));
           items.push({ quien: "bot", fecha: f, texto: txt }); continue;
         }
         if (tipo === "archivo_fuera") {   // v126: piso con el que el bot no trabaja: el archivo no se guarda
@@ -17255,6 +17255,28 @@ module.exports = function (app) {
         }
         if (bot) items.push({ quien: "bot", fecha: f, texto: corto(bot, 220) });
       }
+      // v126 -- avisos M enviados antes de guardar el texto entero (solo "falta X; fecha limite Y"): se rehace el
+      //   texto con la plantilla de Twilio y los datos del vecino, para verlo tal cual se le envio.
+      try {
+        const _RE_M = /^(.*) por el bot \(plantilla (\S+)\): falta (.*); fecha l\u00edmite (.*)$/;
+        const viejos = items.filter(x => x.quien === "bot" && _RE_M.test(String(x.texto || "")));
+        if (viejos.length) {
+          const pis = ((await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:E" })).data.values || []).slice(1);
+          const pp = pis.find(r => r && t9(r[0]) === k) || [];
+          const comus = await leerComunidades();
+          const nk = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+          const cc = comus.find(c => nk(c.direccion) === nk(pp[1]) || nk(c.comunidad) === nk(pp[1])) || {};
+          const pl = await leerPlantillasBot();
+          for (const x of viejos) {
+            const m = String(x.texto).match(_RE_M);
+            const f = pl.find(y => y.clave === m[2]);
+            const tx = f && f.twilio_sid ? await obtenerTextoTwilio(f.twilio_sid) : "";
+            if (!tx) continue;
+            const vv = { 1: _p5NombreWa(String(pp[4] || "")) || "vecino/a", 2: ((cc.tipo_via ? cc.tipo_via + " " : "") + (cc.direccion || cc.comunidad || pp[1] || "")).trim(), 3: pp[2] || "-", 4: m[3], 5: m[4] };
+            x.texto = m[1] + " por el bot (plantilla " + m[2] + ")\n\n" + String(tx).replace(/\{\{\s*(\d+)\s*\}\}/g, (mm, n) => (vv[n] != null ? String(vv[n]) : mm));
+          }
+        }
+      } catch (eV) { console.error("[presupuestos] conversacion avisos M antiguos:", eV.message); }
       // la presentacion sacada de la ficha va en su sitio por fecha (el resto ya viene en orden)
       const _pi = items.findIndex(x => x._t);
       if (_pi === 0 && items.length > 1) {
@@ -17340,7 +17362,16 @@ module.exports = function (app) {
       const b = req.body || {};
       const dest = String(b.tel || "");
       if (dest.replace(/\D/g, "").length < 9) return res.status(400).json({ ok: false, error: "el vecino no tiene tel\u00e9fono" });
-      const r = await bot.enviarAvisoM(dest, String(b.clave || ""), { nombre: b.nombre, comunidad: b.comunidad, piso: b.piso, pendiente: b.pendiente, fecha: b.fecha, etiqueta: String(b.etiqueta || "") });
+      // v126 (criterio de Guille: "saber lo que se le envio exactamente") -- el texto entero de la plantilla con sus
+      //   datos se guarda con el envio, para verlo tal cual en la conversacion
+      let textoCompleto = "";
+      try {
+        const f = (await leerPlantillasBot()).find(x => x.clave === String(b.clave || ""));
+        const tx = f && f.twilio_sid ? await obtenerTextoTwilio(f.twilio_sid) : "";
+        const vv = { 1: b.nombre || "vecino/a", 2: b.comunidad || "-", 3: b.piso || "-", 4: b.pendiente || "la documentaci\u00f3n de su vivienda", 5: b.fecha || "-" };
+        if (tx) textoCompleto = String(tx).replace(/\{\{\s*(\d+)\s*\}\}/g, (m, n) => (vv[n] != null ? String(vv[n]) : m));
+      } catch (eT) {}
+      const r = await bot.enviarAvisoM(dest, String(b.clave || ""), { nombre: b.nombre, comunidad: b.comunidad, piso: b.piso, pendiente: b.pendiente, fecha: b.fecha, etiqueta: String(b.etiqueta || ""), textoCompleto });
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
       res.json({ ok: true });
     } catch (e) {
