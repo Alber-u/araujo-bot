@@ -1845,7 +1845,20 @@ module.exports = function (app) {
             if(dp){ dp.pisoTipo=valor; var cont=filaAcord.querySelector('.ptl-vec-acordeon-cont'); if(cont) renderAcordeonBot(cont,dp); }
             refrescarContadores();
             var fd=new URLSearchParams(); fd.append('ccpp_clave',direccion); fd.append('vivienda',sel.dataset.vivienda||''); fd.append('tipo',valor); if(token) fd.append('token',token);
-            fetch('/documentacion/piso/tipo',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()}).then(function(r){return r.json();}).then(function(d){ if(!d.ok) alert('No se pudo guardar el tipo: '+(d.error||'')); }).catch(function(e){ alert('Error: '+e.message); });
+            fetch('/documentacion/piso/tipo',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()}).then(function(r){return r.json();}).then(async function(d){
+              if(!d.ok){ alert('No se pudo guardar el tipo: '+(d.error||'')); return; }
+              // v126 -- el bot ha pasado al tipo nuevo: ofrecer avisar al vecino de lo que le falta (ventana comun Cancelar / Enviar)
+              var b=d.bot; if(!b||!b.cambiado) return;
+              var viv=sel.dataset.vivienda||'';
+              var txt='Tipo cambiado a '+String(b.tipo||'').toUpperCase()+' tambi\u00e9n en el bot (antes '+(b.antes||'-')+').'
+                + (b.pendientes&&b.pendientes.length ? '\\n\\nAhora le falta:\\n\u2022 '+b.pendientes.join('\\n\u2022 ') : '\\n\\nNo le falta nada obligatorio.')
+                + '\\n\\n\u00bfEnviar AHORA por el bot al '+viv+' lo que le falta?';
+              if(!(await window.ptlConfirmarEnvio(txt,'Enviar por el bot',{tel:b.tel||''}))) return;
+              var fa=new URLSearchParams(); fa.append('ccpp_clave',direccion); fa.append('vivienda',viv); if(token) fa.append('token',token);
+              var r2=await fetch('/documentacion/piso/tipo-aviso',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fa.toString()});
+              var d2=await r2.json().catch(function(){return {};});
+              alert(d2.ok ? 'Enviado por el bot.' : 'No se ha enviado: '+(d2.error||r2.status));
+            }).catch(function(e){ alert('Error: '+e.message); });
           });
           try{ refrescarContadores(); }catch(e){}
           // ===== fin acordeón bot =====
@@ -3445,10 +3458,38 @@ module.exports = function (app) {
       }
       if (rowIndex < 0) return res.status(404).json({ error: "Piso no encontrado: " + vivienda });
       await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "pisos!AW" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[tipo]] } });
-      res.json({ ok: true });
+      // v126 (18/10/2026, criterio de Guille) -- el bot pasa al mismo tipo y recalcula lo que le falta al vecino
+      let botRes = null;
+      try {
+        const bot = app.locals.botWhatsapp;
+        if (bot && typeof bot.cambiarTipoVecino === "function") botRes = await bot.cambiarTipoVecino({ comunidad: (rows[rowIndex - 1] || [])[1] || comu.direccion || comu.comunidad, vivienda, tipo });
+      } catch (eB) { console.error("[documentacion] piso/tipo -> bot:", eB.message); botRes = { ok: false, error: eB.message }; }
+      res.json({ ok: true, bot: botRes });
     } catch (e) {
       console.error("[documentacion] piso/tipo:", e.message);
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ----- POST /documentacion/piso/tipo-aviso (v126) -- avisa al vecino por el bot de lo que le falta tras cambiar el tipo -----
+  app.post("/documentacion/piso/tipo-aviso", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const P = app.locals.presupuestos;
+    try {
+      const ccppClave = (req.body.ccpp_clave || "").trim(), vivienda = (req.body.vivienda || "").trim();
+      const comunidades = await P.leerComunidades();
+      const comu = comunidades.find(c => mismaDireccion(c.direccion, ccppClave) || mismaDireccion(c.comunidad, ccppClave));
+      if (!comu) return res.status(404).json({ ok: false, error: "CCPP no encontrado" });
+      const rows = (await getSheets().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:C" })).data.values || [];
+      const fila = rows.find(r => r && (mismaDireccion(r[1] || "", comu.comunidad) || mismaDireccion(r[1] || "", comu.direccion)) && String(r[2] || "").trim() === vivienda);
+      const bot = app.locals.botWhatsapp;
+      if (!bot || typeof bot.avisarCambioTipo !== "function") return res.status(500).json({ ok: false, error: "bot no disponible" });
+      const r = await bot.avisarCambioTipo({ comunidad: (fila && fila[1]) || comu.direccion || comu.comunidad, vivienda });
+      if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[documentacion] piso/tipo-aviso:", e.message);
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 

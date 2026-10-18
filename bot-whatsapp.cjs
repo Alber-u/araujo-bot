@@ -1704,6 +1704,58 @@ async function enviarAvisoM(telefono, clave, v) {
   try { await guardarAviso(tel, clave, "enviado"); } catch (e) {}
   return { ok: true };
 }
+// v126 (18/10/2026, criterio de Guille: "quiero poder cambiar yo el tipo y que se actualice lo que necesita") --
+//   Guille cambia el tipo del piso en la ficha (desplegable del acordeon) y, si el vecino tiene ficha del bot, el
+//   bot pasa a ese tipo: recalcula lo que le falta con lo ya recibido (no se vuelve a pedir nada) y sigue con el
+//   siguiente documento. No le escribe: el aviso al vecino es aparte (avisarCambioTipo, al pulsar Enviar).
+async function _fichaDePiso(o) {
+  const n = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  const rp = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:C" });
+  let tel = "";
+  for (const r of (rp.data.values || []).slice(1)) { if (r && n(r[1]) === n(o.comunidad) && n(r[2]) === n(o.vivienda)) { tel = normalizarTelefono(r[0] || ""); break; } }
+  if (!tel) return null;
+  const exp = await buscarExpedientePorTelefono(tel);
+  if (!exp || n(exp.comunidad) !== n(o.comunidad) || n(exp.vivienda) !== n(o.vivienda)) return null;
+  return { tel, exp };
+}
+async function cambiarTipoVecino(o) {
+  const tipo = String(o.tipo || "").trim().toLowerCase();
+  if (!FLOWS[tipo]) return { ok: false, motivo: "tipo_sin_flujo" };   // vacio o disidente: el bot no cambia
+  const f = await _fichaDePiso(o);
+  if (!f) return { ok: false, motivo: "sin_ficha" };
+  let exp = f.exp;
+  if (String(exp.tipo_expediente || "") === tipo) return { ok: true, cambiado: false, tel: f.tel };
+  const rowIndex = exp.rowIndex, antes = exp.tipo_expediente || "", pasoAntes = exp.paso_actual, docAntes = exp.documento_actual, estAntes = exp.estado_expediente;
+  exp.tipo_expediente = tipo;
+  if (exp.paso_actual !== "recogida_financiacion") exp.paso_actual = "recogida_documentacion";
+  exp = await resolverEstadoConversacional(exp);
+  // con la documentacion base completa en el tipo nuevo, si ya habia pasado la pregunta de financiacion, se queda donde estaba
+  if (exp.paso_actual === "pregunta_financiacion" && (pasoAntes === "finalizado" || pasoAntes === "recogida_financiacion")) {
+    exp.paso_actual = pasoAntes; exp.documento_actual = docAntes; exp.estado_expediente = estAntes;
+  }
+  exp.rowIndex = rowIndex;
+  exp = refrescarResumenDocumental(exp);
+  await recalcularYActualizarTodo(exp);
+  console.log("[bot] tipo cambiado por Guille:", f.tel, o.comunidad, o.vivienda, antes, "->", tipo, "| siguiente:", exp.documento_actual);
+  return { ok: true, cambiado: true, tel: f.tel, antes, tipo, paso: exp.paso_actual, siguiente: exp.documento_actual ? labelDocumento(exp.documento_actual) : "",
+    pendientes: splitList(exp.documentos_pendientes).map((d) => labelDocumento(d)) };
+}
+// Aviso al vecino de lo que le falta tras el cambio de tipo: plantilla Twilio "recordatorio" (vale dentro y fuera de las 24 h).
+async function avisarCambioTipo(o) {
+  await cargarPlantillas();
+  const f = await _fichaDePiso(o);
+  if (!f) return { ok: false, error: "el vecino no tiene ficha del bot" };
+  const exp = f.exp;
+  const _pend = splitList(exp.documentos_pendientes);
+  if (!_pend.length && !exp.documento_actual) return { ok: false, error: "no le falta nada" };
+  const _lista = _pend.map((d) => labelDocumento(d)).join(" \u00b7 ") || labelDocumento(exp.documento_actual);
+  const sid = sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7");
+  if (!sid) return { ok: false, error: "la plantilla Twilio recordatorio est\u00e1 desactivada" };
+  await enviarWhatsAppPlantilla(f.tel, sid, { "1": limpiarNombreVecino(exp.nombre), "2": (exp.comunidad || "") + (exp.vivienda ? " " + exp.vivienda : ""), "3": _lista });
+  try { await guardarAviso(f.tel, "cambio_tipo", "enviado"); } catch (e) {}
+  try { await guardarContacto(f.tel, "cambio_tipo", "bot", "Tipo cambiado a " + (exp.tipo_expediente || "") + ". Le falta: " + _lista); } catch (e) {}
+  return { ok: true };
+}
 async function reabrirSiFinalizado(o) {
   await cargarPlantillas();   // v19.119
   const n = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -4774,6 +4826,8 @@ setTimeout(() => {
     reabrirSiFinalizado,   // v19.114
     responderVecino,       // v122
     enviarAvisoM,          // v126
+    cambiarTipoVecino,     // v126
+    avisarCambioTipo,      // v126
     salud: _saludBot,   // v19.96: para el aviso de sistema de HOY
     // v19.98 -- contratos por el bot en fase 08 (los usa documentacion.cjs, boton W)
     enviarContratoPiso,
