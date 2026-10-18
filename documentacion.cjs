@@ -770,19 +770,19 @@ module.exports = function (app) {
     // v126 (18/10/2026, criterio de Guille) -- robotito detras del WhatsApp blanco, como en HOY: abre la
     //   conversacion del vecino con el bot. Verde: escribio hace menos de 24 h (se le puede contestar por el bot);
     //   rojo: mas de 24 h (solo leer); gris: nunca ha escrito al bot (solo se ve lo que le mando el bot).
-    //   Circulito amarillo en la esquina: le espera una respuesta tuya (Pide ayuda o Ha respondido sin marcar).
+    //   Circulito azul en la esquina: le espera una respuesta tuya (Pide ayuda o Ha respondido sin marcar).
     let _robotBtn = "";
     if (!esCcpp && _wa) {
       const _ub = opciones.ultBot;
       const _ms = _ub ? (Date.now() - new Date(_ub).getTime()) : NaN;
       const _okR = isFinite(_ms) && _ms < 24 * 3600 * 1000;
       const _hR = isFinite(_ms) ? Math.floor(_ms / 3600000) : null;
-      const _pendR = !!opciones.pendBot;   // v126: circulito amarillo = te espera una respuesta
+      const _pendR = !!opciones.pendBot;   // v126: circulito azul = te espera una respuesta
       const _colR = _okR ? "#1f9d55" : (_ub ? "#c0392b" : "#9aa0a6");
       const _titR = (_pendR ? "TE ESPERA UNA RESPUESTA \u00b7 " : "") + (_okR ? "Ver la conversaci\u00f3n y contestar por el bot (escribi\u00f3 hace " + _hR + " h)"
         : (_ub ? "Ver la conversaci\u00f3n. Han pasado m\u00e1s de 24 h (" + _hR + " h): WhatsApp no deja contestar por el bot; usa otra v\u00eda."
           : "Nunca ha escrito al bot: solo se ve lo que le ha mandado el bot (si le ha mandado algo)."));
-      _robotBtn = `<button type="button" class="hoy-bot-resp ptl-vec-robot" data-ok="${_okR ? "1" : "0"}" data-pend="${_pendR ? "1" : "0"}" data-tel="${esc(telefono || "")}" data-com="${esc(opciones.comRobot || "")}" data-viv="${esc(vivienda || "")}" data-nom="${esc(nombre || "")}" data-ayuda="0" title="${esc(_titR)}" style="border:0;border-radius:4px;padding:1px 3px;margin-left:3px;font-size:11px;line-height:1.2;cursor:pointer;color:#fff;vertical-align:middle;position:relative;background:${_colR}">\uD83E\uDD16\uD83D\uDCAC${_pendR ? `<span class="ptl-bot-pend" style="position:absolute;top:-3px;right:-4px;width:9px;height:9px;border-radius:50%;background:#f5c518;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span>` : ""}</button>`;
+      _robotBtn = `<button type="button" class="hoy-bot-resp ptl-vec-robot" data-ok="${_okR ? "1" : "0"}" data-pend="${_pendR ? "1" : "0"}" data-tel="${esc(telefono || "")}" data-com="${esc(opciones.comRobot || "")}" data-viv="${esc(vivienda || "")}" data-nom="${esc(nombre || "")}" data-ayuda="0" title="${esc(_titR)}" style="border:0;border-radius:4px;padding:1px 3px;margin-left:3px;font-size:11px;line-height:1.2;cursor:pointer;color:#fff;vertical-align:middle;position:relative;background:${_colR}">\uD83E\uDD16\uD83D\uDCAC${_pendR ? `<span class="ptl-bot-pend" style="position:absolute;top:-3px;right:-4px;width:9px;height:9px;border-radius:50%;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span>` : ""}</button>`;
     }
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
@@ -1096,7 +1096,7 @@ module.exports = function (app) {
         // v126 -- robotito: comunidad (para el recuadro) y ultimo mensaje del vecino al bot
         comRobot: comu.direccion || comu.comunidad || "",
         ultBot: (ultBot || {})[String(p.telefono || "").replace(/\D/g, "").slice(-9)],
-        // v126 -- circulito amarillo: algo sin contestar (Pide ayuda sin marcar, o "Ha respondido" posterior a su marca R de la col AZ)
+        // v126 -- circulito azul: algo sin contestar (Pide ayuda sin marcar, o "Ha respondido" posterior a su marca R de la col AZ)
         pendBot: (() => {
           const k9 = String(p.telefono || "").replace(/\D/g, "").slice(-9); if (!k9) return false;
           if ((ayudaPend || {})[k9]) return true;
