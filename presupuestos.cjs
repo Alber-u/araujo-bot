@@ -14221,6 +14221,7 @@ module.exports = function (app) {
           <style>
             /* v123 (17/10/2026, criterio de Guille): los avisos, en la mitad derecha, alineados y en un renglon; entero al pasar el raton */
             .hoy-av-badges>.ptl-fila-badge{white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:100%;flex:0 1 auto}
+            .hoy-exp-fila:has(.hoy-bot-resp) .hoy-av-badges{cursor:pointer}
           </style>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div class="ptl-card-title ptl-m0">🔔 Avisos (${_avisosArr.length + _avSis.length})</div>
@@ -15741,23 +15742,52 @@ module.exports = function (app) {
             // v123 -- cada aviso en un renglon: el texto entero al pasar el raton (si no lo trae ya)
             document.querySelectorAll('.hoy-av-badges > .ptl-fila-badge').forEach(function(b){ if (!b.title) b.title = (b.textContent || '').replace(/\\s+/g, ' ').trim(); });
             // v122 -- contestar al vecino POR EL BOT desde una tarjeta de Avisos (boton verde/rojo junto al blanco).
-            document.addEventListener('click', function(ev){
-              var b = ev.target.closest && ev.target.closest('.hoy-bot-resp'); if (!b) return;
-              ev.preventDefault();
-              if (b.dataset.ok !== '1') { alert(b.title); return; }
+            // v125 (18/10/2026, criterio de Guille) -- el recuadro ensena antes LA CONVERSACION con ese vecino (lo que
+            //   escribio al bot, lo que le contesto el bot y lo que le contestaste desde HOY); se abre tambien al pulsar
+            //   el texto del aviso. En rojo se puede leer pero no enviar (hay que usar el WhatsApp blanco).
+            async function _hoyConversacion(b, cont) {
+              cont.textContent = 'Cargando la conversación...';
+              try {
+                var r = await fetch('${urlT(token, "/presupuestos/hoy/conversacion")}' + '&tel=' + encodeURIComponent(b.dataset.tel || ''));
+                var d = await r.json();
+                if (!d || !d.ok) { cont.textContent = 'No se pudo leer la conversación.'; return; }
+                cont.innerHTML = '';
+                if (!d.items.length) { cont.textContent = 'No hay mensajes con el bot.'; return; }
+                d.items.forEach(function(it){
+                  var w = document.createElement('div');
+                  w.style.cssText = 'display:flex;margin:4px 0;justify-content:' + (it.quien === 'vecino' ? 'flex-start' : 'flex-end');
+                  var g = document.createElement('div');
+                  g.style.cssText = 'max-width:82%;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.3;white-space:pre-wrap;word-break:break-word;background:' + (it.quien === 'vecino' ? '#f1efe8' : (it.quien === 'equipo' ? '#d6f0df' : '#e6f1fb'));
+                  var h = document.createElement('div'); h.style.cssText = 'font-size:10px;color:#666;margin-bottom:2px;font-weight:600';
+                  h.textContent = (it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde HOY)' : 'Bot')) + ' · ' + (it.fecha || '');
+                  var t = document.createElement('div'); t.textContent = it.texto || '';
+                  g.appendChild(h); g.appendChild(t); w.appendChild(g); cont.appendChild(w);
+                });
+                cont.scrollTop = cont.scrollHeight;
+              } catch (e) { cont.textContent = 'No se pudo leer la conversación: ' + e.message; }
+            }
+            function _hoyAbrirVecino(b) {
+              var ok = b.dataset.ok === '1';
               var fila = b.closest('.hoy-exp-fila');
               var fondo = document.createElement('div');
               fondo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
-              fondo.innerHTML = '<div style="background:#fff;color:#111;border-radius:10px;padding:14px;width:min(520px,92vw);box-shadow:0 8px 30px rgba(0,0,0,.3)">'
-                + '<div style="font-weight:700;font-size:14px;margin-bottom:4px">Contestar por el bot</div>'
-                + '<div style="font-size:12px;color:#555;margin-bottom:8px"></div>'
-                + '<textarea rows="6" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px"></textarea>'
-                + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-x="1">Cancelar</button><button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-s="1">Enviar</button></div></div>';
-              fondo.querySelector('div > div:nth-child(2)').textContent = (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + ' \u00b7 ' + (b.dataset.nom || '') + ' \u00b7 sale del n\u00famero del bot';
+              fondo.innerHTML = '<div style="background:#fff;color:#111;border-radius:10px;padding:14px;width:min(620px,94vw);box-shadow:0 8px 30px rgba(0,0,0,.3)">'
+                + '<div style="font-weight:700;font-size:14px;margin-bottom:2px">' + (ok ? 'Contestar por el bot' : 'Conversación con el vecino') + '</div>'
+                + '<div data-sub="1" style="font-size:12px;color:#555;margin-bottom:8px"></div>'
+                + '<div data-conv="1" style="max-height:320px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
+                + (ok ? '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
+                      : '<div data-rojo="1" style="font-size:12px;color:#a32d2d;font-weight:600"></div>')
+                + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-x="1">' + (ok ? 'Cancelar' : 'Cerrar') + '</button>'
+                + (ok ? '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-s="1">Enviar</button>' : '') + '</div></div>';
+              fondo.querySelector('[data-sub]').textContent = (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + ' · ' + (b.dataset.nom || '');
+              if (!ok) fondo.querySelector('[data-rojo]').textContent = b.title || '';
               document.body.appendChild(fondo);
-              var ta = fondo.querySelector('textarea'); setTimeout(function(){ ta.focus(); }, 30);
               var cerrar = function(){ fondo.remove(); };
               fondo.querySelector('[data-x]').addEventListener('click', cerrar);
+              fondo.addEventListener('click', function(e){ if (e.target === fondo) cerrar(); });
+              _hoyConversacion(b, fondo.querySelector('[data-conv]'));
+              if (!ok) return;
+              var ta = fondo.querySelector('textarea'); setTimeout(function(){ ta.focus(); }, 30);
               fondo.querySelector('[data-s]').addEventListener('click', async function(){
                 var txt = (ta.value || '').trim(); if (!txt) { ta.focus(); return; }
                 var bs = this; bs.disabled = true; bs.textContent = 'Enviando...';
@@ -15768,9 +15798,19 @@ module.exports = function (app) {
                   if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); bs.disabled = false; bs.textContent = 'Enviar'; return; }
                   cerrar();
                   if (b.dataset.ayuda === '1' && fila) { var chk = fila.querySelector('.hoy-bot-llamado[data-campo="revisado_ayuda"]'); if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); } }
-                  else { b.textContent = '\u2714'; b.title = 'Enviado'; }
+                  else { b.textContent = '✔'; b.title = 'Enviado'; }
                 } catch (e) { alert('No se ha enviado: ' + e.message); bs.disabled = false; bs.textContent = 'Enviar'; }
               });
+            }
+            document.addEventListener('click', function(ev){
+              if (!ev.target.closest) return;
+              var b = ev.target.closest('.hoy-bot-resp');
+              if (!b) {
+                var bd = ev.target.closest('.hoy-av-badges'); if (!bd || ev.target.closest('button, a, input')) return;
+                var fl = bd.closest('.hoy-exp-fila'); b = fl ? fl.querySelector('.hoy-bot-resp') : null; if (!b) return;
+              }
+              ev.preventDefault();
+              _hoyAbrirVecino(b);
             });
 
             // v17.78 — Helper unificado de feedback de guardado.
@@ -16945,6 +16985,51 @@ module.exports = function (app) {
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/presentacion:", e.message);
       sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // GET /presupuestos/hoy/conversacion?tel=  (v125, 18/10/2026) -- los ultimos 15 mensajes con ese vecino por el bot:
+  //   lo que escribio (texto o documentos, con su nombre), lo que le contesto el bot (resumido) y lo que le
+  //   contesto Guille desde HOY. Sale de bot_contactos (+ bot_documentos para saber que documento mando).
+  app.get("/presupuestos/hoy/conversacion", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const t9 = (x) => String(x || "").replace(/\D/g, "").slice(-9);
+      const k = t9(req.query.tel); if (!k) return res.json({ ok: false, error: "falta el telefono" });
+      const sheets = getSheetsClient();
+      const [rc, rd] = await Promise.all([
+        sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_contactos!A:E" }),
+        sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:H" }),
+      ]);
+      const docs = ((rd.data.values || []).slice(1)).filter(d => d && t9(d[0]) === k && String(d[7] || "").trim() !== "manual").map(d => ({ t: new Date(d[5] || 0).getTime(), tipo: String(d[3] || ""), usado: false }));
+      const etq = (c) => { const x = String(c || "").replace(/_/g, " ").trim(); return x ? x.charAt(0).toUpperCase() + x.slice(1) : "documento"; };
+      const fmt = (iso) => { const d = new Date(iso); if (isNaN(d.getTime())) return String(iso || ""); return d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
+      const corto = (x, n) => { x = String(x || "").trim(); return x.length > n ? x.slice(0, n - 1).trim() + "\u2026" : x; };
+      const items = [];
+      for (const c of ((rc.data.values || []).slice(1))) {
+        if (!c || t9(c[1]) !== k) continue;
+        const f = fmt(c[0]), tipo = String(c[3] || "").trim(), cli = String(c[2] || "").trim(), bot = String(c[4] || "").trim();
+        if (tipo === "equipo") { items.push({ quien: "equipo", fecha: f, texto: bot }); continue; }
+        if (tipo === "bot") {
+          const txt = cli === "job_presentacion" ? "Reenv\u00edo de la presentaci\u00f3n" : (cli === "job_proactivo" ? "Recordatorio autom\u00e1tico de lo que le falta" : corto(bot, 220));
+          items.push({ quien: "bot", fecha: f, texto: txt }); continue;
+        }
+        if (/^archivo/.test(tipo)) {
+          // el documento guardado justo antes de apuntar el mensaje (el mas cercano, sin repetir)
+          const tc = new Date(c[0] || 0).getTime();
+          let mej = null;
+          for (const d of docs) { if (d.usado || !d.t) continue; const dif = tc - d.t; if (dif >= -60000 && dif < 3 * 60 * 1000 && (!mej || Math.abs(dif) < Math.abs(tc - mej.t))) mej = d; }
+          if (mej) mej.usado = true;
+          items.push({ quien: "vecino", fecha: f, texto: "\uD83D\uDCCE " + (mej ? etq(mej.tipo) : "Documento") });
+        } else {
+          items.push({ quien: "vecino", fecha: f, texto: cli });
+        }
+        if (bot) items.push({ quien: "bot", fecha: f, texto: corto(bot, 220) });
+      }
+      res.json({ ok: true, items: items.slice(-15) });
+    } catch (e) {
+      console.error("[presupuestos] GET /hoy/conversacion:", e.message);
+      res.json({ ok: false, error: e.message });
     }
   });
 
