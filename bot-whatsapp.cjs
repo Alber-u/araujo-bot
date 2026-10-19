@@ -1688,7 +1688,7 @@ function _telE164(x) { const n = normalizarTelefono(String(x || "")); return /^[
 //   en /media-tmp/<id>/<nombre> para que Twilio lo descargue) o uno de los fijos (solicitud, autorizacion).
 const _mediaTmp = new Map();
 const _MIME_OK = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png" };
-const _FIJOS_ADJ = { solicitud: "SOLICITUD EMASESA (PDF)", autorizacion: "AUTORIZACION USUFRUCTO (PDF)" };   // v127: nombres de Guille
+const _FIJOS_ADJ = { solicitud: "toma datos (PDF)", autorizacion: "autorizacion usufructo (PDF)" };   // v127: nombres de Guille
 function _guardarMediaTmp(nombre, mime, buf) {
   const ahora = Date.now();
   for (const [k, v] of _mediaTmp) if (v.exp < ahora) _mediaTmp.delete(k);
@@ -2850,12 +2850,12 @@ async function enviarPDFsSegunTipo(telefono, tipoExpediente) {
   try {
     await new Promise(r => setTimeout(r, 1000));
     await enviarWhatsAppConMedia(telefono,
-      "\uD83D\uDCCE Aqu\u00ed tienes la SOLICITUD EMASESA para rellenar y firmar:",
+      "\uD83D\uDCCE Aqu\u00ed tienes el impreso \u00abtoma datos\u00bb para rellenar y firmar:",
       urlMedia("solicitud"));
     if (tipoExpediente === "familiar") {
       await new Promise(r => setTimeout(r, 1000));
       await enviarWhatsAppConMedia(telefono,
-        "\uD83D\uDCCE Y esta es la AUTORIZACION USUFRUCTO que tiene que firmar el propietario del piso:",
+        "\uD83D\uDCCE Y este es el impreso \u00abautorizacion usufructo\u00bb que tiene que firmar el propietario del piso:",
         urlMedia("autorizacion"));
     }
   } catch(e) {
@@ -4036,13 +4036,13 @@ async function manejarMensajeWhatsAppBackground(req) {
 const MEDIA_DRIVE = {
   video:    "https://drive.google.com/uc?export=download&id=1E_kdVkbnqJEo-5VanIfWNXMIJ6Dn6KJM",
   solicitud:"https://drive.google.com/uc?export=download&id=15ZUevpwjtZKjfbaaoRJj--VKdqi8fnRo",
-  // v127 (19/10/2026, criterio de Guille) -- el anterior (12y2WBse...) daba error: ahora IMPRESO AUTORIZACION USUFRUCTO.pdf
+  // v127 (19/10/2026, criterio de Guille) -- el anterior (12y2WBse...) daba error: ahora IMPRESO autorizacion usufructo.pdf
   autorizacion: "https://drive.google.com/uc?export=download&id=1ZNbZpagoLKXf4OX3OnYGxdMCTObM9kTz",
 };
-// v127 (criterio de Guille: "SOLICITUD EMASESA" y "AUTORIZACION USUFRUCTO" en todos lados) -- nombre con el que le
+// v127 (criterio de Guille: "toma datos" y "autorizacion usufructo" en todos lados) -- nombre con el que le
 //   llega el PDF al vecino (va en la direccion, /media/<tipo>/<nombre>.pdf, que es la que muestra WhatsApp) y
 //   rotulo de los botones y de la conversacion.
-const NOMBRE_MEDIA = { solicitud: "SOLICITUD EMASESA", autorizacion: "AUTORIZACION USUFRUCTO" };
+const NOMBRE_MEDIA = { solicitud: "toma datos", autorizacion: "autorizacion usufructo" };
 function urlMedia(tipo) {
   const base = String(process.env.BASE_URL || "https://araujo-bot.onrender.com").replace(/\/+$/, "");
   return base + "/media/" + tipo + (NOMBRE_MEDIA[tipo] ? "/" + encodeURIComponent(NOMBRE_MEDIA[tipo] + ".pdf") : "");
