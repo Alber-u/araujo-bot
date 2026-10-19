@@ -1783,6 +1783,10 @@ async function _migListasRecordatorioV126() {
   const sheets = getSheetsClient();
   const bc = (await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:E" })).data.values || [];
   const ex = (await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:E" })).data.values || [];
+  // una sola lectura de bot_documentos y una sola escritura al final (con 150 recordatorios, leer y escribir uno
+  //   a uno pasaba el limite de peticiones por minuto de Google y la puesta en marcha se cortaba)
+  const docs = (await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_documentos!A:I" })).data.values || [];
+  const cambios = [];
   const t9 = (x) => String(x || "").replace(/\D/g, "").slice(-9);
   const TIT = "Recordatorio autom\u00e1tico de lo que le falta (plantilla recordatorio)";
   let n = 0;
@@ -1792,13 +1796,16 @@ async function _migListasRecordatorioV126() {
     if (String(c[4] || "").indexOf(TIT + "\n\n") === 0) continue;   // ya guardado con su texto
     const e = ex.slice(1).find(r => r && t9(r[0]) === t9(c[1]));
     if (!e || !REQUIRED_DOCS[e[4]]) continue;
-    const rec = await reconstruirDocsRecibidosDesdeSheets(e[0], e[4], e[1], e[2], String(c[0] || ""));
+    const rec = await reconstruirDocsRecibidosDesdeSheets(e[0], e[4], e[1], e[2], String(c[0] || ""), docs);
     const pend = calcularDocsExpediente(e[4], rec).pendientes;
     const lista = splitList(pend).map((d) => labelDocumento(d)).join(" \u00b7 ") || "documentos pendientes";
     const vars = { 1: limpiarNombreVecino(e[3]), 2: (e[1] || "") + (e[2] ? " " + e[2] : ""), 3: lista };
     const txt = foto.replace(/\{\{\s*(\d+)\s*\}\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
-    await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!E" + (i + 1), valueInputOption: "RAW", requestBody: { values: [[TIT + "\n\n" + txt]] } });
+    cambios.push({ range: "bot_contactos!E" + (i + 1), values: [[TIT + "\n\n" + txt]] });
     n++;
+  }
+  for (let j = 0; j < cambios.length; j += 200) {
+    await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, requestBody: { valueInputOption: "RAW", data: cambios.slice(j, j + 200) } });
   }
   await sheets.spreadsheets.values.append({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_plantillas!A:H", valueInputOption: "RAW",
     requestBody: { values: [["mig_listas_v126", "", "ajuste", new Date().toISOString().slice(0, 10) + " " + n + " recordatorios", "", "", "NO", "control"]] } });
@@ -3177,14 +3184,13 @@ const DNI_ALIAS_UNA_PIEZA = {
   dni_pagador:       ["dni_pagador_delante", "dni_pagador_detras"],
 };
 
-async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente, comunidadExp, viviendaExp, hastaIso) {   // v126: hastaIso = solo lo recibido hasta esa fecha
+async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente, comunidadExp, viviendaExp, hastaIso, filasDocs) {   // v126: hastaIso = solo lo recibido hasta esa fecha; filasDocs = bot_documentos ya leido
   try {
     const sheets = getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
+    const rows = filasDocs || ((await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
       range: "bot_documentos!A:I",
-    });
-    const rows = res.data.values || [];
+    })).data.values || []);
     const telNorm = normalizarTelefono(telefono);
     const reglas = REQUIRED_DOCS[tipoExpediente] || { obligatorios: [], opcionales: [] };
     const docsDelFlujo = new Set([...(reglas.obligatorios || []), ...(reglas.opcionales || [])]);
