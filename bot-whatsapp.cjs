@@ -1683,16 +1683,54 @@ async function crearExpedienteInicial(telefono, datosVecino) {
 //   el boton sale en rojo. Se apunta en bot_contactos con tipo "equipo" (no cuenta como mensaje del vecino).
 // v126 -- telefono con prefijo: desde la ficha llegan 9 cifras ("634-245-060") y WhatsApp necesita +34.
 function _telE164(x) { const n = normalizarTelefono(String(x || "")); return /^[6789]\d{8}$/.test(n) ? "+34" + n : n; }
-async function responderVecino(telefono, texto) {
+// v127 (19/10/2026, criterio de Guille: "y si en la respuesta en bot le quiero adjuntar un archivo?") -- archivo
+//   adjunto en la respuesta por el bot: uno subido desde el PC (PDF o imagen, hasta 10 MB; se guarda en memoria 2 h
+//   en /media-tmp/<id>/<nombre> para que Twilio lo descargue) o uno de los fijos (solicitud, autorizacion).
+const _mediaTmp = new Map();
+const _MIME_OK = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png" };
+const _FIJOS_ADJ = { solicitud: "Solicitud EMASESA (PDF)", autorizacion: "Autorizaci\u00f3n (PDF)" };
+function _guardarMediaTmp(nombre, mime, buf) {
+  const ahora = Date.now();
+  for (const [k, v] of _mediaTmp) if (v.exp < ahora) _mediaTmp.delete(k);
+  const id = require("crypto").randomBytes(16).toString("hex");
+  _mediaTmp.set(id, { buf, mime, nombre, exp: ahora + 2 * 3600 * 1000 });
+  return id;
+}
+app.get("/media-tmp/:id/:nombre", (req, res) => {
+  const m = _mediaTmp.get(String(req.params.id || ""));
+  if (!m || m.exp < Date.now()) return res.status(404).send("No encontrado");
+  res.setHeader("Content-Type", m.mime);
+  res.setHeader("Content-Disposition", "inline; filename=\"" + String(m.nombre).replace(/[^\w.\-]+/g, "_") + "\"");
+  res.send(m.buf);
+});
+async function responderVecino(telefono, texto, archivo) {
   const tel = _telE164(telefono), t = String(texto || "").trim();
-  if (!tel || !t) return { ok: false, error: "faltan el telefono o el texto" };
+  if (!tel || (!t && !archivo)) return { ok: false, error: "faltan el telefono o el texto" };
+  // adjunto: se comprueba antes de mirar la ventana de 24 h
+  let _mUrl = "", _mNom = "";
+  if (archivo) {
+    const base = String(process.env.BASE_URL || "https://araujo-bot.onrender.com").replace(/\/+$/, "");
+    if (archivo.fijo) {
+      if (!_FIJOS_ADJ[archivo.fijo]) return { ok: false, error: "adjunto desconocido" };
+      _mUrl = base + "/media/" + archivo.fijo; _mNom = _FIJOS_ADJ[archivo.fijo];
+    } else {
+      const mime = String(archivo.mime || "").toLowerCase();
+      if (!_MIME_OK[mime]) return { ok: false, error: "solo se pueden adjuntar PDF, JPG o PNG" };
+      const buf = Buffer.from(String(archivo.b64 || ""), "base64");
+      if (!buf.length) return { ok: false, error: "el archivo est\u00e1 vac\u00edo" };
+      if (buf.length > 10 * 1024 * 1024) return { ok: false, error: "el archivo pasa de 10 MB" };
+      _mNom = String(archivo.nombre || ("archivo." + _MIME_OK[mime])).trim();
+      const nomUrl = _mNom.replace(/[^\w.\-]+/g, "_") || ("archivo." + _MIME_OK[mime]);
+      _mUrl = base + "/media-tmp/" + _guardarMediaTmp(_mNom, mime, buf) + "/" + encodeURIComponent(nomUrl);
+    }
+  }
   const rows = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:D" })).data.values || []);
   let ult = "";
   const _k9 = tel.replace(/\D/g, "").slice(-9);
   for (const f of rows.slice(1)) { if (f && String(f[1] || "").replace(/\D/g, "").slice(-9) === _k9 && /^(texto|archivo)(_fase08|_fuera)?$/.test(String(f[3] || "").trim()) && String(f[0] || "") > ult) ult = String(f[0]); }   // v126: _fuera = piso con el que el bot no trabaja
   if (!ult || (Date.now() - new Date(ult).getTime()) >= 24 * 3600 * 1000) return { ok: false, error: "han pasado mas de 24 h desde su ultimo mensaje al bot: usa el WhatsApp normal" };
-  await enviarWhatsApp(tel, t);
-  try { await guardarContacto(tel, "respuesta_equipo", "equipo", t); } catch (e) {}
+  if (_mUrl) await enviarWhatsAppConMedia(tel, t, _mUrl); else await enviarWhatsApp(tel, t);
+  try { await guardarContacto(tel, "respuesta_equipo", "equipo", _mUrl ? ("\uD83D\uDCCE " + _mNom + (t ? "\n\n" + t : "")) : t); } catch (e) {}
   return { ok: true };
 }
 // v126 (18/10/2026, criterio de Guille) -- avisos M1/M2/M3 de HOY POR EL BOT con las plantillas Twilio de

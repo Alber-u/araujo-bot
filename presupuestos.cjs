@@ -522,6 +522,13 @@ module.exports = function (app) {
         + '<div data-sub="1" style="font-size:12px;color:#555;margin-bottom:8px"></div>'
         + '<div data-conv="1" style="max-height:320px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
         + (ok ? '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
+              + '<div data-adj="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px">'
+              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjpc="1" title="PDF, JPG o PNG (hasta 10 MB)">\uD83D\uDCCE Adjuntar</button>'
+              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="solicitud">Solicitud EMASESA</button>'
+              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="autorizacion">Autorización</button>'
+              + '<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:none">'
+              + '<span data-chip="1" style="display:none;align-items:center;gap:4px;background:#e8f0fe;border:1px solid #9bb8d8;border-radius:999px;padding:2px 8px"><span data-chipn="1"></span><a href="#" data-chipx="1" title="Quitar el adjunto" style="text-decoration:none;color:#a32d2d;font-weight:700">\u2715</a></span>'
+              + '</div>'
               : '<div data-rojo="1" style="font-size:12px;color:#a32d2d;font-weight:600"></div>')
         + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-x="1">' + (ok ? 'Cancelar' : 'Cerrar') + '</button>'
         + (ok ? '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-s="1">Enviar</button>' : '') + '</div></div>';
@@ -534,12 +541,28 @@ module.exports = function (app) {
       conversacion(b, fondo.querySelector('[data-conv]'));
       if (!ok) return;
       var ta = fondo.querySelector('textarea'); setTimeout(function () { ta.focus(); }, 30);
+      // v127 -- adjunto: uno del PC (PDF/JPG/PNG, hasta 10 MB) o uno de los fijos del bot
+      var adj = null, fin = fondo.querySelector('input[type=file]'), chip = fondo.querySelector('[data-chip]');
+      var ponAdj = function (a, nom) { adj = a; chip.style.display = a ? 'inline-flex' : 'none'; fondo.querySelector('[data-chipn]').textContent = a ? '\uD83D\uDCCE ' + nom : ''; };
+      fondo.querySelector('[data-chipx]').addEventListener('click', function (e) { e.preventDefault(); fin.value = ''; ponAdj(null); });
+      fondo.querySelector('[data-adjpc]').addEventListener('click', function () { fin.click(); });
+      fondo.querySelectorAll('[data-fijo]').forEach(function (x) { x.addEventListener('click', function () { ponAdj({ fijo: x.dataset.fijo }, x.textContent + ' (PDF)'); }); });
+      fin.addEventListener('change', function () {
+        var f = fin.files && fin.files[0]; if (!f) return;
+        if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(f.type)) { alert('Solo PDF, JPG o PNG.'); fin.value = ''; return; }
+        if (f.size > 10 * 1024 * 1024) { alert('El archivo pasa de 10 MB.'); fin.value = ''; return; }
+        var rd = new FileReader();
+        rd.onload = function () { ponAdj({ nombre: f.name, mime: f.type, b64: String(rd.result || '').split(',')[1] || '' }, f.name); };
+        rd.readAsDataURL(f);
+      });
       fondo.querySelector('[data-s]').addEventListener('click', async function () {
-        var txt = (ta.value || '').trim(); if (!txt) { ta.focus(); return; }
+        var txt = (ta.value || '').trim(); if (!txt && !adj) { ta.focus(); return; }
         var bs = this; bs.disabled = true; bs.textContent = 'Enviando...';
         try {
-          var r = await fetch(U.resp, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ tel: b.dataset.tel || '', texto: txt, ayuda: b.dataset.ayuda || '0', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '' }).toString() });
+          var _cuerpo = { tel: b.dataset.tel || '', texto: txt, ayuda: b.dataset.ayuda || '0', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '' };
+          var r = adj
+            ? await fetch(U.resp, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ archivo: adj }, _cuerpo)) })
+            : await fetch(U.resp, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(_cuerpo).toString() });
           var d = await r.json().catch(function () { return {}; });
           if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); bs.disabled = false; bs.textContent = 'Enviar'; return; }
           cerrar();
@@ -17389,12 +17412,14 @@ module.exports = function (app) {
   }
   // POST /presupuestos/hoy/responder-bot  (v122) -- Guille contesta a un vecino desde Avisos POR EL BOT.
   //   body: tel, texto, ayuda (1 = es una "Pide ayuda"). El bot comprueba la ventana de 24 h de WhatsApp.
-  app.post("/presupuestos/hoy/responder-bot", async (req, res) => {
+  //   v127: con adjunto llega en JSON (archivo: {nombre, mime, b64} o {fijo: "solicitud"|"autorizacion"}).
+  app.post("/presupuestos/hoy/responder-bot", require("body-parser").json({ limit: "15mb" }), async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
       const bot = app.locals.botWhatsapp;
       if (!bot || typeof bot.responderVecino !== "function") return res.status(500).json({ ok: false, error: "bot no disponible" });
-      const r = await bot.responderVecino(String(req.body.tel || ""), String(req.body.texto || ""));
+      const _adj = req.body.archivo && typeof req.body.archivo === "object" ? req.body.archivo : null;
+      const r = await bot.responderVecino(String(req.body.tel || ""), String(req.body.texto || ""), _adj);
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
       // v126 (criterio de Guille) -- contestado = ya no esta pendiente: se marca su "Pide ayuda" (bot_expedientes
       //   col AE = 1) y su "Ha respondido" (pisos col AZ R=ahora), conteste desde HOY o desde la ficha.
