@@ -3364,7 +3364,12 @@ module.exports = function (app) {
       if (i === ini || conEm(f)) refs.push(m);
     }
     const asIni = String(filas[ini].asunto || "").trim().replace(/^((re|rv|fw|fwd)\s*:\s*)+/i, "");
-    return { asunto: "Re: " + asIni, inReplyTo: refs[refs.length - 1], references: refs };
+    // v126 (19/10/2026, criterio de Guille: "como hace Gmail, igual que nuestra flechita de responder") -- el
+    //   ultimo correo de la conversacion, para citarlo debajo del recordatorio
+    let ult = null;
+    for (let i = filas.length - 1; i >= ini; i--) { if (mid(filas[i].message_id) === refs[refs.length - 1]) { ult = filas[i]; break; } }
+    const cita = ult ? { fecha: String(ult.fecha || ""), mensaje: String(ult.mensaje || "") } : null;
+    return { asunto: "Re: " + asIni, inReplyTo: refs[refs.length - 1], references: refs, cita };
   }
 
   // Devuelve la lista de códigos de plantilla activos (sin _PIE_GLOBAL).
@@ -12123,7 +12128,7 @@ module.exports = function (app) {
       const comu = await buscarComunidadPorId(String(req.query.id || "").trim());
       if (!comu) return res.json({ ok: false });
       const h = _hiloVecino(await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion || ""), req.query.email, String(req.query.fase || "").trim());
-      res.json(h ? { ok: true, asunto: h.asunto, n: h.references.length } : { ok: false });
+      res.json(h ? { ok: true, asunto: h.asunto, n: h.references.length, cita: h.cita } : { ok: false });   // v126: + cita
     } catch (e) {
       console.error("[presupuestos] /hilo-vecino:", e.message);
       res.json({ ok: false, error: e.message });

@@ -1438,6 +1438,13 @@ module.exports = function (app) {
                 var rH = await fetch(URL_HILO_VECINO + (URL_HILO_VECINO.indexOf('?') < 0 ? '?' : '&') + new URLSearchParams({ id: (swH && swH.dataset.ccppId) || CCPP_ID, email: m[0], fase: recFase }).toString());
                 var xH = await rH.json().catch(function(){ return {}; });
                 if (xH && xH.ok && xH.asunto) d.asunto = xH.asunto;
+                // v126 (criterio de Guille: "como hace Gmail") -- debajo, el ultimo correo de la conversacion citado,
+                //   con el mismo formato que la flechita de Responder de Comunicaciones
+                if (xH && xH.ok && xH.cita && String(xH.cita.mensaje || '').trim()) {
+                  var _mes = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+                  var _dc = new Date(xH.cita.fecha), _fc = isNaN(_dc.getTime()) ? String(xH.cita.fecha || '') : ('El ' + _dc.getDate() + ' de ' + _mes[_dc.getMonth()] + ' de ' + _dc.getFullYear() + ' a las ' + String(_dc.getHours()).padStart(2, '0') + ':' + String(_dc.getMinutes()).padStart(2, '0'));
+                  d.cuerpo = String(d.cuerpo || '') + '\\n\\n' + _fc + ', escribi\u00f3:\\n' + String(xH.cita.mensaje).split('\\n').map(function (l) { return '> ' + l; }).join('\\n');
+                }
               } catch (eH) {}
             }
             var adj = (d.adjuntos || []).slice();
