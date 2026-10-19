@@ -772,7 +772,9 @@ module.exports = function (app) {
     //   rojo: mas de 24 h (solo leer); gris: nunca ha escrito al bot (solo se ve lo que le mando el bot).
     //   Circulito azul en la esquina: le espera una respuesta tuya (Pide ayuda o Ha respondido sin marcar).
     let _robotBtn = "";
-    if (!esCcpp && _wa) {
+    // v127 (criterio de Guille, 19/10/2026: "al llevar el sobre, el robotito gris le sobraria") -- sin robotito
+    //   si el bot no puede hablar con ese numero (fijo o "sin WhatsApp") y nunca le ha escrito: no hay nada que ver.
+    if (!esCcpp && _wa && !(opciones.sinBot && !opciones.ultBot)) {
       const _ub = opciones.ultBot;
       const _ms = _ub ? (Date.now() - new Date(_ub).getTime()) : NaN;
       const _okR = isFinite(_ms) && _ms < 24 * 3600 * 1000;
@@ -1096,6 +1098,13 @@ module.exports = function (app) {
         // v126 -- robotito: comunidad (para el recuadro) y ultimo mensaje del vecino al bot
         comRobot: comu.direccion || comu.comunidad || "",
         ultBot: (ultBot || {})[String(p.telefono || "").replace(/\D/g, "").slice(-9)],
+        // v127 -- el bot no puede hablar con este numero: fijo (no empieza por 6 o 7) o Twilio dijo "sin WhatsApp"
+        sinBot: (() => {
+          const k9 = String(p.telefono || "").replace(/\D/g, "").slice(-9);
+          if (!/^[67]\d{8}$/.test(k9)) return true;
+          const fl = ((botDatos && botDatos.filasByPiso) || {})[String(p.vivienda || "").trim().toLowerCase()] || [];
+          return fl.some(f => f.tel === k9 && f.AJ);
+        })(),
         // v126 -- circulito azul: algo sin contestar (Pide ayuda sin marcar, o "Ha respondido" posterior a su marca R de la col AZ)
         pendBot: (() => {
           const k9 = String(p.telefono || "").replace(/\D/g, "").slice(-9); if (!k9) return false;
@@ -1421,6 +1430,7 @@ module.exports = function (app) {
           const RE_MAIL_NOTAS = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}/;
           window.__ptlMailVecino = async function (el, ev, recFase) {
             if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+            if (!recFase && el.dataset.recfase) recFase = el.dataset.recfase;   // v127: sobre con circulito = su recordatorio pendiente
             var fila = el.closest('tr');
             var ta = fila ? fila.querySelector('.ptl-doc-notas-piso') : null;
             var m = RE_MAIL_NOTAS.exec(ta ? ta.value : '');

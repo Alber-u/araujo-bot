@@ -609,7 +609,7 @@ module.exports = function (app) {
     }
     // v126 -- FICHA: el robotito del vecino con un aviso M pendiente sale verde con punto y lo envia como en HOY
     var _robotsM = function () {
-      if (!document.querySelector('.ptl-vec-robot') || !U.avisosM) return;
+      if ((!document.querySelector('.ptl-vec-robot') && !document.querySelector('.ptl-vec-mail')) || !U.avisosM) return;
       fetch(U.avisosM).then(function (r) { return r.json(); }).then(function (d) {
         if (!d || !d.ok) return;
         var n9 = function (x) { return String(x || '').replace(/\D/g, '').slice(-9); };
@@ -625,8 +625,47 @@ module.exports = function (app) {
           b.style.background = '#1f9d55'; b.title = a.etiqueta + ' pendiente: pulsa para enviarlo por el bot';
           if (!b.querySelector('.ptl-bot-pend')) { var s = document.createElement('span'); s.className = 'ptl-bot-pend'; s.style.cssText = 'position:absolute;top:-7px;right:-7px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#fff;font:700 9px/13px Arial,sans-serif;text-align:center'; b.appendChild(s); }
         });
+        // v127 -- el sobre del vecino con un M (o inicio) por correo pendiente: circulito azul y abre ese correo
+        //   (__ptlMailVecino lee data-recfase). Al enviarlo, la ficha se recarga y el punto ya no sale.
+        document.querySelectorAll('.ptl-vec-mail').forEach(function (el) {
+          var tr = el.closest('tr'), sw = tr ? tr.querySelector('.ptl-bot-switch-piso') : null;
+          var viv = sw ? sw.dataset.vivienda : '';
+          var a = viv && (d.mails || []).find(function (x) { return nk(x.vivienda) === nk(viv); });
+          if (!a) return;
+          el.dataset.recfase = a.mailFase; el.style.position = 'relative'; el.style.display = el.style.display === 'none' ? 'none' : 'inline-block';
+          el.title = 'Recordatorio por correo pendiente: pulsa para abrirlo ya escrito';
+          if (!el.querySelector('.ptl-bot-pend')) { var s2 = document.createElement('span'); s2.className = 'ptl-bot-pend'; s2.style.cssText = 'position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)'; el.appendChild(s2); }
+        });
+        // v127 -- y el 💬 blanco cuando el aviso pendiente va por WhatsApp manual: abre el chat con el mensaje
+        //   y pregunta si se ha enviado para marcarlo igual que el check de HOY.
+        document.querySelectorAll('.ptl-vec-wa').forEach(function (el) {
+          var tr = el.closest('tr'), sw = tr ? tr.querySelector('.ptl-bot-switch-piso') : null;
+          var viv = sw ? sw.dataset.vivienda : '';
+          var a = viv && (d.was || []).find(function (x) { return nk(x.vivienda) === nk(viv); });
+          if (!a) return;
+          el.dataset.avisowa = a.waMsg; el.dataset.campo = a.campo; el.dataset.telcheck = a.telCheck; el.dataset.comm = a.comPiso; el.dataset.vivm = a.vivienda;
+          el.style.position = 'relative'; if (el.style.display !== 'none') el.style.display = 'inline-block';
+          el.title = 'Aviso pendiente por WhatsApp: pulsa para abrirlo ya escrito';
+          if (!el.querySelector('.ptl-bot-pend')) { var s3 = document.createElement('span'); s3.className = 'ptl-bot-pend'; s3.style.cssText = 'position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)'; el.appendChild(s3); }
+        });
       }).catch(function () {});
     };
+    document.addEventListener('click', function (ev) {
+      var el = ev.target.closest ? ev.target.closest('.ptl-vec-wa[data-avisowa]') : null;
+      if (!el) return;
+      ev.preventDefault(); ev.stopPropagation();
+      var tel = ''; try { tel = new URL(el.href).searchParams.get('phone') || ''; } catch (e) {}
+      var u = 'https://web.whatsapp.com/send?phone=' + tel + '&text=' + encodeURIComponent(el.dataset.avisowa || '');
+      try { var w = window.__waWin; if (w && !w.closed) { w.location.replace(u); w.focus(); } else { window.__waWin = window.open(u); if (window.__waWin) window.__waWin.focus(); } } catch (e) {}
+      setTimeout(function () {
+        if (!confirm('¿Le has enviado el WhatsApp? Se marcará como enviado (igual que el check de HOY).')) return;
+        fetch(U.marcar, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ tel: el.dataset.telcheck || '', campo: el.dataset.campo || '', valor: '1', comunidad: el.dataset.comm || '', vivienda: el.dataset.vivm || '' }).toString() })
+          .then(function (r) { if (!r.ok) return r.text().then(function (x) { alert('No se pudo marcar: ' + x); });
+            delete el.dataset.avisowa; var p = el.querySelector('.ptl-bot-pend'); if (p) p.remove(); el.title = 'Aviso enviado'; })
+          .catch(function (e) { alert('No se pudo marcar: ' + e.message); });
+      }, 800);
+    }, true);
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _robotsM); else setTimeout(_robotsM, 0);   // la caja va despues del script
     document.addEventListener('click', function (ev) {
       if (!ev.target.closest) return;
@@ -14438,7 +14477,11 @@ module.exports = function (app) {
       // v126 (18/10/2026, criterio de Guille) -- la ficha pide los avisos M pendientes (?soloAvisosM=1) para que su
       //   robotito salga verde con punto y deje enviarlos igual que en HOY.
       if (String(req.query.soloAvisosM || "") === "1") {
-        return res.json({ ok: true, avisos: _avisosArr.filter(a => a.botM).map(a => Object.assign({ tel: a.telefono || "", comPiso: a.comunidad || "", vivienda: a.vivienda || "", campo: a.campo || "", telCheck: a.telCheck || a.telefono || "" }, a.botM)) });
+        // v127 (criterio de Guille: "no le pegaria al icono del sobre llevar el punto azul?") -- tambien los que van por
+        //   correo (mailFase): en la ficha, su sobre sale con el circulito y abre ese correo de recordatorio.
+        return res.json({ ok: true, avisos: _avisosArr.filter(a => a.botM).map(a => Object.assign({ tel: a.telefono || "", comPiso: a.comunidad || "", vivienda: a.vivienda || "", campo: a.campo || "", telCheck: a.telCheck || a.telefono || "" }, a.botM)),
+          mails: _avisosArr.filter(a => a.mailFase && !a.botM).map(a => ({ comPiso: a.comunidad || "", vivienda: a.vivienda || "", mailFase: a.mailFase })),
+          was: _avisosArr.filter(a => a.waMsg && !a.mailFase && !a.botM && /^(inicio|m05|m08|cycp)$/.test(String(a.tipo || ""))).map(a => ({ tel: a.telefono || "", comPiso: a.comunidad || "", vivienda: a.vivienda || "", waMsg: a.waMsg, campo: a.registra ? "az:" + a.registra : (a.campo || ""), telCheck: a.telCheck || a.telefono || "" })) });
       }
 
       const _normComu = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -14544,7 +14587,7 @@ module.exports = function (app) {
         // v19.102 -- avisos por correo: boton de la carta que abre la ficha de documentacion en ese
         //   piso con el correo ya escrito (parametros mailaviso y piso).
         const _mailHtml = (p.mailFase && _ccpp)
-          ? `<a href="${_esc(urlT(token, "/documentacion/expediente", { id: _ccpp, mailaviso: p.mailFase, piso: p.vivienda || "" }) + "#piso-" + encodeURIComponent(p.vivienda || ""))}" class="hoy-aviso-mail" title="Abrir el correo de recordatorio ya escrito" style="flex:0 0 auto;text-decoration:none;font-size:14px;line-height:1">${ICONO_MAIL}</a>`
+          ? `<a href="${_esc(urlT(token, "/documentacion/expediente", { id: _ccpp, mailaviso: p.mailFase, piso: p.vivienda || "" }) + "#piso-" + encodeURIComponent(p.vivienda || ""))}" class="hoy-aviso-mail" title="Abrir el correo de recordatorio ya escrito (te toca enviarlo)" style="flex:0 0 auto;position:relative;display:inline-block;text-decoration:none;font-size:14px;line-height:1">${ICONO_MAIL}<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span></a>`
           : "";
         // v126 -- aviso M por el bot: el mismo robotito, en VERDE (criterio de Guille: el color dice si se le puede
         //   escribir por WhatsApp, y con un M pendiente si se puede: va con plantilla). Abre la ventana de envio con
@@ -14552,9 +14595,16 @@ module.exports = function (app) {
         const _mBotHtml = p.botM
           ? `<button type="button" class="hoy-m-bot" data-tel="${_esc(p.telefono || "")}" data-clave="${_esc(p.botM.clave)}" data-etq="${_esc(p.botM.etiqueta)}" data-nom="${_esc(p.botM.nombre)}" data-com="${_esc(p.botM.comunidad)}" data-piso="${_esc(p.botM.piso)}" data-pend="${_esc(p.botM.pendiente)}" data-fecha="${_esc(p.botM.fecha)}" data-ok="${(() => { const _u = _ultVecinoBot[String(p.telefono || "").replace(/\D/g, "").slice(-9)] || ""; return _u && (Date.now() - new Date(_u).getTime()) < 24 * 3600 * 1000 ? "1" : "0"; })()}" title="${_esc("Enviar por el bot: " + p.botM.etiqueta + " (plantilla " + p.botM.clave + ")")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;position:relative;background:#1f9d55">\uD83E\uDD16\uD83D\uDCAC${true ? `<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-7px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#fff;font:700 9px/13px Arial,sans-serif;text-align:center"></span>` : ""}</button>`   /* v126: mismo robotito que en la ficha (WhatsApp por el bot) */
           : "";
-        const _waHtml = _mailHtml ? _mailHtml : _mBotHtml ? _mBotHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
+        let _waHtml = _mailHtml ? _mailHtml : _mBotHtml ? _mBotHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}"${p.registra ? ` class="hoy-wa-registra" data-reg="${_esc(p.registra)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}"` : ""} onclick="if(this.classList.contains('hoy-wa-registra')&&window.__hoyRegistraWa)window.__hoyRegistraWa(this);var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
           : "";
+        // v127 (criterio de Guille, 19/10/2026: "unifica esta filosofia en todo el programa") -- el circulito azul
+        //   ("te toca a ti") va en el boton con el que se resuelve el aviso: 📧, robotito del M y tambien el 💬 blanco
+        //   cuando lleva el mensaje de la cadena (inicio / M por WhatsApp manual). En Pide ayuda / Ha respondido lo
+        //   lleva el robotito de contestar.
+        if (!_mailHtml && !_mBotHtml && _waHtml && p.waMsg && /^(inicio|m05|m08|cycp)$/.test(String(p.tipo || "")))
+          _waHtml = _waHtml.replace('style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">', 'style="flex:0 0 auto;position:relative;display:inline-block;text-decoration:none;font-size:13px;line-height:1">')
+            .replace(/<\/a>$/, '<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span></a>');
         // v122 -- boton de contestar POR EL BOT (en "Pide ayuda" y "Completo · revisar"): verde < 24 h, rojo si no.
         let _botRespHtml = "";
         if ((p.tipo === "ayuda" || p.tipo === "completo" || p.tipo === "respondido") && p.telefono) {   // v126: + Ha respondido
