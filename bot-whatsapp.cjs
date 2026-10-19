@@ -1688,7 +1688,7 @@ function _telE164(x) { const n = normalizarTelefono(String(x || "")); return /^[
 //   en /media-tmp/<id>/<nombre> para que Twilio lo descargue) o uno de los fijos (solicitud, autorizacion).
 const _mediaTmp = new Map();
 const _MIME_OK = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png" };
-const _FIJOS_ADJ = { solicitud: "Solicitud EMASESA (PDF)", autorizacion: "Autorizaci\u00f3n (PDF)" };
+const _FIJOS_ADJ = { solicitud: "SOLICITUD EMASESA (PDF)", autorizacion: "AUTORIZACION USUFRUCTO (PDF)" };   // v127: nombres de Guille
 function _guardarMediaTmp(nombre, mime, buf) {
   const ahora = Date.now();
   for (const [k, v] of _mediaTmp) if (v.exp < ahora) _mediaTmp.delete(k);
@@ -1712,7 +1712,7 @@ async function responderVecino(telefono, texto, archivo) {
     const base = String(process.env.BASE_URL || "https://araujo-bot.onrender.com").replace(/\/+$/, "");
     if (archivo.fijo) {
       if (!_FIJOS_ADJ[archivo.fijo]) return { ok: false, error: "adjunto desconocido" };
-      _mUrl = base + "/media/" + archivo.fijo; _mNom = _FIJOS_ADJ[archivo.fijo];
+      _mUrl = urlMedia(archivo.fijo); _mNom = _FIJOS_ADJ[archivo.fijo];
     } else {
       const mime = String(archivo.mime || "").toLowerCase();
       if (!_MIME_OK[mime]) return { ok: false, error: "solo se pueden adjuntar PDF, JPG o PNG" };
@@ -2850,13 +2850,13 @@ async function enviarPDFsSegunTipo(telefono, tipoExpediente) {
   try {
     await new Promise(r => setTimeout(r, 1000));
     await enviarWhatsAppConMedia(telefono,
-      "\uD83D\uDCCE Aqu\u00ed tienes la Solicitud de EMASESA para rellenar y firmar:",
-      BASE_URL + "/media/solicitud");
+      "\uD83D\uDCCE Aqu\u00ed tienes la SOLICITUD EMASESA para rellenar y firmar:",
+      urlMedia("solicitud"));
     if (tipoExpediente === "familiar") {
       await new Promise(r => setTimeout(r, 1000));
       await enviarWhatsAppConMedia(telefono,
-        "\uD83D\uDCCE Y esta es la Autorizaci\u00f3n que tiene que firmar el propietario del piso:",
-        BASE_URL + "/media/autorizacion");
+        "\uD83D\uDCCE Y esta es la AUTORIZACION USUFRUCTO que tiene que firmar el propietario del piso:",
+        urlMedia("autorizacion"));
     }
   } catch(e) {
     console.error("Error enviando PDFs:", e.message);
@@ -4036,10 +4036,19 @@ async function manejarMensajeWhatsAppBackground(req) {
 const MEDIA_DRIVE = {
   video:    "https://drive.google.com/uc?export=download&id=1E_kdVkbnqJEo-5VanIfWNXMIJ6Dn6KJM",
   solicitud:"https://drive.google.com/uc?export=download&id=15ZUevpwjtZKjfbaaoRJj--VKdqi8fnRo",
-  autorizacion: "https://drive.google.com/uc?export=download&id=12y2WBseQkjl-JbBqXgx-wm2EjzzRYtMH",
+  // v127 (19/10/2026, criterio de Guille) -- el anterior (12y2WBse...) daba error: ahora IMPRESO AUTORIZACION USUFRUCTO.pdf
+  autorizacion: "https://drive.google.com/uc?export=download&id=1ZNbZpagoLKXf4OX3OnYGxdMCTObM9kTz",
 };
+// v127 (criterio de Guille: "SOLICITUD EMASESA" y "AUTORIZACION USUFRUCTO" en todos lados) -- nombre con el que le
+//   llega el PDF al vecino (va en la direccion, /media/<tipo>/<nombre>.pdf, que es la que muestra WhatsApp) y
+//   rotulo de los botones y de la conversacion.
+const NOMBRE_MEDIA = { solicitud: "SOLICITUD EMASESA", autorizacion: "AUTORIZACION USUFRUCTO" };
+function urlMedia(tipo) {
+  const base = String(process.env.BASE_URL || "https://araujo-bot.onrender.com").replace(/\/+$/, "");
+  return base + "/media/" + tipo + (NOMBRE_MEDIA[tipo] ? "/" + encodeURIComponent(NOMBRE_MEDIA[tipo] + ".pdf") : "");
+}
 
-app.get("/media/:tipo", async (req, res) => {
+app.get(["/media/:tipo", "/media/:tipo/:nombre"], async (req, res) => {
   const tipo = req.params.tipo;
   const url = MEDIA_DRIVE[tipo];
   if (!url) return res.status(404).send("No encontrado");
@@ -4047,7 +4056,7 @@ app.get("/media/:tipo", async (req, res) => {
     const response = await axios.get(url, { responseType: "stream", maxRedirects: 5 });
     const esVideo = (tipo === "video");
     res.setHeader("Content-Type", esVideo ? "video/mp4" : "application/pdf");
-    if (!esVideo) res.setHeader("Content-Disposition", `inline; filename="${tipo}.pdf"`);
+    if (!esVideo) res.setHeader("Content-Disposition", `inline; filename="${NOMBRE_MEDIA[tipo] || tipo}.pdf"`);
     res.setHeader("Cache-Control", "public, max-age=3600");
     response.data.pipe(res);
   } catch(e) {
