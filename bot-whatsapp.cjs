@@ -1770,6 +1770,41 @@ async function avisarCambioTipo(o) {
   try { await guardarContacto(f.tel, "cambio_tipo", "bot", _conEspejo("Cambio de tipo a " + (exp.tipo_expediente || "") + ": lo que le falta (plantilla recordatorio)", _esp, "Tipo cambiado a " + (exp.tipo_expediente || "") + ". Le falta: " + _lista)); } catch (e) {}
   return { ok: true };
 }
+// v126 (19/10/2026, criterio de Guille: "porque no se guardan estas listas?") -- los recordatorios automaticos
+//   (plantilla "recordatorio") enviados antes del 18/10/2026 no guardaban la lista de documentos que llevaban. Se
+//   reconstruye UNA vez: lo que pedia su tipo de vecino menos lo recibido hasta ese momento (bot_documentos con
+//   fecha anterior), con la foto de la plantilla (espejo_recordatorio), y se guarda en bot_contactos col E.
+//   Marca "mig_listas_v126" en bot_plantillas. Si aun no esta la foto de la plantilla, se reintenta al arrancar.
+async function _migListasRecordatorioV126() {
+  await cargarPlantillas(true);
+  if (_plantillasCache && _plantillasCache["mig_listas_v126"]) return;
+  const foto = _plantillasCache && _plantillasCache["espejo_recordatorio"] && String(_plantillasCache["espejo_recordatorio"].texto || "").trim();
+  if (!foto) { console.log("[bot] v126 listas: falta la foto espejo_recordatorio; se reintentara"); return; }
+  const sheets = getSheetsClient();
+  const bc = (await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:E" })).data.values || [];
+  const ex = (await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:E" })).data.values || [];
+  const t9 = (x) => String(x || "").replace(/\D/g, "").slice(-9);
+  const TIT = "Recordatorio autom\u00e1tico de lo que le falta (plantilla recordatorio)";
+  let n = 0;
+  for (let i = 1; i < bc.length; i++) {
+    const c = bc[i];
+    if (!c || String(c[3] || "").trim() !== "bot" || String(c[2] || "").trim() !== "job_proactivo") continue;
+    if (String(c[4] || "").indexOf(TIT + "\n\n") === 0) continue;   // ya guardado con su texto
+    const e = ex.slice(1).find(r => r && t9(r[0]) === t9(c[1]));
+    if (!e || !REQUIRED_DOCS[e[4]]) continue;
+    const rec = await reconstruirDocsRecibidosDesdeSheets(e[0], e[4], e[1], e[2], String(c[0] || ""));
+    const pend = calcularDocsExpediente(e[4], rec).pendientes;
+    const lista = splitList(pend).map((d) => labelDocumento(d)).join(" \u00b7 ") || "documentos pendientes";
+    const vars = { 1: limpiarNombreVecino(e[3]), 2: (e[1] || "") + (e[2] ? " " + e[2] : ""), 3: lista };
+    const txt = foto.replace(/\{\{\s*(\d+)\s*\}\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
+    await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!E" + (i + 1), valueInputOption: "RAW", requestBody: { values: [[TIT + "\n\n" + txt]] } });
+    n++;
+  }
+  await sheets.spreadsheets.values.append({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_plantillas!A:H", valueInputOption: "RAW",
+    requestBody: { values: [["mig_listas_v126", "", "ajuste", new Date().toISOString().slice(0, 10) + " " + n + " recordatorios", "", "", "NO", "control"]] } });
+  console.log("[bot] v126 listas de recordatorios antiguos reconstruidas:", n);
+}
+setTimeout(() => { _migListasRecordatorioV126().catch(e => console.error("[bot] v126 listas:", e.message)); }, 70000);
 async function reabrirSiFinalizado(o) {
   await cargarPlantillas();   // v19.119
   const n = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -3142,7 +3177,7 @@ const DNI_ALIAS_UNA_PIEZA = {
   dni_pagador:       ["dni_pagador_delante", "dni_pagador_detras"],
 };
 
-async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente, comunidadExp, viviendaExp) {
+async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente, comunidadExp, viviendaExp, hastaIso) {   // v126: hastaIso = solo lo recibido hasta esa fecha
   try {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
@@ -3168,6 +3203,7 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente, com
       const _nn = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
       const _deEstePiso = !tel && comunidadExp && _nn(row[1]) === _nn(comunidadExp) && _nn(row[2]) === _nn(viviendaExp);
       if (tel !== telNorm && !_deEstePiso) continue;
+      if (hastaIso && String(row[5] || "") > hastaIso) continue;   // v126: recibido despues de esa fecha
       // Si es un alias de DNI en una pieza y el flujo pide las dos caras por
       // separado, este documento vale para las dos.
       const objetivos = (!docsDelFlujo.has(tipoDoc) && DNI_ALIAS_UNA_PIEZA[tipoDoc])
