@@ -3380,6 +3380,21 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
 
       await guardarFinanciacionEnPiso(telefono, plazoFinanciacion(msg));
 
+      // v127 (19/10/2026, criterio de Guille; caso Ardilla 9 0-7) -- antes de cerrar la ficha se mira si Guille ha
+      //   marcado algo en F o INCORRECTO mientras el vecino seguia el flujo (la reapertura solo actua con la ficha ya
+      //   cerrada). Si falta algo, no se cierra ni se avisa de "Expediente completo": se le pide en el acto.
+      try {
+        const _chk = await resolverEstadoConversacional(Object.assign({}, expediente, { paso_actual: "recogida_documentacion" }));
+        if (_chk.paso_actual === "recogida_documentacion" && _chk.documento_actual && !esDocumentoOpcional(_chk.tipo_expediente, _chk.documento_actual)) {   // solo obligatorios
+          _chk.fecha_ultimo_contacto = ahoraISO();
+          await recalcularYActualizarTodo(_chk);
+          const _falta = splitList(_chk.documentos_pendientes).map(labelDocumento).join(" \u00b7 ") || labelDocumento(_chk.documento_actual);
+          const _aviso = txtPlant("flujo_falta_antes_de_cerrar",
+            "Gracias, tomamos nota.\n\nAntes de terminar, nos falta: *{falta}* (lo hemos revisado y hay que enviarlo de nuevo).", { falta: _falta });
+          return responderYLog(res, telefono, msgOriginal, "texto", _aviso + "\n\n" + getPromptPasoActual(_chk));
+        }
+      } catch (eChk) { console.error("[bot] comprobar F antes de cerrar:", eChk.message); }
+
       if (respuestaFin === "no") {
         expediente.paso_actual = "finalizado";
         expediente.documento_actual = "";

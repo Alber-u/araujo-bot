@@ -2634,6 +2634,7 @@ module.exports = function (app) {
       flujo_pagina_recibida: ["flujo_pagina_recibida", "vecino", "texto", "", "", "{documento}", "SI", "v19.118: respuesta a cada pagina de un documento de varias paginas"],
       flujo_progreso: ["flujo_progreso", "vecino", "texto", "", "", "{n} {total}", "SI", "v19.118: contador encima de cada peticion de documento"],
       flujo_sin_ia: ["flujo_sin_ia", "vecino", "texto", "", "", "{siguiente}", "SI", "v19.118: respuesta al texto libre del vecino con la IA dormida"],
+      flujo_falta_antes_de_cerrar: ["flujo_falta_antes_de_cerrar", "vecino", "texto", "", "", "{falta}", "SI", "v127: al cerrar la ficha, si Guille tiene algo en F o INCORRECTO"],
       // v126 -- avisos M por el bot (plantillas de Alberto): la fila se crea al guardar su HX
       ..._FILAS_AVISOS_M };
     if (rowIndex < 0 && _CLAVES_NUEVAS[clave]) {
@@ -2760,6 +2761,18 @@ module.exports = function (app) {
     }
   }
   setTimeout(() => { _migEspejoV126().catch(e => console.error("[presupuestos] v126 espejo:", e.message)); }, 56000);
+  // v127 (19/10/2026) -- texto nuevo del bot "flujo_falta_antes_de_cerrar" (lo que dice si al cerrar la ficha Guille
+  //   tiene algo marcado en F o INCORRECTO): se crea su fila UNA vez, con el texto por defecto, para que se vea y se
+  //   pueda cambiar en Flujo bot. Si ya existe, no se toca.
+  async function _migFaltaCerrarV127() {
+    const sheets = getSheetsClient();
+    const rows = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS })).data.values || [];
+    if (rows.some(x => x && String(x[0] || "").trim() === "flujo_falta_antes_de_cerrar")) return;
+    await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [["flujo_falta_antes_de_cerrar", "vecino", "texto", "Gracias, tomamos nota.\n\nAntes de terminar, nos falta: *{falta}* (lo hemos revisado y hay que enviarlo de nuevo).", "", "{falta}", "SI", "v127: al cerrar la ficha, si Guille tiene algo en F o INCORRECTO (debajo va la peticion del documento)"]] } });
+    console.log("[presupuestos] v127: creada la fila flujo_falta_antes_de_cerrar");
+  }
+  setTimeout(() => { _migFaltaCerrarV127().catch(e => console.error("[presupuestos] v127 falta antes de cerrar:", e.message)); }, 62000);
   async function _migBotV19118() {
     const sheets = getSheetsClient();
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
@@ -10203,6 +10216,7 @@ module.exports = function (app) {
       card("flujo_sin_opcional","doc - seguir sin opcional",{}),
       card("flujo_progreso","doc - contador ({n} de {total})",{}),   // v19.118
       card("flujo_sin_ia","texto del vecino con la IA dormida",{}),   // v19.118
+      card("flujo_falta_antes_de_cerrar","doc - falta algo al terminar ({falta})",{}),   // v127
     ].map(c => "<div>" + c + "</div>").join("");
     const erroresCards = stack([["error_mensaje","error - mensaje"],["error_documento","error - doc"]]);
     const _NIV = ["muy_tolerante","tolerante","normal","estricto","muy_estricto"];
