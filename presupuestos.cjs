@@ -14509,6 +14509,21 @@ module.exports = function (app) {
           if (k && (!_ultVecinoBot[k] || t > _ultVecinoBot[k])) _ultVecinoBot[k] = t;
         }
       } catch (e) {}
+      // v127 (criterio de Guille, 19/10/2026: "veo numeros en los circulos mas altos arriba que abajo") -- el Pide
+      //   ayuda se fecha y se ordena por el ULTIMO mensaje del vecino al bot (el mismo que da las horas del circulito),
+      //   como el Ha respondido: arriba siempre lo que antes se pasa de las 24 h.
+      try {
+        let _reord = false;
+        for (const a of _avisosArr) {
+          if (a.tipo !== "ayuda") continue;
+          const u = _ultVecinoBot[String(a.telefono || "").replace(/\D/g, "").slice(-9)];
+          const d = u ? new Date(u) : null;
+          if (!d || isNaN(d.getTime()) || d.getTime() <= (a.ts || 0)) continue;
+          const p2 = (x) => String(x).padStart(2, "0");
+          a.ts = d.getTime(); a.fecha = p2(d.getDate()) + "/" + p2(d.getMonth() + 1) + "/" + String(d.getFullYear()).slice(-2); _reord = true;
+        }
+        if (_reord) _avisosArr.sort((a, b) => (a.ts == null ? Infinity : a.ts) - (b.ts == null ? Infinity : b.ts));
+      } catch (e) {}
       const _notaPorPiso = {};
       try {
         const _pr = await _leerHoy("pisos!A:AZ");   // v19.89: lectura compartida (por cabecera; AY de mas no afecta)
