@@ -14319,7 +14319,11 @@ module.exports = function (app) {
               const az = _azDe(pr[51]);
               const enW = String(pr[47] || "").trim().toUpperCase() === "BOT_WHATSAPP";
               const conMail = !enW && _RE_MAILN.test(String(pr[46] || ""));
-              const movil = _esMovil(pr[0]);
+              // v127 (19/10/2026, criterio de Guille: "pide que se lo enviemos por bot en vez de por mail") -- un movil
+              //   que Twilio marco SIN WhatsApp (bot_expedientes col AJ de la ficha de ese mismo telefono) cuenta como sin
+              //   movil: con correo, el aviso va por correo (📧); sin correo, "llamar". Caso: Ardilla 9 2-24.
+              const _sinWa = !!(bot && String(bot[35] || "").trim());
+              const movil = _esMovil(pr[0]) && !_sinWa;
               const canal = enW ? "bot" : (conMail ? "mail" : (movil ? "wa" : "nada"));
               const ult = (f) => (mv[f] || []).slice().sort().pop() || "";
               const nom = String(pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
