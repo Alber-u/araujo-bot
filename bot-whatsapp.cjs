@@ -1803,7 +1803,7 @@ async function avisarCambioTipo(o) {
   const _lista = _pend.map((d) => labelDocumento(d)).join(" \u00b7 ") || labelDocumento(exp.documento_actual);
   const sid = sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7");
   if (!sid) return { ok: false, error: "la plantilla Twilio recordatorio est\u00e1 desactivada" };
-  const _esp = await enviarWhatsAppPlantilla(f.tel, sid, { "1": limpiarNombreVecino(exp.nombre), "2": (exp.comunidad || "") + (exp.vivienda ? " " + exp.vivienda : ""), "3": _lista });
+  const _esp = await enviarWhatsAppPlantilla(f.tel, sid, { "1": limpiarNombreVecino(await nombreDirigido(exp.comunidad, exp.vivienda, exp.nombre)), "2": (exp.comunidad || "") + (exp.vivienda ? " " + exp.vivienda : ""), "3": _lista });
   try { await guardarAviso(f.tel, "cambio_tipo", "enviado"); } catch (e) {}
   try { await guardarContacto(f.tel, "cambio_tipo", "bot", _conEspejo("Cambio de tipo a " + (exp.tipo_expediente || "") + ": lo que le falta (plantilla recordatorio)", _esp, "Tipo cambiado a " + (exp.tipo_expediente || "") + ". Le falta: " + _lista)); } catch (e) {}
   return { ok: true };
@@ -1882,7 +1882,7 @@ async function reabrirSiFinalizado(o) {
     const _pend = splitList(exp.documentos_pendientes);
     const _lista = _pend.map((d) => labelDocumento(d)).join(" \u00b7 ") || labelDocumento(exp.documento_actual);
     const _esp = await enviarWhatsAppPlantilla(tel, sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7"), {
-      "1": limpiarNombreVecino(exp.nombre),
+      "1": limpiarNombreVecino(await nombreDirigido(exp.comunidad, exp.vivienda, exp.nombre)),
       "2": (exp.comunidad || "") + (exp.vivienda ? " " + exp.vivienda : ""),
       "3": _lista,
     });
@@ -2353,7 +2353,7 @@ async function revisarYAvisarPorPlazo(expediente) {
     let _restantes = Math.round(_limite - diasEntre(await _anclaPlazoBot(expediente)));   // v19.117
     if (!isFinite(_restantes) || _restantes < 0) _restantes = 0;
     const m = txtPlant("msg_inactividad_1", "",
-      { nombre: expediente.nombre || "vecino", lista: lista, dias: _restantes, "días": _restantes });
+      { nombre: limpiarNombreVecino(await nombreDirigido(expediente.comunidad, expediente.vivienda, expediente.nombre)) || "vecino", lista: lista, dias: _restantes, "días": _restantes });
     expediente.alerta_plazo = "";
     expediente.fecha_ultimo_contacto = ahoraISO();
     await actualizarExpediente(expediente.rowIndex, expediente);
@@ -2874,7 +2874,7 @@ async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, d
         if (esRespuestaPresentacion) {
           // Mandar vídeo primero, luego el mensaje de tipo con pausa
           // para garantizar el orden correcto en WhatsApp
-          const preguntaTipo = buildPreguntaTipo(datosVecino.nombre);
+          const preguntaTipo = buildPreguntaTipo(limpiarNombreVecino(await nombreDirigido(datosVecino.comunidad, datosVecino.vivienda, datosVecino.nombre)));
           enviarVideoExplicativo(telefono)
             .then(() => new Promise(r => setTimeout(r, 5000)))
             .then(() => enviarWhatsApp(telefono, preguntaTipo))
@@ -2882,7 +2882,7 @@ async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, d
           // Responder vacío a Twilio para no bloquear el webhook
           return res.status(200).send("<Response></Response>");
         }
-        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaTipo(datosVecino.nombre));
+        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaTipo(limpiarNombreVecino(await nombreDirigido(datosVecino.comunidad, datosVecino.vivienda, datosVecino.nombre))));
       }
       const primerPaso = getFirstStep(tipo);
       expediente.tipo_expediente = tipo;
@@ -4142,7 +4142,7 @@ app.get("/enviar-presentacion", async (req, res) => {
 
       try {
         const _espP = await enviarWhatsAppPlantilla(telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
-          "1": limpiarNombreVecino(nombre),   // v19.98: nombre sin anotaciones
+          "1": limpiarNombreVecino(nombreDeNota(row[3]) || nombre),   // v19.98: nombre sin anotaciones; v127: el de la Nota simple
         });
         // Crear la ficha del vecino en bot_whatsapp: marca implícita de "presentado"
         // y arranque del expediente. Evita reenvíos en próximas tandas.
@@ -4349,6 +4349,28 @@ function limpiarNombreVecino(n) {
   for (let i = 0; i < 3; i++) s = s.replace(/\s*\([^)]*\)\s*$/, "");
   s = s.replace(/\s+/g, " ").trim();
   return s || "vecino";
+}
+// v127 (20/10/2026, criterio de Guille: "en todas las comunicaciones vamos a poner el nombre de la Nota simple") --
+//   el nombre con el que se saluda al vecino es el PRIMERO de la Nota simple (pisos col D; varios separados por "/"),
+//   que es el propietario, tambien en inquilinos y familiares. Sin Nota simple (o con una anotacion que no es un
+//   nombre), el nombre de arriba (pisos col E). Se limpian "(T)" delante y "(...)" detras.
+function nombreDeNota(nota) {
+  let n = String(nota || "").split("/")[0].replace(/^\s*\([^)]*\)\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+/g, " ").trim();
+  if (n.length < 3 || /^(mismo|misma|piso|pte|pendiente|sin|ver|no )/i.test(n)) return "";
+  return n;
+}
+let _cacheNombreDirigido = { t: 0, m: {} };
+async function nombreDirigido(comunidad, vivienda, fallback) {
+  const k = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  try {
+    if (Date.now() - _cacheNombreDirigido.t > 5 * 60 * 1000) {
+      const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:E" })).data.values || [];
+      const m = {};
+      for (const r of rows.slice(1)) { if (r && r[1] && r[2]) m[k(r[1]) + "|" + k(r[2])] = nombreDeNota(r[3]) || String(r[4] || "").trim(); }
+      _cacheNombreDirigido = { t: Date.now(), m };
+    }
+    return _cacheNombreDirigido.m[k(comunidad) + "|" + k(vivienda)] || String(fallback || "");
+  } catch (e) { return String(fallback || ""); }
 }
 
 // ----- Datos del piso y de la comunidad (lectura directa, siempre fresca) -----
@@ -4861,7 +4883,7 @@ async function ejecutarJobSeguimiento() {
         if (expediente.alerta_plazo === _nivelP) { omitidos++; continue; }
         if (_nivelP === "presentacion_1" && expediente.alerta_plazo === "presentacion_2") { omitidos++; continue; }
         try {
-          const _espJ = await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), { "1": limpiarNombreVecino(expediente.nombre) });   // v19.98: nombre sin anotaciones
+          const _espJ = await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), { "1": limpiarNombreVecino(await nombreDirigido(expediente.comunidad, expediente.vivienda, expediente.nombre)) });   // v19.98: nombre sin anotaciones
           expediente.alerta_plazo = _nivelP;
           await actualizarExpediente(expediente.rowIndex, expediente);
           await guardarAviso(expediente.telefono, _nivelP, "job_presentacion");
@@ -4904,7 +4926,7 @@ async function ejecutarJobSeguimiento() {
         const pendientesArr = splitList(expediente.documentos_pendientes);
         const listaPendientes = pendientesArr.map(d => labelDocumento(d)).join(" \u00b7 ") || "documentos pendientes";   // v19.92: las variables de Twilio no admiten saltos de linea
         const _espR = await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7"), {
-          "1": limpiarNombreVecino(expediente.nombre),   // v19.98: nombre sin anotaciones
+          "1": limpiarNombreVecino(await nombreDirigido(expediente.comunidad, expediente.vivienda, expediente.nombre)),   // v19.98; v127: Nota simple
           "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
           "3": listaPendientes,
         });
@@ -4958,7 +4980,7 @@ setTimeout(() => {
         const ficha = await buscarExpedientePorTelefono(tel);
         if (ficha) return { ok: true, estado: "ya_presentado" };
         const _espW = await enviarWhatsAppPlantilla(tel, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
-          "1": limpiarNombreVecino(datos && datos.nombre),   // v19.98: nombre sin anotaciones
+          "1": limpiarNombreVecino(await nombreDirigido(datos && datos.comunidad, datos && datos.vivienda, datos && datos.nombre)),   // v19.98; v127: Nota simple
         });
         await crearExpedienteInicial(tel, {
           comunidad: (datos && datos.comunidad) || "",

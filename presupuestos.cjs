@@ -99,6 +99,14 @@ function _p5PendienteCycp(faltaContrato, faltaPago) {
 // v19.26 -- Nombre para el saludo del WhatsApp: sin el prefijo entre parentesis
 //   que se pone en los pisos ("(T) ", "(I) ", "(U) ", "(?) "...).
 function _p5NombreWa(n) { return String(n || "").replace(/^\s*\([^)]*\)\s*/, "").trim(); }
+// v127 (20/10/2026, criterio de Guille) -- nombre con el que se dirige uno al vecino en TODOS los mensajes: el
+//   primero de la Nota simple (col D, varios separados por "/"; es el propietario, tambien en inquilinos); si no
+//   hay Nota simple o es una anotacion, el nombre de arriba (col E). Igual que nombreDeNota del bot.
+function _p5NombreDirigido(nota, nombre) {
+  let n = String(nota || "").split("/")[0].replace(/^\s*\([^)]*\)\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+/g, " ").trim();
+  if (n.length < 3 || /^(mismo|misma|piso|pte|pendiente|sin|ver|no )/i.test(n)) n = "";
+  return n || String(nombre || "").replace(/^\s*\(\?\)\s*/, "").trim();
+}
 // v19.26 -- {vence_el}: la fecha limite vigente con el verbo segun el dia en que
 //   se manda el mensaje (hoy en Espana): "vence el DD/MM/AAAA", "vence hoy,
 //   DD/MM/AAAA" o "venció el DD/MM/AAAA". Recibe la fecha en DD/MM/AAAA.
@@ -14046,7 +14054,7 @@ module.exports = function (app) {
         const _erows = (_exp.data.values || []);
         // v18.99d — nombres MAESTROS desde la pestaña "pisos" (donde el usuario los edita).
         // bot_expedientes puede tener copias antiguas con "(?)". Mapa comunidad|vivienda -> nombre.
-        const _pisosNombre = {};
+        const _pisosNombre = {}; const _pisosNomMsg = {};
         const _pisosModo = {}; const _pisosTel = {};   // v19.61 — telefono ACTUAL de cada piso (ultimos 9 digitos) // v18.99f — bot_piso_activo (AV): MANUAL silencia los avisos de HOY
         let _piRowsAll = [];   // v19.19 — filas completas de "pisos" (hasta AY aviso_m3) para el aviso M3 de fase 08
         try {
@@ -14062,6 +14070,7 @@ module.exports = function (app) {
             const _k = _com + "|" + _viv;
             const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
             if (_nom) _pisosNombre[_k] = _nom;
+            _pisosNomMsg[_k] = _p5NombreDirigido(_pr[3], _nom);   // v127: nombre de la Nota simple para los mensajes
             _pisosModo[_k] = String(_pr[47] || "").trim().toUpperCase();
             _pisosTel[_k] = String(_pr[0] || "").replace(/\D/g, "").slice(-9);   // v19.61
           }
@@ -14167,7 +14176,8 @@ module.exports = function (app) {
             _fprorr = String(_dp.getDate()).padStart(2, "0") + "/" + String(_dp.getMonth() + 1).padStart(2, "0") + "/" + _dp.getFullYear();
           }
           const _tipoViaRaw = (_tipoViaMap[String(r[1] || "").trim().toLowerCase()] || "").trim(); const _tipoViaM = _tipoViaRaw ? (_tipoViaRaw + " ") : "";
-          const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _p5NombreWa(_base.nombre)).replace(/\{nombre\}/g, _p5NombreWa(_base.nombre)).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)).replace(/\{prorroga_nota\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? " (fecha ampliada por la prórroga concedida a su comunidad)" : "")).replace(/\{vence_el\}/g, _p5VenceEl((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM))).replace(/\{pendiente\}/g, "la documentaci\u00f3n de su vivienda").replace(/\{consecuencia\}/g, _p5Consecuencia((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM), "la documentaci\u00f3n de su vivienda"));
+          const _nomMsgB = _pisosNomMsg[_nomKey] || _base.nombre;   // v127
+          const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _p5NombreWa(_nomMsgB)).replace(/\{nombre\}/g, _p5NombreWa(_nomMsgB)).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)).replace(/\{prorroga_nota\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? " (fecha ampliada por la prórroga concedida a su comunidad)" : "")).replace(/\{vence_el\}/g, _p5VenceEl((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM))).replace(/\{pendiente\}/g, "la documentaci\u00f3n de su vivienda").replace(/\{consecuencia\}/g, _p5Consecuencia((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM), "la documentaci\u00f3n de su vivienda"));
           const _waM3 = _subVars(_msgWaM5);   // v19.103: solo el M5 (sin respaldo M4/M3)
           // v19.99 (criterio de Guille) -- Sin WhatsApp: Twilio dijo que este numero no tiene
           //   WhatsApp (col AJ, la pone el bot) y no esta marcado como visto (col AK). Solo si el
@@ -14380,7 +14390,8 @@ module.exports = function (app) {
               const canal = enW ? "bot" : (conMail ? "mail" : (movil ? "wa" : "nada"));
               const ult = (f) => (mv[f] || []).slice().sort().pop() || "";
               const nom = String(pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
-              const v = { nombre: nom, via, comunidad: c.direccion || c.comunidad || "", piso: viv, fL: _fmtD(dL), fP: _fmtD(dP), conced, pend: pendTxt, es08 };
+              const nomMsg = _p5NombreDirigido(pr[3], nom);   // v127: Nota simple
+              const v = { nombre: nomMsg, via, comunidad: c.direccion || c.comunidad || "", piso: viv, fL: _fmtD(dL), fP: _fmtD(dP), conced, pend: pendTxt, es08 };
               const base = { comunidad: pr[1] || "", vivienda: viv, nombre: nom, telefono: pr[0] || "", canal, fecha: _fmtD(dIni), ts: dIni.getTime(), dias, flag: false };
               // v126 (18/10/2026, criterio de Guille) -- los avisos que iban por WhatsApp (bot o manual, con movil)
               //   salen POR EL BOT con su plantilla de Twilio al pulsar.
@@ -14388,7 +14399,7 @@ module.exports = function (app) {
               //   Criterio de Guille (18/10/2026): con movil, por el bot (aunque este en M con email); sin movil, correo.
               const _botM = (clave, etiqueta, fecha) => !movil ? null
                 : !_sidAvM[clave] ? { falta: "Twilio " + clave }
-                : { clave, etiqueta, fecha, nombre: _p5NombreWa(nom), comunidad: (via ? via + " " : "") + (c.direccion || c.comunidad || ""), piso: viv, pendiente: pendTxt };
+                : { clave, etiqueta, fecha, nombre: _p5NombreWa(nomMsg), comunidad: (via ? via + " " : "") + (c.direccion || c.comunidad || ""), piso: viv, pendiente: pendTxt };
               const _fVig = conced ? _fmtD(dP) : _fmtD(dL);   // fecha limite vigente (con prorroga, la suya)
               // 2) Inicio de la cadena
               const inicio = es08
@@ -18222,6 +18233,7 @@ module.exports = function (app) {
   // ficha (ahora la ficha de un CCPP es la misma esté en presupuestos o en
   // documentación; cambia solo lo que se pinta encima/debajo).
   app.locals.presupuestos = {
+    _p5NombreDirigido,   // v127: nombre de la Nota simple para los mensajes (ficha)
     _scriptVecinoBot,   // v126: robotito de la caja Datos documentacion
     obtenerTextoTwilio,   // v126: el bot guarda el texto exacto de cada plantilla enviada (espejo)
     leerComunidades,

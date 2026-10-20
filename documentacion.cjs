@@ -1070,6 +1070,10 @@ module.exports = function (app) {
       const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
       const estadosCompletos = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPisoCompletos.length).fill("");
       const estadosFiltrados = filtrarEstadosPiso(estadosCompletos);
+      // v127 (criterio de Guille) -- en los mensajes al vecino, el primero de la Nota simple (si no, el de arriba)
+      const _nomMsgV = (app.locals.presupuestos && typeof app.locals.presupuestos._p5NombreDirigido === "function")
+        ? app.locals.presupuestos._p5NombreDirigido(p.nota_simple, p.nombre)
+        : (String(p.nota_simple || "").split("/")[0].replace(/^\s*\([^)]*\)\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").trim() || p.nombre || "");
       return filaManualHtml({
         id: "piso-" + (p.vivienda || ""),
         etiquetaPiso: p.vivienda || "",
@@ -1118,7 +1122,7 @@ module.exports = function (app) {
         es08: _es08,
         fechaContratoBot: String(((botDatos && botDatos.contratoByPiso) || {})[String(p.vivienda || "").trim().toLowerCase()] || "").trim(),
         waMsg: _m3Txt ? _subVarsM3(_m3Txt, {
-          nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
+          nombre: _nomMsgV, tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
           // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
           //   que es justo la fecha que promete el aviso de prórroga.
           fechaLimite: _fmtDia(_anclaM3(p), _plazoM3),
@@ -1135,11 +1139,11 @@ module.exports = function (app) {
         waReg4: _es05 ? "INI" : "M4",
         comPiso: p.comunidad || (comu && (comu.direccion || comu.comunidad)) || "",
         waMsg4: (_es05 && String(msgIni05 || "").trim()) ? _subVarsM3(String(msgIni05), {
-          nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
+          nombre: _nomMsgV, tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
           fechaLimite: _fmtDia(_anclaM3(p), _plazoM3), fechaProrroga: _fProrrM3(p),
           ampliada: _p5ProrrogaConcedida(comu), fase08: false, pendiente: "la documentaci\u00f3n de su vivienda",
         }) : ((_es08 || _es07) && String(msgWaM4 || "").trim()) ? _subVarsM3(String(msgWaM4), {
-          nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
+          nombre: _nomMsgV, tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
           // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
           //   que es justo la fecha que promete el aviso de prórroga.
           // v19.68 — en fase 07: hoy + 10 (plazo de CyCP), sin prorroga.
@@ -1162,7 +1166,7 @@ module.exports = function (app) {
           // v19.103 -- sin plantilla (o desactivada): el boton de la carta sigue saliendo y avisa
           if (!_okPl(_pl)) return { fase: _es05 ? "05_DOC_VECINO" : "08_CYCP_VECINO", falta: _es05 ? "05-INICIO DOC (VECINO)" : "08-INICIO CYCP (VECINO)", rec: {} };
           const _dV = {
-            nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
+            nombre: _nomMsgV, tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
             fechaLimite: _es07 ? _fmtDia(_hoyIsoM4 + "T12:00:00", (_Pm3.PLAZO_CYCP_INICIAL || 10)) : _fmtDia(_anclaM3(p), _plazoM3),
             fechaProrroga: _es07 ? "" : _fProrrM3(p),
             ampliada: _es07 ? false : _p5ProrrogaConcedida(comu),
