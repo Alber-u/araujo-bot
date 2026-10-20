@@ -4873,7 +4873,8 @@ async function ejecutarJobSeguimiento() {
     //   su cuenta (presentaciones, recordatorios, avisos por plazo) solo dentro del horario de comunicaciones; lo que
     //   tocaba fuera sale en la primera pasada dentro del horario.
     const _hJob = _horarioMod.calcHorario(horarioBot(), new Date());
-    if (!_hJob.dentro) { console.log("Job seguimiento: fuera del horario de comunicaciones (" + _horarioMod.textoHorario(horarioBot()) + "); proxima apertura " + (_hJob.texto || "?")); return; }
+    // callado por el horario = repaso bien hecho (si no, HOY avisaba "el repaso automatico no ha terminado")
+    if (!_hJob.dentro) { console.log("Job seguimiento: fuera del horario de comunicaciones (" + _horarioMod.textoHorario(horarioBot()) + "); proxima apertura " + (_hJob.texto || "?")); _saludBot.jobOk = Date.now(); _saludBot.jobErr = ""; return; }
     const expedientes = await leerTodosExpedientes();
 
     for (let expediente of expedientes) {
