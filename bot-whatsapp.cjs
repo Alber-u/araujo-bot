@@ -11,6 +11,7 @@ const { google } = require("googleapis");
 const { Readable } = require("stream");
 const sharp = require("sharp");
 const { validToken } = require("./lib/auth.cjs");
+const _horarioMod = require("./horario-bot.cjs");   // v127: horario de comunicaciones del bot
 
 module.exports = (app) => {
 
@@ -1703,6 +1704,14 @@ app.get("/media-tmp/:id/:nombre", (req, res) => {
   res.setHeader("Content-Disposition", "inline; filename=\"" + String(m.nombre).replace(/[^\w.\-]+/g, "_") + "\"");
   res.send(m.buf);
 });
+// Fecha (ISO) del ultimo mensaje que el vecino escribio al bot ("" si nunca). v127: lo usa tambien programarEnvio.
+async function _ultimoMensajeVecino(telefono) {
+  const rows = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:D" })).data.values || []);
+  let ult = "";
+  const _k9 = String(telefono || "").replace(/\D/g, "").slice(-9);
+  for (const f of rows.slice(1)) { if (f && String(f[1] || "").replace(/\D/g, "").slice(-9) === _k9 && /^(texto|archivo)(_fase08|_fuera)?$/.test(String(f[3] || "").trim()) && String(f[0] || "") > ult) ult = String(f[0]); }   // v126: _fuera = piso con el que el bot no trabaja
+  return ult;
+}
 async function responderVecino(telefono, texto, archivo) {
   const tel = _telE164(telefono), t = String(texto || "").trim();
   if (!tel || (!t && !archivo)) return { ok: false, error: "faltan el telefono o el texto" };
@@ -1724,10 +1733,7 @@ async function responderVecino(telefono, texto, archivo) {
       _mUrl = base + "/media-tmp/" + _guardarMediaTmp(_mNom, mime, buf) + "/" + encodeURIComponent(nomUrl);
     }
   }
-  const rows = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:D" })).data.values || []);
-  let ult = "";
-  const _k9 = tel.replace(/\D/g, "").slice(-9);
-  for (const f of rows.slice(1)) { if (f && String(f[1] || "").replace(/\D/g, "").slice(-9) === _k9 && /^(texto|archivo)(_fase08|_fuera)?$/.test(String(f[3] || "").trim()) && String(f[0] || "") > ult) ult = String(f[0]); }   // v126: _fuera = piso con el que el bot no trabaja
+  const ult = await _ultimoMensajeVecino(tel);
   if (!ult || (Date.now() - new Date(ult).getTime()) >= 24 * 3600 * 1000) return { ok: false, error: "han pasado mas de 24 h desde su ultimo mensaje al bot: usa el WhatsApp normal" };
   if (_mUrl) await enviarWhatsAppConMedia(tel, t, _mUrl); else await enviarWhatsApp(tel, t);
   try { await guardarContacto(tel, "respuesta_equipo", "equipo", _mUrl ? ("\uD83D\uDCCE " + _mNom + (t ? "\n\n" + t : "")) : t); } catch (e) {}
@@ -4863,6 +4869,11 @@ async function ejecutarJobSeguimiento() {
 
   try {
     await cargarPlantillas();   // v19.119: textos y ajustes del Sheet aunque aun no haya entrado ningun mensaje
+    // v127 (criterio de Guille: "el bot deberia estar calladito a horas intempestivas") -- lo que manda el bot por
+    //   su cuenta (presentaciones, recordatorios, avisos por plazo) solo dentro del horario de comunicaciones; lo que
+    //   tocaba fuera sale en la primera pasada dentro del horario.
+    const _hJob = _horarioMod.calcHorario(horarioBot(), new Date());
+    if (!_hJob.dentro) { console.log("Job seguimiento: fuera del horario de comunicaciones (" + _horarioMod.textoHorario(horarioBot()) + "); proxima apertura " + (_hJob.texto || "?")); return; }
     const expedientes = await leerTodosExpedientes();
 
     for (let expediente of expedientes) {
@@ -4953,6 +4964,84 @@ async function ejecutarJobSeguimiento() {
   console.log("Job seguimiento: fin. Enviados:", enviados, "| Omitidos:", omitidos);
 }
 
+// v127 (20/10/2026, criterio de Guille) -- HORARIO DE COMUNICACIONES y ENVIOS PROGRAMADOS.
+//   horarioBot(): el horario de Flujo bot (filas horario_dias / horario_inicio / horario_fin; por defecto L-V 9-20).
+//   Lo que manda Guille al pulsar fuera del horario puede quedar PROGRAMADO: se guarda en la pestana
+//   bot_programados (A id | B creado | C enviar_desde | D funcion | E argumentos JSON | F estado | G resultado |
+//   H telefono | I descripcion) y se envia en cuanto se abre el horario (se mira cada 5 minutos).
+function horarioBot() {
+  const v = (k) => (_plantillasCache && _plantillasCache[k]) ? _plantillasCache[k].texto : "";
+  return _horarioMod.normalizarHorario(v("horario_dias"), v("horario_inicio"), v("horario_fin"));
+}
+const _FN_PROGRAMABLES = ["enviarAvisoM", "responderVecino", "enviarPresentacionPiso", "enviarContratoPiso", "avisarCambioTipo"];
+async function _asegurarHojaProgramados() {
+  const sheets = getSheetsClient();
+  let existe = false;
+  try { const r = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_programados!A1:I1" }); existe = true; if ((r.data.values || []).length) return; } catch (e) {}
+  if (!existe) await sheets.spreadsheets.batchUpdate({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, requestBody: { requests: [{ addSheet: { properties: { title: "bot_programados" } } }] } });
+  await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_programados!A1:I1", valueInputOption: "RAW",
+    requestBody: { values: [["id", "creado", "enviar_desde", "funcion", "argumentos", "estado", "resultado", "telefono", "descripcion"]] } });
+}
+async function programarEnvio(fn, args, meta) {
+  meta = meta || {};
+  if (!_FN_PROGRAMABLES.includes(fn)) return { ok: false, error: "envio no programable: " + fn };
+  await cargarPlantillas();
+  const h = _horarioMod.calcHorario(horarioBot(), new Date());
+  const cuando = h.dentro ? new Date() : h.proxima;
+  if (!cuando) return { ok: false, error: "no hay ningun dia en el horario de comunicaciones" };
+  // texto libre por el bot: WhatsApp solo lo deja dentro de las 24 h desde el ultimo mensaje del vecino
+  if (fn === "responderVecino") {
+    const a = (args || [])[2];
+    if (a && !a.fijo) return { ok: false, error: "no se puede programar con un archivo del PC: env\u00edalo ahora" };
+    const ult = await _ultimoMensajeVecino((args || [])[0]);
+    if (!ult || new Date(ult).getTime() + 24 * 3600 * 1000 <= cuando.getTime() + 10 * 60 * 1000)
+      return { ok: false, error: "su ventana de 24 h se cierra antes de que abra el horario: env\u00edalo ahora (o usa el WhatsApp normal)" };
+  }
+  await _asegurarHojaProgramados();
+  const id = "prog_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
+  await getSheetsClient().spreadsheets.values.append({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_programados!A:I", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [[id, new Date().toISOString(), cuando.toISOString(), fn, JSON.stringify(args || []), "pendiente", "", meta.tel || "", meta.desc || ""]] } });
+  const txt = h.texto || "en cuanto se abra el horario";
+  if (meta.tel) { try { await guardarContacto(normalizarTelefono(meta.tel), "programado", "bot", "\u23F0 Programado para " + txt + (meta.desc ? ": " + meta.desc : "")); } catch (e) {} }
+  console.log("[bot] envio programado", id, fn, "para", cuando.toISOString());
+  return { ok: true, programado: true, estado: "programado", cuando: cuando.toISOString(), cuandoTxt: txt };
+}
+// Envia ya o programa, segun lo que elija Guille (programar = true cuando pulso "Programar").
+async function enviarOProgramar(programar, fn, args, meta) {
+  if (programar) return programarEnvio(fn, args, meta);
+  return app.locals.botWhatsapp[fn].apply(null, args || []);
+}
+let _procesandoProgramados = false;
+async function procesarProgramados() {
+  if (_procesandoProgramados) return;
+  _procesandoProgramados = true;
+  try {
+    await cargarPlantillas();
+    if (!_horarioMod.calcHorario(horarioBot(), new Date()).dentro) return;
+    let rows;
+    try { rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_programados!A:I" })).data.values || []; }
+    catch (e) { return; }   // aun no existe la pestana
+    const ahora = new Date().toISOString();
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i] || [];
+      if (String(r[5] || "") !== "pendiente" || String(r[2] || "") > ahora) continue;
+      let res, estado = "enviado";
+      try {
+        if (!_FN_PROGRAMABLES.includes(r[3])) throw new Error("funcion no permitida");
+        res = await app.locals.botWhatsapp[r[3]].apply(null, JSON.parse(r[4] || "[]"));
+        const _ok = res && (res.ok !== false) && (!res.estado || res.estado === "enviado" || res.estado === "ya_presentado") && !(res.envio && res.envio.ok === false);
+        if (!_ok) estado = "error";
+      } catch (e) { estado = "error"; res = { error: e.message }; }
+      const resumen = estado === "enviado" ? "ok " + new Date().toISOString() : "error: " + String((res && (res.error || (res.envio && res.envio.error) || res.estado)) || "desconocido").slice(0, 300);
+      try { await getSheetsClient().spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_programados!F" + (i + 1) + ":G" + (i + 1), valueInputOption: "RAW", requestBody: { values: [[estado, resumen]] } }); } catch (e) {}
+      if (estado === "error" && r[7]) { try { await guardarContacto(normalizarTelefono(r[7]), "programado_error", "bot", "\u26A0\uFE0F No se pudo enviar lo programado (" + (r[8] || r[3]) + "): " + resumen.replace(/^error: /, "")); } catch (e) {} }
+      console.log("[bot] programado", r[0], r[3], "->", estado);
+    }
+  } catch (e) { console.error("[bot] procesarProgramados:", e.message); }
+  finally { _procesandoProgramados = false; }
+}
+setTimeout(() => { procesarProgramados(); setInterval(procesarProgramados, 5 * 60 * 1000); }, 90 * 1000);
+
 // Ejecutar cada hora. Primera ejecución a los 2 minutos de arrancar
 // para no solaparse con el inicio del servidor.
 setTimeout(() => {
@@ -4966,6 +5055,9 @@ setTimeout(() => {
     reabrirSiFinalizado,   // v19.114
     responderVecino,       // v122
     enviarAvisoM,          // v126
+    programarEnvio,        // v127: envios de Guille fuera del horario, programados
+    enviarOProgramar,      // v127
+    horarioBot,            // v127
     cambiarTipoVecino,     // v126
     avisarCambioTipo,      // v126
     salud: _saludBot,   // v19.96: para el aviso de sistema de HOY

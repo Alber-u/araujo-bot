@@ -1875,10 +1875,12 @@ module.exports = function (app) {
               var txt='Tipo cambiado a '+String(b.tipo||'').toUpperCase()+' tambi\u00e9n en el bot (antes '+(b.antes||'-')+').'
                 + (b.pendientes&&b.pendientes.length ? '\\n\\nAhora le falta:\\n\u2022 '+b.pendientes.join('\\n\u2022 ') : '\\n\\nNo le falta nada obligatorio.')
                 + '\\n\\n\u00bfEnviar AHORA por el bot al '+viv+' lo que le falta?';
-              if(!(await window.ptlConfirmarEnvio(txt,'Enviar por el bot',{tel:b.tel||''}))) return;
+              var rc=await window.ptlConfirmarEnvio(txt,'Enviar por el bot',{tel:b.tel||''}); if(!rc) return;
               var fa=new URLSearchParams(); fa.append('ccpp_clave',direccion); fa.append('vivienda',viv); if(token) fa.append('token',token);
+              if(window.ptlEsProgramar && window.ptlEsProgramar(rc)) fa.append('programar','1');   // v127
               var r2=await fetch('/documentacion/piso/tipo-aviso',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fa.toString()});
               var d2=await r2.json().catch(function(){return {};});
+              if(d2.ok && d2.programado){ window.ptlAvisoProgramado(d2.cuandoTxt); return; }
               alert(d2.ok ? 'Enviado por el bot.' : 'No se ha enviado: '+(d2.error||r2.status));
             }).catch(function(e){ alert('Error: '+e.message); });
           });
@@ -2350,6 +2352,7 @@ module.exports = function (app) {
             if (ri && _esW && _telN && _telN !== _telO && !ES_FASE_08) {   // v19.98: en 08 no se manda la presentacion
               _enviarPres = await window.ptlConfirmarEnvio('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?', 'Enviar por el bot', { tel: _telN });
               if (_enviarPres) fd.append('enviar_presentacion', '1');
+              if (window.ptlEsProgramar && window.ptlEsProgramar(_enviarPres)) fd.append('programar', '1');   // v127
             }
             try {
               const resp = await fetch(URL_GUARDAR, { method: 'POST', body: fd });
@@ -2357,7 +2360,8 @@ module.exports = function (app) {
               if (!data.ok) { alert(data.error || 'Error guardando'); return; }
               if (_enviarPres && data.presentacion) {
                 var _p = data.presentacion;
-                if (_p.estado === 'enviado') alert('Presentación enviada al teléfono nuevo.' + (_p.plazoTxt ? '\\n\\n' + _p.plazoTxt : ''));
+                if (_p.estado === 'programado') window.ptlAvisoProgramado(_p.cuandoTxt);
+                else if (_p.estado === 'enviado') alert('Presentación enviada al teléfono nuevo.' + (_p.plazoTxt ? '\\n\\n' + _p.plazoTxt : ''));
                 else if (_p.estado === 'ya_presentado') alert('Ese teléfono ya tenía ficha en el bot; no se reenvía la presentación.');
                 else alert('Teléfono guardado, pero NO se pudo enviar la presentación (' + (_p.estado || 'desconocido') + (_p.error ? ': ' + _p.error : '') + ').');
               }
@@ -2596,13 +2600,15 @@ module.exports = function (app) {
           // v19.98 (criterio de Guille) -- FASE 08: el boton W manda el contrato (y la carta de pago)
           //   por el bot, piso a piso. W: pregunta si enviarlo; si no, si pasar a M. M: pasa a W y
           //   pregunta si enviarlo (igual que la presentacion en la 05).
-          async function _enviarContrato08(btn) {
+          async function _enviarContrato08(btn, rc) {
             var viv = btn.dataset.vivienda || '';
             var body = new URLSearchParams({ ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: viv });
+            if (window.ptlEsProgramar && window.ptlEsProgramar(rc)) body.append('programar', '1');   // v127
             var r = await fetch(URL_ENVIAR_CONTRATO, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
             var data = await r.json().catch(function(){ return {}; });
             var env = (data && data.envio) || {};
             if (!r.ok || !data.ok || !env.ok) { alert('NO se ha enviado el contrato del ' + viv + ': ' + ((env && env.error) || (data && data.error) || 'error desconocido')); return; }
+            if (env.programado) { btn.title = 'Contrato programado por bot para ' + (env.cuandoTxt || '') + ' (pulsa para reenviarlo o pasar a M)'; window.ptlAvisoProgramado(env.cuandoTxt); return; }
             var hoy = new Date(); var hoyTxt = String(hoy.getDate()).padStart(2,'0') + '/' + String(hoy.getMonth()+1).padStart(2,'0') + '/' + hoy.getFullYear();
             if (!btn.dataset.contratoBot) btn.dataset.contratoBot = hoyTxt;
             btn.title = 'Contrato enviado por bot: ' + btn.dataset.contratoBot + ' (pulsa para reenviarlo o pasar a M)';
@@ -2629,13 +2635,15 @@ module.exports = function (app) {
             var que = SOLO_CONTRATO ? 'el contrato' : 'el contrato y la carta de pago';
             if (btn.dataset.modo === 'BOT_WHATSAPP') {
               var ya = btn.dataset.contratoBot ? ('Ya se le envi\u00f3 por el bot el ' + btn.dataset.contratoBot + '.\\n\\n') : '';
-              if (await window.ptlConfirmarEnvio(ya + '\u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?', 'Enviar por el bot', { tel: _telFila(btn) })) { await _enviarContrato08(btn); return; }
+              var rc1 = await window.ptlConfirmarEnvio(ya + '\u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?', 'Enviar por el bot', { tel: _telFila(btn) });
+              if (rc1) { await _enviarContrato08(btn, rc1); return; }
               if (!confirm('\u00bfPasar el ' + viv + ' a manual (M)? El bot dejar\u00e1 de atenderle.')) return;
               await _cambiarModoPiso08(btn, 'MANUAL');
               return;
             }
             if (!(await _cambiarModoPiso08(btn, 'BOT_WHATSAPP'))) return;
-            if (await window.ptlConfirmarEnvio('Piso activado para el bot. \u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?', 'Enviar por el bot', { tel: _telFila(btn) })) await _enviarContrato08(btn);
+            var rc2 = await window.ptlConfirmarEnvio('Piso activado para el bot. \u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?', 'Enviar por el bot', { tel: _telFila(btn) });
+            if (rc2) await _enviarContrato08(btn, rc2);
           }
           document.querySelectorAll('.ptl-bot-switch-piso').forEach(function(btn){
             btn.addEventListener('click', async function(){
@@ -2652,6 +2660,7 @@ module.exports = function (app) {
                 var enviarPres = (nuevo === 'BOT_WHATSAPP') && await window.ptlConfirmarEnvio('Piso activado para el bot. ¿Enviar AHORA el mensaje de presentacion a este vecino por WhatsApp?');
                 var _params = { ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: btn.dataset.vivienda || '', modo: nuevo };
                 if (enviarPres) _params.enviar_presentacion = '1';
+                if (window.ptlEsProgramar && window.ptlEsProgramar(enviarPres)) _params.programar = '1';   // v127
                 var body = new URLSearchParams(_params);
                 var r = await fetch(URL_BOT_PISO, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
                 var data = await r.json();
@@ -2664,7 +2673,8 @@ module.exports = function (app) {
                 if (typeof repintarAbiertos === 'function') repintarAbiertos();
                 if (enviarPres && data.presentacion) {
                   var _p = data.presentacion;
-                  if (_p.estado === 'enviado') alert('Presentacion enviada al vecino.' + (_p.plazoTxt ? '\\n\\n' + _p.plazoTxt : ''));
+                  if (_p.estado === 'programado') window.ptlAvisoProgramado(_p.cuandoTxt);
+                  else if (_p.estado === 'enviado') alert('Presentacion enviada al vecino.' + (_p.plazoTxt ? '\\n\\n' + _p.plazoTxt : ''));
                   else if (_p.estado === 'ya_presentado') alert('Este vecino ya tenia ficha; no se reenvia la presentacion.');
                   else alert('Piso activado, pero NO se pudo enviar la presentacion (' + (_p.estado || 'desconocido') + (_p.error ? ': ' + _p.error : '') + ').');
                 }
@@ -2998,9 +3008,9 @@ module.exports = function (app) {
           let _antesBot = "";   // v19.107
           try { if (P._fechaContactoBot) _antesBot = await P._fechaContactoBot(comu); } catch (e) {}
           try {
-            result.presentacion = await bot.enviarPresentacionPiso(result.piso.telefono, {
+            result.presentacion = await bot.enviarOProgramar(String(req.body.programar || "") === "1", "enviarPresentacionPiso", [result.piso.telefono, {
               comunidad: comu.direccion || comu.comunidad, vivienda: result.piso.vivienda, nombre: result.piso.nombre || "",
-            });
+            }], { tel: result.piso.telefono, desc: "presentaci\u00f3n del bot" });   // v127
           } catch (eP) { result.presentacion = { ok: false, estado: "error", error: eP.message }; }
           try { if (result.presentacion && result.presentacion.estado === "enviado" && P._plazoTxt05) result.presentacion.plazoTxt = await P._plazoTxt05(comu, _antesBot); } catch (e) {}
         } else {
@@ -3506,9 +3516,10 @@ module.exports = function (app) {
       const fila = rows.find(r => r && (mismaDireccion(r[1] || "", comu.comunidad) || mismaDireccion(r[1] || "", comu.direccion)) && String(r[2] || "").trim() === vivienda);
       const bot = app.locals.botWhatsapp;
       if (!bot || typeof bot.avisarCambioTipo !== "function") return res.status(500).json({ ok: false, error: "bot no disponible" });
-      const r = await bot.avisarCambioTipo({ comunidad: (fila && fila[1]) || comu.direccion || comu.comunidad, vivienda });
+      const r = await bot.enviarOProgramar(String(req.body.programar || "") === "1", "avisarCambioTipo", [{ comunidad: (fila && fila[1]) || comu.direccion || comu.comunidad, vivienda }],
+        { tel: (fila && fila[0]) || "", desc: "aviso de cambio de tipo" });   // v127
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
-      res.json({ ok: true });
+      res.json({ ok: true, programado: !!r.programado, cuandoTxt: r.cuandoTxt || "" });
     } catch (e) {
       console.error("[documentacion] piso/tipo-aviso:", e.message);
       res.status(500).json({ ok: false, error: e.message });
@@ -3601,7 +3612,11 @@ module.exports = function (app) {
       }
       const fechaLimite = String(dL.getDate()).padStart(2, "0") + "/" + String(dL.getMonth() + 1).padStart(2, "0") + "/" + dL.getFullYear();
       const soloContrato = String(comu.est_ccpp_pago || "").trim().toUpperCase() === "FFCC";
-      const envio = await bot.enviarContratoPiso({ comunidad: dir, vivienda, tipoVia: String(comu.tipo_via || "").trim(), fechaLimite, soloContrato });
+      let _telContrato08 = "";   // v127: para apuntar el programado en su conversacion
+      try { const _rp = (await getSheets().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:C" })).data.values || [];
+        const _fp = _rp.find(r => r && (mismaDireccion(r[1] || "", comu.comunidad) || mismaDireccion(r[1] || "", comu.direccion)) && String(r[2] || "").trim() === vivienda); _telContrato08 = (_fp && _fp[0]) || ""; } catch (e) {}
+      const envio = await bot.enviarOProgramar(String(req.body.programar || "") === "1", "enviarContratoPiso", [{ comunidad: dir, vivienda, tipoVia: String(comu.tipo_via || "").trim(), fechaLimite, soloContrato }],
+        { tel: _telContrato08 || "", desc: (soloContrato ? "contrato" : "contrato y carta de pago") + " (fase 08)" });   // v127
       if (envio && envio.ok && est.primero && comu._rowIndex) {
         try {
           if (az !== hoyIso) await P.actualizarCampoComunidad(comu._rowIndex, "fecha_envio_contratos_pagos", hoyIso);

@@ -565,15 +565,26 @@ module.exports = function (app) {
       });
       fondo.querySelector('[data-s]').addEventListener('click', async function () {
         var txt = (ta.value || '').trim(); if (!txt && !adj) { ta.focus(); return; }
-        var bs = this; bs.disabled = true; bs.textContent = 'Enviando...';
+        var bs = this;
+        // v127 -- fuera del horario de comunicaciones: Enviar ahora / Programar (solo si sus 24 h siguen abiertas
+        //   cuando abra el horario, y nunca con un archivo del PC)
+        var _prog = '';
+        if (window.ptlHorarioAhora && !window.ptlHorarioAhora().dentro) {
+          var rh = await window.ptlConfirmarEnvio(txt + (adj ? (txt ? '\n\n' : '') + '\uD83D\uDCCE ' + (fondo.querySelector('[data-chipn]').textContent || '').replace(/^\uD83D\uDCCE\s*/, '') : ''), 'Contestar por el bot',
+            { tel: b.dataset.tel || '', libre: true, noProg: (adj && !adj.fijo) ? 'lleva un archivo de tu PC (no se puede guardar para m\u00e1s tarde)' : '' });
+          if (!rh) return;
+          _prog = window.ptlEsProgramar(rh) ? '1' : '';
+        }
+        bs.disabled = true; bs.textContent = 'Enviando...';
         try {
-          var _cuerpo = { tel: b.dataset.tel || '', texto: txt, ayuda: b.dataset.ayuda || '0', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '' };
+          var _cuerpo = { tel: b.dataset.tel || '', texto: txt, ayuda: b.dataset.ayuda || '0', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '', programar: _prog };
           var r = adj
             ? await fetch(U.resp, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ archivo: adj }, _cuerpo)) })
             : await fetch(U.resp, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(_cuerpo).toString() });
           var d = await r.json().catch(function () { return {}; });
           if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); bs.disabled = false; bs.textContent = 'Enviar'; return; }
           cerrar();
+          if (d.programado) window.ptlAvisoProgramado(d.cuandoTxt);
           // En HOY, al contestar un "Pide ayuda" o un "Ha respondido" se marca su check (y el aviso se va)
           var chk = (b.dataset.ayuda === '1' && fila) ? fila.querySelector('.hoy-bot-llamado') : null;
           if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); }
@@ -593,15 +604,17 @@ module.exports = function (app) {
       } catch (e) {}
       var res = await window.ptlConfirmarEnvio(q, 'Enviar por el bot', { tel: b.dataset.tel || '', preview: prev, editable: !!(prev && edit) });
       if (!res) return;
+      var _prog = window.ptlEsProgramar(res) ? '1' : '';   // v127: fuera del horario eligio "Programar"
       var libre = (res && typeof res === 'object' && String(res.texto || '').trim() && String(res.texto).trim() !== String(prev).trim()) ? String(res.texto).trim() : '';
       b.disabled = true; var antes = b.innerHTML; b.textContent = '…';
       try {
         var r = libre
-          ? await fetch(U.resp, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ tel: b.dataset.tel || '', texto: libre }).toString() })
+          ? await fetch(U.resp, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ tel: b.dataset.tel || '', texto: libre, programar: _prog }).toString() })
           : await fetch(U.mbot, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: new URLSearchParams({ tel: b.dataset.tel || '', clave: b.dataset.clave || '', nombre: b.dataset.nom || '', comunidad: b.dataset.com || '', piso: b.dataset.piso || '', pendiente: b.dataset.pend || '', fecha: b.dataset.fecha || '', etiqueta: b.dataset.etq || '' }).toString() });
+              body: new URLSearchParams({ tel: b.dataset.tel || '', clave: b.dataset.clave || '', nombre: b.dataset.nom || '', comunidad: b.dataset.com || '', piso: b.dataset.piso || '', pendiente: b.dataset.pend || '', fecha: b.dataset.fecha || '', etiqueta: b.dataset.etq || '', programar: _prog }).toString() });
         var d = await r.json().catch(function () { return {}; });
         if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); b.disabled = false; b.innerHTML = antes; return; }
+        if (d.programado) window.ptlAvisoProgramado(d.cuandoTxt);
         var fila = b.closest('.hoy-exp-fila');
         var chk = fila ? fila.querySelector('.hoy-bot-llamado') : null;
         if (chk) { if (!chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); } }
@@ -612,7 +625,7 @@ module.exports = function (app) {
         if (fila) { setTimeout(function () { if (fila.parentNode) fila.remove(); }, 400); return; }
         // ficha: vuelve a ser el robotito de siempre (su color por las 24 h, sin punto)
         b.classList.remove('hoy-m-bot'); b.disabled = false; b.innerHTML = '\uD83E\uDD16\uD83D\uDCAC';
-        b.style.background = b.dataset.colbase || '#9aa0a6'; b.title = 'Aviso enviado. ' + (b.dataset.titbase || '');
+        b.style.background = b.dataset.colbase || '#9aa0a6'; b.title = (d.programado ? 'Aviso programado para ' + (d.cuandoTxt || '') + '. ' : 'Aviso enviado. ') + (b.dataset.titbase || '');
       } catch (e) { alert('No se ha enviado: ' + e.message); b.disabled = false; b.innerHTML = antes; }
     }
     // v126 -- FICHA: el robotito del vecino con un aviso M pendiente sale verde con punto y lo envia como en HOY
@@ -5694,7 +5707,70 @@ module.exports = function (app) {
   //   Va en todas las paginas (pageHtml). Uso: if (!(await window.ptlConfirmarEnvio(texto, titulo, { tel }))) return;
   //   Con { tel } (criterio de Guille, 18/10/2026: "que ademas se vea la conversacion") muestra arriba la
   //   conversacion de ese vecino con el bot, abierta en lo ultimo; si no hay mensajes, no sale el recuadro.
+  // v127 (20/10/2026, criterio de Guille: "imaginate que a mi me pillas trabajando a deshoras...") -- fuera del
+  //   horario de comunicaciones del bot (Flujo bot, por defecto L-V 9:00-20:00) la ventana avisa y da a elegir:
+  //   Cancelar / Programar para <proxima apertura> / Enviar ahora. Devuelve { programar: true } (o { texto,
+  //   programar: true }) si elige programar. opc.programable === false o opc.noProg (motivo) quitan "Programar";
+  //   opc.libre (texto libre por el bot) solo deja programar si su ventana de 24 h sigue abierta a esa hora.
+  //   Y al pulsar cualquier WhatsApp blanco fuera del horario: "Abrir igualmente" / "Cancelar".
+  // v127 -- horario de comunicaciones para las paginas (pageHtml es sincrona: se guarda en memoria y se
+  //   refresca cada 3 minutos y justo al guardarlo en Flujo bot)
+  const _horarioModP = require("./horario-bot.cjs");
+  let _horarioP = _horarioModP.HORARIO_DEFECTO;
+  async function _refrescarHorarioP() {
+    try {
+      const pl = await leerPlantillasBot();
+      const v = (k) => { const f = pl.find(x => x.clave === k); return f ? f.texto : ""; };
+      _horarioP = _horarioModP.normalizarHorario(v("horario_dias"), v("horario_inicio"), v("horario_fin"));
+    } catch (e) { console.error("[presupuestos] horario de comunicaciones:", e.message); }
+    return _horarioP;
+  }
+  { const _t1 = setTimeout(_refrescarHorarioP, 5000); if (_t1.unref) _t1.unref(); const _t2 = setInterval(_refrescarHorarioP, 3 * 60 * 1000); if (_t2.unref) _t2.unref(); }
   function _clienteConfirmarEnvio(U) {
+    var _H = function () { try { return window.__ptlCalcHorario ? window.__ptlCalcHorario(window.__ptlHorario, new Date()) : { dentro: true }; } catch (e) { return { dentro: true }; } };
+    window.ptlHorarioAhora = _H;
+    window.ptlEsProgramar = function (r) { return !!(r && typeof r === 'object' && r.programar); };
+    // aviso corto abajo a la derecha: "Programado para ..." (se va solo)
+    window.ptlAvisoProgramado = function (cuando) {
+      var t = document.createElement('div');
+      t.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:10002;background:#1f3a5f;color:#fff;padding:10px 14px;border-radius:8px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:min(380px,90vw)';
+      t.textContent = '\u23F0 Programado para ' + (cuando || 'cuando se abra el horario') + '. Queda apuntado en su conversaci\u00f3n.';
+      document.body.appendChild(t); setTimeout(function () { t.remove(); }, 5000);
+    };
+    var _txtH = function () { return window.__ptlHorarioTxt || 'L-V 9:00-20:00'; };
+    var _caja = function (titulo, html, botones, alPintar) {
+      return new Promise(function (resolver) {
+        var fondo = document.createElement('div');
+        fondo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10001;display:flex;align-items:center;justify-content:center';
+        fondo.innerHTML = '<div style="background:#fff;color:#111;border-radius:10px;padding:14px 16px;width:min(520px,94vw);box-shadow:0 8px 30px rgba(0,0,0,.3);text-align:left">'
+          + '<div style="font-weight:700;font-size:14px;margin-bottom:8px"></div><div data-m="1" style="font-size:13px;line-height:1.45"></div>'
+          + '<div data-b="1" style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap"></div></div>';
+        fondo.firstChild.firstChild.textContent = titulo;
+        fondo.querySelector('[data-m]').innerHTML = html;
+        var fin = function (v) { document.removeEventListener('keydown', tecla, true); fondo.remove(); resolver(v); };
+        var tecla = function (e) { if (e.key === 'Escape') { e.preventDefault(); fin(false); } };
+        document.addEventListener('keydown', tecla, true);
+        botones.forEach(function (b) {
+          var x = document.createElement('button'); x.type = 'button'; x.className = 'ptl-btn ptl-btn-sm ' + (b.prim ? 'ptl-btn-primary' : 'ptl-btn-secondary'); x.textContent = b.t;
+          x.addEventListener('click', function () { fin(b.v); }); fondo.querySelector('[data-b]').appendChild(x);
+        });
+        fondo.addEventListener('click', function (e) { if (e.target === fondo) fin(false); });
+        document.body.appendChild(fondo);
+      });
+    };
+    var _escH = function (x) { return String(x || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+    document.addEventListener('click', function (ev) {
+      var a = ev.target && ev.target.closest ? ev.target.closest('a[href*="web.whatsapp.com/send"]') : null;
+      if (!a) return;
+      if (window.__ptlWaFueraOk && Date.now() - window.__ptlWaFueraOk < 120000) return;   // ya dijo "Abrir igualmente"
+      var h = _H(); if (h.dentro) return;
+      ev.preventDefault(); ev.stopImmediatePropagation(); ev.stopPropagation();
+      _caja('\uD83C\uDF19 Fuera del horario de comunicaciones',
+        'Estamos fuera del horario de comunicaciones (<b>' + _escH(_txtH()) + '</b>).' + (h.texto ? '<br>El horario se abre el <b>' + _escH(h.texto) + '</b>.' : '') + '<br><br>\u00bfAbrir el WhatsApp igualmente?',
+        [{ t: 'Cancelar', v: false }, { t: 'Abrir igualmente', v: true, prim: true }]).then(function (ok) {
+        if (!ok) return; window.__ptlWaFueraOk = Date.now(); a.click();
+      });
+    }, true);
     window.ptlConfirmarEnvio = function (texto, titulo, opc) {
       return new Promise(function (resolver) {
         var fondo = document.createElement('div');
@@ -5706,8 +5782,10 @@ module.exports = function (app) {
           + '<div data-pv="1" style="display:none;margin-top:10px"><div data-pvt="1" style="font-size:11px;font-weight:700;color:#555;margin-bottom:3px"></div>'
           + '<div data-pvr="1" style="display:none;font-size:12.5px;line-height:1.4;white-space:pre-wrap;word-break:break-word;border:1px solid #cfe0f5;background:#e6f1fb;border-radius:8px;padding:6px 8px;max-height:220px;overflow:auto"></div>'
           + '<textarea data-pve="1" rows="8" style="display:none;width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:12.5px"></textarea></div>'
-          + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
+          + '<div data-fh="1" style="display:none;margin-top:12px;padding:8px 10px;border-radius:8px;background:#fff4d6;border:1px solid #f0c36d;font-size:12.5px;line-height:1.4"></div>'
+          + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap">'
           + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-c="1">Cancelar</button>'
+          + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-p="1" style="display:none"></button>'
           + '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-e="1">Enviar</button></div></div>';
         fondo.querySelector('[data-t]').textContent = titulo || 'Enviar por el bot';
         fondo.querySelector('[data-m]').textContent = String(texto || '');
@@ -5719,10 +5797,35 @@ module.exports = function (app) {
           if (opc.editable) { _pvE = fondo.querySelector('[data-pve]'); _pvE.style.display = 'block'; _pvE.value = String(opc.preview); }
           else { var _pr = fondo.querySelector('[data-pvr]'); _pr.style.display = 'block'; _pr.textContent = String(opc.preview); }
         }
+        // v127 -- fuera del horario de comunicaciones
+        var _h = _H(), _fuera = !_h.dentro, _bP = fondo.querySelector('[data-p]'), _fh = fondo.querySelector('[data-fh]');
+        var _cierra24 = null;   // fecha en que se cierra su ventana de 24 h, si es antes de la apertura
+        var _pintaFuera = function (extra) {
+          var noP = (opc && (opc.programable === false || opc.noProg)) || !_h.proxima || (opc && opc.libre === true && _cierra24);
+          _fh.style.display = 'block';
+          _fh.innerHTML = '\uD83C\uDF19 Estamos <b>fuera del horario de comunicaciones</b> (' + _escH(_txtH()) + ').'
+            + (noP ? (' Solo se puede enviar ahora' + ((opc && opc.noProg) ? ': ' + _escH(opc.noProg) : (_cierra24 ? ': su ventana de 24 h se cierra antes de que abra el horario (' + _escH(_cierra24) + ')' : '')) + '.')
+              : ' Puedes enviarlo ahora o programarlo para que salga el <b>' + _escH(_h.texto) + '</b>.')
+            + (extra ? '<br><b style="color:#b3261e">' + _escH(extra) + '</b>' : '');
+          _bP.style.display = noP ? 'none' : '';
+        };
+        if (_fuera) {
+          _bP.textContent = '\u23F0 Programar para ' + _h.texto;
+          fondo.querySelector('[data-e]').textContent = 'Enviar ahora';
+          _pintaFuera('');
+        }
         var tel = opc && opc.tel ? String(opc.tel) : '';
         if (tel && U && U.conv) {
           var cont = fondo.querySelector('[data-conv]');
           fetch(U.conv + (U.conv.indexOf('?') < 0 ? '?' : '&') + 'tel=' + encodeURIComponent(tel)).then(function (r) { return r.json(); }).then(function (d) {
+            // v127: con texto libre, mira si su ventana de 24 h sigue abierta cuando abra el horario
+            if (d && d.ok && _fuera && _h.proxima && opc && (opc.libre || opc.editable)) {
+              var _lim = d.ultVecino ? new Date(new Date(d.ultVecino).getTime() + 24 * 3600 * 1000) : null;
+              if (!_lim || _lim.getTime() <= new Date(_h.proxima).getTime() + 10 * 60 * 1000) {
+                _cierra24 = _lim ? _lim.toLocaleString('es-ES', { timeZone: 'Europe/Madrid', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'nunca ha escrito';
+                _pintaFuera('');
+              }
+            }
             if (!d || !d.ok || !d.items || !d.items.length) return;
             cont.style.display = 'block';
             d.items.forEach(function (it) {
@@ -5750,6 +5853,11 @@ module.exports = function (app) {
         document.addEventListener('keydown', tecla, true);
         fondo.querySelector('[data-c]').addEventListener('click', function () { fin(false); });
         fondo.querySelector('[data-e]').addEventListener('click', function () { fin(_pvE ? { texto: _pvE.value } : true); });
+        _bP.addEventListener('click', function () {
+          // la plantilla se puede programar siempre; si la ha cambiado (texto libre), solo con la ventana de 24 h abierta
+          if (_pvE && _cierra24 && String(_pvE.value).trim() !== String(opc.preview || '').trim()) { _pintaFuera('Has cambiado el mensaje: como texto libre no se puede programar. Deja el de la plantilla o env\u00edalo ahora.'); return; }
+          fin(_pvE ? { texto: _pvE.value, programar: true } : { programar: true });
+        });
         fondo.addEventListener('click', function (e) { if (e.target === fondo) fin(false); });
         document.body.appendChild(fondo);
         setTimeout(function () { var b = fondo.querySelector('[data-e]'); if (b) b.focus(); }, 30);
@@ -5829,6 +5937,7 @@ module.exports = function (app) {
       <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
     </div>
   </nav>
+  <script>window.__ptlHorario=${JSON.stringify(_horarioP)};window.__ptlHorarioTxt=${JSON.stringify(_horarioModP.textoHorario(_horarioP))};window.__ptlCalcHorario=${_horarioModP.calcHorario.toString()};</script>
   <script>(${_clienteConfirmarEnvio.toString()})(${JSON.stringify({ conv: urlT(token, "/presupuestos/hoy/conversacion") })});</script>
   <div class="ptl-page">
     ${content}
@@ -10269,6 +10378,27 @@ module.exports = function (app) {
         </form>
       </div>`;
 
+    // v127 (20/10/2026, criterio de Guille: "el bot deberia estar calladito a horas intempestivas") -- horario de
+    //   comunicaciones del bot (filas horario_dias / horario_inicio / horario_fin de bot_plantillas).
+    const _hv = (k) => { const f = plantillas.find(p => p.clave === k); return f ? f.texto : ""; };
+    const _hor = _horarioModP.normalizarHorario(_hv("horario_dias"), _hv("horario_inicio"), _hv("horario_fin"));
+    const _DIAS_H = [[1, "L"], [2, "M"], [3, "X"], [4, "J"], [5, "V"], [6, "S"], [7, "D"]];
+    const _bandaHorario = `
+      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-general-1,#1f3a5f);padding:12px 14px;max-width:760px;margin:0 auto;color:#fff">
+        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/horario")}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div style="flex:1 1 320px">
+            <div style="font-weight:600;font-size:14px">🌙 Horario de comunicaciones: ${esc(_horarioModP.textoHorario(_hor))}</div>
+            <div style="font-size:12px;color:rgba(255,255,255,.85);margin-top:4px">Fuera de este horario el bot no manda nada por su cuenta (presentaciones, recordatorios ni avisos por plazo): espera a que se abra. Si envías tú algo por el bot, te avisa y eliges «Enviar ahora» o «Programar»; con el WhatsApp normal, «Abrir igualmente» o «Cancelar». Las respuestas del bot cuando un vecino le escribe salen siempre. Los correos no cambian.</div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:13px">
+              <span>${_DIAS_H.map(([n, l]) => `<label style="margin-right:6px;cursor:pointer"><input type="checkbox" name="dias" value="${n}" ${_hor.dias.includes(n) ? "checked" : ""}/> ${l}</label>`).join("")}</span>
+              <label>de <input type="time" name="inicio" value="${esc(_hor.ini)}" required style="font:inherit;padding:2px 4px;border-radius:4px;border:1px solid #ccc"/></label>
+              <label>a <input type="time" name="fin" value="${esc(_hor.fin)}" required style="font:inherit;padding:2px 4px;border-radius:4px;border:1px solid #ccc"/></label>
+            </div>
+          </div>
+          <button type="submit" class="ptl-btn ptl-btn-primary ptl-shrink0">💾 Guardar</button>
+        </form>
+      </div>`;
+
     // v18.121: tiempos + on/off de los avisos automaticos por plazo (ajustes en bot_plantillas)
     const _avVal = (clave, def) => { const f = plantillas.find(x => x.clave === clave); if (!f) return { val: def, on: true }; const n = parseFloat(String(f.texto || "").replace(",", ".").trim()); return { val: (isNaN(n) ? def : n), on: (f.activo !== false) }; };
     const _AVDEF = {
@@ -10477,6 +10607,9 @@ module.exports = function (app) {
 
         <div class="pbf-grp">IA del bot</div>
         ${_bandaIA}
+
+        <div class="pbf-grp">Horario de comunicaciones</div>
+        ${_bandaHorario}
 
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:14px">Todo se guarda en <code>bot_plantillas</code>.</div>
 
@@ -11155,9 +11288,10 @@ module.exports = function (app) {
             const filaP = (relP.data.values && relP.data.values[0]) || [];
             const telefono = filaP[0] || "";
             const nombre = filaP[4] || "";
-            presentacion = await bot.enviarPresentacionPiso(telefono, {
+            // v127: fuera del horario, Guille puede programarla (programar=1)
+            presentacion = await bot.enviarOProgramar(String(req.body.programar || "") === "1", "enviarPresentacionPiso", [telefono, {
               comunidad: comu.direccion || comu.comunidad, vivienda, nombre,
-            });
+            }], { tel: telefono, desc: "presentaci\u00f3n del bot" });
           } catch (e) {
             presentacion = { ok: false, estado: "error", error: e.message };
           }
@@ -17331,6 +17465,26 @@ module.exports = function (app) {
     }
   });
 
+  // POST /presupuestos/plantillas-bot/horario — horario de comunicaciones del bot (v127)
+  app.post("/presupuestos/plantillas-bot/horario", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const d = [].concat(req.body.dias || []).map(String).join(",");
+      const H = _horarioModP.normalizarHorario(d, req.body.inicio, req.body.fin);
+      if (!d) return sendError(res, "Marca al menos un d\u00eda.");
+      if (H.ini >= H.fin) return sendError(res, "La hora de inicio tiene que ser anterior a la de fin.");
+      await guardarAjusteBot("horario_dias", H.dias.join(","));
+      await guardarAjusteBot("horario_inicio", H.ini);
+      await guardarAjusteBot("horario_fin", H.fin);
+      await _refrescarHorarioP();
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/horario:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
   // POST /presupuestos/plantillas-bot/avisos-tiempos - guarda tiempos + on/off de los avisos por plazo (v18.121)
   app.post("/presupuestos/plantillas-bot/avisos-tiempos", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -17480,7 +17634,11 @@ module.exports = function (app) {
         pos = antes ? n : 0; items.splice(pos, 0, p0);
       }
       items.forEach(x => { delete x._t; delete x._leg; delete x._bot; });
-      res.json({ ok: true, items });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
+      // v127 -- ultimo mensaje del vecino (ISO): la ventana de confirmacion mira si las 24 h siguen abiertas
+      //   cuando abra el horario de comunicaciones (si no, un texto libre no se puede programar)
+      let ultVecino = "";
+      for (const c of _filasC) { if (/^(texto|archivo)(_fase08|_fuera)?$/.test(String(c[3] || "").trim()) && String(c[0] || "") > ultVecino) ultVecino = String(c[0]); }
+      res.json({ ok: true, items, ultVecino });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
     } catch (e) {
       console.error("[presupuestos] GET /hoy/conversacion:", e.message);
       res.json({ ok: false, error: e.message });
@@ -17513,12 +17671,15 @@ module.exports = function (app) {
       const bot = app.locals.botWhatsapp;
       if (!bot || typeof bot.responderVecino !== "function") return res.status(500).json({ ok: false, error: "bot no disponible" });
       const _adj = req.body.archivo && typeof req.body.archivo === "object" ? req.body.archivo : null;
-      const r = await bot.responderVecino(String(req.body.tel || ""), String(req.body.texto || ""), _adj);
+      const _prog = String(req.body.programar || "") === "1" || req.body.programar === true;   // v127
+      if (_prog && _adj && !_adj.fijo) return res.status(400).json({ ok: false, error: "no se puede programar con un archivo del PC: env\u00edalo ahora o usa uno de los botones" });
+      const r = await bot.enviarOProgramar(_prog, "responderVecino", [String(req.body.tel || ""), String(req.body.texto || ""), _adj],
+        { tel: String(req.body.tel || ""), desc: "respuesta: " + String(req.body.texto || "").replace(/\s+/g, " ").slice(0, 80) + (_adj ? " (+ adjunto)" : "") });
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
       // v126 (criterio de Guille) -- contestado = ya no esta pendiente: se marca su "Pide ayuda" (bot_expedientes
       //   col AE = 1) y su "Ha respondido" (pisos col AZ R=ahora), conteste desde HOY o desde la ficha.
       try { await _marcarContestado(String(req.body.tel || "")); } catch (eM) { console.error("[presupuestos] responder-bot marcar contestado:", eM.message); }
-      res.json({ ok: true });
+      res.json({ ok: true, programado: !!r.programado, cuandoTxt: r.cuandoTxt || "" });
     } catch (e) {
       console.error("[presupuestos] POST /hoy/responder-bot:", e.message);
       res.status(500).json({ ok: false, error: e.message });
@@ -17565,9 +17726,10 @@ module.exports = function (app) {
         const vv = { 1: b.nombre || "vecino/a", 2: b.comunidad || "-", 3: b.piso || "-", 4: b.pendiente || "la documentaci\u00f3n de su vivienda", 5: b.fecha || "-" };
         if (tx) textoCompleto = String(tx).replace(/\{\{\s*(\d+)\s*\}\}/g, (m, n) => (vv[n] != null ? String(vv[n]) : m));
       } catch (eT) {}
-      const r = await bot.enviarAvisoM(dest, String(b.clave || ""), { nombre: b.nombre, comunidad: b.comunidad, piso: b.piso, pendiente: b.pendiente, fecha: b.fecha, etiqueta: String(b.etiqueta || ""), textoCompleto });
+      const r = await bot.enviarOProgramar(String(b.programar || "") === "1", "enviarAvisoM", [dest, String(b.clave || ""), { nombre: b.nombre, comunidad: b.comunidad, piso: b.piso, pendiente: b.pendiente, fecha: b.fecha, etiqueta: String(b.etiqueta || ""), textoCompleto }],
+        { tel: dest, desc: String(b.etiqueta || "aviso") + " por el bot" });   // v127
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
-      res.json({ ok: true });
+      res.json({ ok: true, programado: !!r.programado, cuandoTxt: r.cuandoTxt || "" });
     } catch (e) {
       console.error("[presupuestos] POST /hoy/aviso-bot:", e.message);
       res.status(500).json({ ok: false, error: e.message });
