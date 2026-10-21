@@ -102,7 +102,12 @@ function _p5NombreWa(n) { return String(n || "").replace(/^\s*\([^)]*\)\s*/, "")
 // v127 (20/10/2026, criterio de Guille) -- nombre con el que se dirige uno al vecino en TODOS los mensajes: el
 //   primero de la Nota simple (col D, varios separados por "/"; es el propietario, tambien en inquilinos); si no
 //   hay Nota simple o es una anotacion, el nombre de arriba (col E). Igual que nombreDeNota del bot.
-function _p5NombreDirigido(nota, nombre) {
+// v128 (21/10/2026, criterio de Guille: "cuando el piso sea en usufructo, deberiamos comunicarnos con el usufructuario")
+//   -- tipo FAMILIAR: se saluda al nombre de arriba (pisos col E), no al titular de la Nota simple. Los demas tipos
+//   (inquilino incluido: "con los inquilinos quiero tratar directamente con el dueño"), el primero de la Nota simple;
+//   sin Nota simple, el de arriba (en todos).
+function _p5NombreDirigido(nota, nombre, tipo) {
+  if (String(tipo || "").trim().toLowerCase() === "familiar") { const nb = String(nombre || "").replace(/^\s*\(\?\)\s*/, "").trim(); if (nb) return nb; }
   let n = String(nota || "").split("/")[0].replace(/^\s*\([^)]*\)\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+/g, " ").trim();
   if (n.length < 3 || /^(mismo|misma|piso|pte|pendiente|sin|ver|no )/i.test(n)) n = "";
   return n || String(nombre || "").replace(/^\s*\(\?\)\s*/, "").trim();
@@ -14171,6 +14176,8 @@ module.exports = function (app) {
         // v18.99d — nombres MAESTROS desde la pestaña "pisos" (donde el usuario los edita).
         // bot_expedientes puede tener copias antiguas con "(?)". Mapa comunidad|vivienda -> nombre.
         const _pisosNombre = {}; const _pisosNomMsg = {};
+        const _tipoBotTel = {};   // v128: tipo de la ficha del bot por telefono (para saludar al de arriba si es familiar)
+        for (let i = 1; i < _erows.length; i++) { const r = _erows[i]; if (r && r[0]) _tipoBotTel[String(r[0]).replace(/\D/g, "").slice(-9)] = r[4]; }
         const _pisosModo = {}; const _pisosTel = {};   // v19.61 — telefono ACTUAL de cada piso (ultimos 9 digitos) // v18.99f — bot_piso_activo (AV): MANUAL silencia los avisos de HOY
         let _piRowsAll = [];   // v19.19 — filas completas de "pisos" (hasta AY aviso_m3) para el aviso M3 de fase 08
         try {
@@ -14186,7 +14193,7 @@ module.exports = function (app) {
             const _k = _com + "|" + _viv;
             const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
             if (_nom) _pisosNombre[_k] = _nom;
-            _pisosNomMsg[_k] = _p5NombreDirigido(_pr[3], _nom);   // v127: nombre de la Nota simple para los mensajes
+            _pisosNomMsg[_k] = _p5NombreDirigido(_pr[3], _nom, String(_pr[48] || "").trim() || _tipoBotTel[String(_pr[0] || "").replace(/\D/g, "").slice(-9)]);   // v128   // v127: nombre de la Nota simple para los mensajes
             _pisosModo[_k] = String(_pr[47] || "").trim().toUpperCase();
             _pisosTel[_k] = String(_pr[0] || "").replace(/\D/g, "").slice(-9);   // v19.61
           }
@@ -14506,7 +14513,7 @@ module.exports = function (app) {
               const canal = enW ? "bot" : (conMail ? "mail" : (movil ? "wa" : "nada"));
               const ult = (f) => (mv[f] || []).slice().sort().pop() || "";
               const nom = String(pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
-              const nomMsg = _p5NombreDirigido(pr[3], nom);   // v127: Nota simple
+              const nomMsg = _p5NombreDirigido(pr[3], nom, String(pr[48] || "").trim() || (bot ? bot[4] : ""));   // v128: tipo de la ficha o del bot   // v127: Nota simple
               const v = { nombre: nomMsg, via, comunidad: c.direccion || c.comunidad || "", piso: viv, fL: _fmtD(dL), fP: _fmtD(dP), conced, pend: pendTxt, es08 };
               const base = { comunidad: pr[1] || "", vivienda: viv, nombre: nom, telefono: pr[0] || "", canal, fecha: _fmtD(dIni), ts: dIni.getTime(), dias, flag: false };
               // v126 (18/10/2026, criterio de Guille) -- los avisos que iban por WhatsApp (bot o manual, con movil)
@@ -17679,13 +17686,15 @@ module.exports = function (app) {
       const tel = String(b.tel || "");
       if (tel.replace(/\D/g, "").length < 9) return res.status(400).json({ ok: false, error: "el vecino no tiene tel\u00e9fono" });
       const nn = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
-      const pis = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:E" })).data.values || []).slice(1);
+      const pis = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AW" })).data.values || []).slice(1);
       const k9 = tel.replace(/\D/g, "").slice(-9);
       const fp = pis.find(r => r && nn(r[1]) === nn(b.comunidad) && nn(r[2]) === nn(b.vivienda)) || pis.find(r => r && String(r[0] || "").replace(/\D/g, "").slice(-9) === k9) || [];
       const comu = (await leerComunidades()).find(c => nn(c.direccion) === nn(fp[1] || b.comunidad) || nn(c.comunidad) === nn(fp[1] || b.comunidad));
       const via = comu && comu.tipo_via ? String(comu.tipo_via).trim() + " " : "";
       const vivienda = (via + String(fp[1] || b.comunidad || "").trim() + " (" + String(fp[2] || b.vivienda || "").trim() + ")").trim();
-      const nombre = _p5NombreDirigido(fp[3], fp[4]);
+      let _tipoB = String(fp[48] || "").trim();
+      if (!_tipoB) { try { const eb = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:E" })).data.values || []).slice(1).find(e => e && String(e[0] || "").replace(/\D/g, "").slice(-9) === k9); _tipoB = eb ? eb[4] : ""; } catch (eT) {} }
+      const nombre = _p5NombreDirigido(fp[3], fp[4], _tipoB);
       const r = await bot.enviarOProgramar(String(b.programar || "") === "1", "pedirContacto", [tel, { nombre, vivienda }], { tel, desc: "pedir contacto" });
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
       res.json({ ok: true, programado: !!r.programado, cuandoTxt: r.cuandoTxt || "" });

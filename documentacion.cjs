@@ -1072,7 +1072,7 @@ module.exports = function (app) {
       const estadosFiltrados = filtrarEstadosPiso(estadosCompletos);
       // v127 (criterio de Guille) -- en los mensajes al vecino, el primero de la Nota simple (si no, el de arriba)
       const _nomMsgV = (app.locals.presupuestos && typeof app.locals.presupuestos._p5NombreDirigido === "function")
-        ? app.locals.presupuestos._p5NombreDirigido(p.nota_simple, p.nombre)
+        ? app.locals.presupuestos._p5NombreDirigido(p.nota_simple, p.nombre, String(p.piso_tipo || "").trim() || ((typeof botDatos !== "undefined" && botDatos && botDatos.tipoByPiso && botDatos.tipoByPiso[String(p.vivienda || "").trim().toLowerCase()]) || ""))   // v128: familiar -> el de arriba
         : (String(p.nota_simple || "").split("/")[0].replace(/^\s*\([^)]*\)\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").trim() || p.nombre || "");
       return filaManualHtml({
         id: "piso-" + (p.vivienda || ""),

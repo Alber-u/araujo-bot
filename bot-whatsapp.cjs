@@ -4224,7 +4224,7 @@ app.get("/enviar-presentacion", async (req, res) => {
     const sheets = getSheetsClient();
     // 1) pisos (A=tel, B=comunidad, C=vivienda, E=nombre, AV idx47=bot_piso_activo)
     const resPisos = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AV",
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AW",
     });
     const pisos = resPisos.data.values || [];
     // 2) fase por comunidad (comunidades B idx1=direccion, P idx15=fase_presupuesto)
@@ -4263,7 +4263,7 @@ app.get("/enviar-presentacion", async (req, res) => {
 
       try {
         const _espP = await enviarWhatsAppPlantilla(telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
-          "1": limpiarNombreVecino(nombreDeNota(row[3]) || nombre),   // v19.98: nombre sin anotaciones; v127: el de la Nota simple
+          "1": limpiarNombreVecino(nombreParaPiso(row[3], nombre, row[48])),   // v128: familiar -> el de arriba   // v19.98: nombre sin anotaciones; v127: el de la Nota simple
         });
         // Crear la ficha del vecino en bot_whatsapp: marca implícita de "presentado"
         // y arranque del expediente. Evita reenvíos en próximas tandas.
@@ -4494,14 +4494,24 @@ function nombreDeNota(nota) {
   if (n.length < 3 || /^(mismo|misma|piso|pte|pendiente|sin|ver|no )/i.test(n)) return "";
   return n;
 }
+// v128 (criterio de Guille) -- tipo FAMILIAR (usufructo): el nombre de arriba; los demas (inquilino incluido), el de la
+//   Nota simple; sin Nota simple, el de arriba.
+function nombreParaPiso(nota, nombre, tipo) {
+  const nb = String(nombre || "").trim();
+  if (String(tipo || "").trim().toLowerCase() === "familiar" && nb) return nb;
+  return nombreDeNota(nota) || nb;
+}
 let _cacheNombreDirigido = { t: 0, m: {} };
 async function nombreDirigido(comunidad, vivienda, fallback) {
   const k = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
   try {
     if (Date.now() - _cacheNombreDirigido.t > 5 * 60 * 1000) {
-      const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:E" })).data.values || [];
+      const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AW" })).data.values || [];
+      // tipo del piso: el de la ficha (pisos col AW) y, si esta vacio, el de la ficha del bot (bot_expedientes col E)
+      const tb = {};
+      try { for (const e of ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:E" })).data.values || []).slice(1)) { if (e && e[1] && e[2]) tb[k(e[1]) + "|" + k(e[2])] = e[4]; } } catch (eT) {}
       const m = {};
-      for (const r of rows.slice(1)) { if (r && r[1] && r[2]) m[k(r[1]) + "|" + k(r[2])] = nombreDeNota(r[3]) || String(r[4] || "").trim(); }
+      for (const r of rows.slice(1)) { if (r && r[1] && r[2]) { const kk = k(r[1]) + "|" + k(r[2]); m[kk] = nombreParaPiso(r[3], r[4], String(r[48] || "").trim() || tb[kk]); } }
       _cacheNombreDirigido = { t: Date.now(), m };
     }
     return _cacheNombreDirigido.m[k(comunidad) + "|" + k(vivienda)] || String(fallback || "");
