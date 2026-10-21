@@ -1846,6 +1846,37 @@ async function enviarAvisoM(telefono, clave, v) {
   try { await guardarAviso(tel, clave, "enviado"); } catch (e) {}
   return { ok: true };
 }
+// v128 (21/10/2026, criterio de Guille: "un mensaje para cuando queremos ponernos en contacto con un vecino") --
+//   plantilla Twilio "plan5_contacto" (Utility; {{1}} nombre, {{2}} vivienda "C Malvaloca 1 (1D)"): pasadas las 24 h,
+//   Guille le pide que responda HOLA. El codigo HX vive SOLO en bot_plantillas (se pega en Flujo bot).
+//   Lo siguiente que ESCRIBA el vecino no lo contesta el bot: va a Guille (Pide ayuda) -- ver _contactoPendiente.
+async function pedirContacto(telefono, v) {
+  v = v || {};
+  await cargarPlantillas(true);
+  const sid = sidPlant("plan5_contacto", null);
+  if (!sid) return { ok: false, error: "falta el c\u00f3digo Twilio de la plantilla plan5_contacto (Flujo bot) o est\u00e1 desactivada" };
+  const tel = _telE164(telefono);
+  if (!tel) return { ok: false, error: "falta el telefono" };
+  const r = (x, def) => { x = String(x == null ? "" : x).replace(/\s+/g, " ").trim(); return x || def; };
+  const _esp = await enviarWhatsAppPlantilla(tel, sid, { 1: r(v.nombre, "vecino/a"), 2: r(v.vivienda, "-") });
+  try { await guardarContacto(tel, "contacto_pedido", "bot", _conEspejo("Pedir contacto (plantilla plan5_contacto)", _esp, "Pedir contacto (plantilla plan5_contacto)")); } catch (e) {}
+  return { ok: true };
+}
+// true si al vecino se le pidio contacto y aun no ha escrito nada despues (7 dias como mucho)
+async function _contactoPendiente(telefono) {
+  try {
+    const k = String(telefono || "").replace(/\D/g, "").slice(-9);
+    const rows = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:D" })).data.values || []).slice(1);
+    let tPed = "", tVec = "";
+    for (const f of rows) {
+      if (!f || String(f[1] || "").replace(/\D/g, "").slice(-9) !== k) continue;
+      const ts = String(f[0] || "");
+      if (String(f[2] || "").trim() === "contacto_pedido") { if (ts > tPed) tPed = ts; }
+      else if (/^(texto|archivo)(_fase08|_fuera)?$/.test(String(f[3] || "").trim()) && ts > tVec) tVec = ts;
+    }
+    return !!tPed && tPed > tVec && (Date.now() - new Date(tPed).getTime()) < 7 * 24 * 3600 * 1000;
+  } catch (e) { return false; }
+}
 // v126 (18/10/2026, criterio de Guille: "quiero poder cambiar yo el tipo y que se actualice lo que necesita") --
 //   Guille cambia el tipo del piso en la ficha (desplegable del acordeon) y, si el vecino tiene ficha del bot, el
 //   bot pasa a ese tipo: recalcula lo que le falta con lo ya recibido (no se vuelve a pedir nada) y sigue con el
@@ -4320,6 +4351,20 @@ app.post("/whatsapp", async (req, res) => {
     return res.type("text/xml").send(twimlErr.toString());
   }
 
+  // v128 -- respuesta a "Pedir contacto" (plan5_contacto): el bot NO la contesta ni la interpreta (un "si" en la
+  //   forma de pago seria "quiero financiar"); se guarda (abre las 24 h) y va a Guille como Pide ayuda en HOY.
+  if (numMedia === 0) {
+    try {
+      if (await _contactoPendiente(telefonoKey)) {
+        marcarProcesado(messageSid);
+        const _bc = String(req.body.Body || "").trim();
+        await guardarContacto(telefonoKey, _bc, "texto", "");
+        try { await marcarAtencionHumana(telefonoKey, _bc || "(respuesta a Pedir contacto)"); } catch (eA) {}
+        console.log("Respuesta a Pedir contacto (a Guille, sin contestar):", telefonoKey);
+        return res.type("text/xml").send(new twilio.twiml.MessagingResponse().toString());
+      }
+    } catch (eC) { console.error("Pedir contacto: comprobando respuesta:", eC.message); }
+  }
   // TEXTOS: procesar sincrono.
   // Suelen ser mas ligeros que archivos, aunque algunos pasan por IA de texto.
   if (numMedia === 0) {
@@ -5058,7 +5103,7 @@ function horarioBot() {
   const v = (k) => (_plantillasCache && _plantillasCache[k]) ? _plantillasCache[k].texto : "";
   return _horarioMod.normalizarHorario(v("horario_dias"), v("horario_inicio"), v("horario_fin"));
 }
-const _FN_PROGRAMABLES = ["enviarAvisoM", "responderVecino", "enviarPresentacionPiso", "enviarContratoPiso", "avisarCambioTipo"];
+const _FN_PROGRAMABLES = ["enviarAvisoM", "responderVecino", "enviarPresentacionPiso", "enviarContratoPiso", "avisarCambioTipo", "pedirContacto"];
 async function _asegurarHojaProgramados() {
   const sheets = getSheetsClient();
   let existe = false;
@@ -5140,6 +5185,7 @@ setTimeout(() => {
     reabrirSiFinalizado,   // v19.114
     responderVecino,       // v122
     enviarAvisoM,          // v126
+    pedirContacto,         // v128
     programarEnvio,        // v127: envios de Guille fuera del horario, programados
     enviarOProgramar,      // v127
     horarioBot,            // v127

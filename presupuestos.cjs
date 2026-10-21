@@ -539,7 +539,8 @@ module.exports = function (app) {
               + '</div>'
               : '<div data-rojo="1" style="font-size:12px;color:#a32d2d;font-weight:600"></div>')
         + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-x="1">' + (ok ? 'Cancelar' : 'Cerrar') + '</button>'
-        + (ok ? '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-s="1">Enviar</button>' : '') + '</div></div>';
+        + (ok ? '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-s="1">Enviar</button>'
+              : '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-pc="1" title="Plantilla de WhatsApp: le pide que responda HOLA; cuando conteste se abren las 24 h">\uD83D\uDCE8 Pedir contacto</button>') + '</div></div>';
       fondo.querySelector('[data-sub]').textContent = (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + (b.dataset.nom ? ' · ' + b.dataset.nom : '');
       if (!ok) fondo.querySelector('[data-rojo]').textContent = b.title || '';
       document.body.appendChild(fondo);
@@ -547,6 +548,21 @@ module.exports = function (app) {
       fondo.querySelector('[data-x]').addEventListener('click', cerrar);
       fondo.addEventListener('click', function (e) { if (e.target === fondo) cerrar(); });
       conversacion(b, fondo.querySelector('[data-conv]'));
+      // v128 -- sin 24 h: "Pedir contacto" (plantilla plan5_contacto); su respuesta te llega a ti, el bot no la contesta
+      var bPc = fondo.querySelector('[data-pc]');
+      if (bPc) bPc.addEventListener('click', async function () {
+        var rc = await window.ptlConfirmarEnvio('\u00bfEnviar por el bot el mensaje de Pedir contacto a ' + (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + '?\n\nLe pide que responda HOLA. Lo que conteste te llega a ti (Pide ayuda en HOY) y el bot no le responde.', 'Pedir contacto', { tel: b.dataset.tel || '' });
+        if (!rc) return;
+        bPc.disabled = true; bPc.textContent = 'Enviando...';
+        try {
+          var r = await fetch(U.contacto, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ tel: b.dataset.tel || '', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '', programar: window.ptlEsProgramar(rc) ? '1' : '' }).toString() });
+          var d = await r.json().catch(function () { return {}; });
+          if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); bPc.disabled = false; bPc.textContent = '\uD83D\uDCE8 Pedir contacto'; return; }
+          cerrar();
+          if (d.programado) window.ptlAvisoProgramado(d.cuandoTxt); else alert('Enviado. Cuando conteste, te saldr\u00e1 en HOY y podr\u00e1s escribirle por el bot.');
+        } catch (e) { alert('No se ha enviado: ' + e.message); bPc.disabled = false; bPc.textContent = '\uD83D\uDCE8 Pedir contacto'; }
+      });
       if (!ok) return;
       var ta = fondo.querySelector('textarea'); setTimeout(function () { ta.focus(); }, 30);
       // v127 -- adjunto: uno del PC (PDF/JPG/PNG, hasta 10 MB) o uno de los fijos del bot
@@ -708,7 +724,7 @@ module.exports = function (app) {
     });
   }
   function _scriptVecinoBot(token) {
-    const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"),
+    const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"), contacto: urlT(token, "/presupuestos/hoy/pedir-contacto"),
       mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }) };
     return "(" + _clienteVecinoBot.toString() + ")(" + JSON.stringify(U) + ");";
   }
@@ -2738,6 +2754,7 @@ module.exports = function (app) {
     plan5_recordatorio_prorroga: ["plan5_recordatorio_prorroga", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M2 (05) / M3 (08) amable durante la prorroga, por el bot al pulsar en HOY"],
     plan5_aviso_vencido_doc: ["plan5_aviso_vencido_doc", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M2 duro (fase 05, plazo vencido), por el bot al pulsar en HOY"],
     plan5_aviso_vencido_cycp: ["plan5_aviso_vencido_cycp", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M3 duro (fase 08, plazo vencido), por el bot al pulsar en HOY"],
+    plan5_contacto: ["plan5_contacto", "vecino", "twilio", "", "", "{{1}} nombre, {{2}} vivienda (C Comunidad (piso))", "SI", "v128: Pedir contacto (robotito rojo o gris): que responda HOLA; su respuesta va a Guille"],
   };
   // v126 (18/10/2026, criterio de Guille: "guardalos para que no varien en el futuro") -- los avisos M que se
   //   mandaron el 18/10 antes de guardar el texto entero (solo "falta ...; fecha limite ...") se completan UNA vez
@@ -10529,7 +10546,7 @@ module.exports = function (app) {
         wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m1c", "Aviso M1", 5) + wamanualcard("m3", "Aviso M3", 11) +
         /* v126: los M1/M2/M3 de HOY salen POR EL BOT con estas plantillas de Twilio (pegar aqui su codigo HX) */
         twcard("plan5_recordatorio_m1", "Twilio - M1 amable (05 y 08)") + twcard("plan5_recordatorio_prorroga", "Twilio - M2/M3 amable (pr\u00f3rroga)") +
-        twcard("plan5_aviso_vencido_doc", "Twilio - M2 duro (05)") + twcard("plan5_aviso_vencido_cycp", "Twilio - M3 duro (08)") +   /* v19.110: M1 de la fase 08 */ wamanualcard("ini05", "Inicio doc", 0, true) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
+        twcard("plan5_aviso_vencido_doc", "Twilio - M2 duro (05)") + twcard("plan5_aviso_vencido_cycp", "Twilio - M3 duro (08)") + twcard("plan5_contacto", "Twilio - Pedir contacto (robotito)") +   /* v128 */   /* v19.110: M1 de la fase 08 */ wamanualcard("ini05", "Inicio doc", 0, true) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -17512,7 +17529,7 @@ module.exports = function (app) {
   // GET /presupuestos/hoy/conversacion?tel=  (v125, 18/10/2026) -- TODOS los mensajes con ese vecino por el bot:
   //   lo que escribio (texto o documentos, con su nombre), lo que le contesto el bot (resumido) y lo que le
   //   contesto Guille desde HOY. Sale de bot_contactos (+ bot_documentos para saber que documento mando).
-  const _CLI_PLANT = /^(presentacion|job_presentacion|job_proactivo|ficha_reabierta|cambio_tipo|envio_contrato|aviso_m:.*)$/;   // v126: envios con plantilla
+  const _CLI_PLANT = /^(presentacion|job_presentacion|job_proactivo|ficha_reabierta|cambio_tipo|envio_contrato|contacto_pedido|aviso_m:.*)$/;   // v128: contacto_pedido   // v126: envios con plantilla
   app.get("/presupuestos/hoy/conversacion", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
@@ -17647,6 +17664,33 @@ module.exports = function (app) {
       res.json({ ok: true, programado: !!r.programado, cuandoTxt: r.cuandoTxt || "" });
     } catch (e) {
       console.error("[presupuestos] POST /hoy/responder-bot:", e.message);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // POST /presupuestos/hoy/pedir-contacto (v128, criterio de Guille) -- plantilla plan5_contacto: {{1}} nombre (Nota
+  //   simple o el de arriba), {{2}} vivienda "C Malvaloca 1 (1D)". Fuera del horario se puede programar.
+  app.post("/presupuestos/hoy/pedir-contacto", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const bot = app.locals.botWhatsapp;
+      if (!bot || typeof bot.pedirContacto !== "function") return res.status(500).json({ ok: false, error: "bot no disponible" });
+      const b = req.body || {};
+      const tel = String(b.tel || "");
+      if (tel.replace(/\D/g, "").length < 9) return res.status(400).json({ ok: false, error: "el vecino no tiene tel\u00e9fono" });
+      const nn = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+      const pis = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:E" })).data.values || []).slice(1);
+      const k9 = tel.replace(/\D/g, "").slice(-9);
+      const fp = pis.find(r => r && nn(r[1]) === nn(b.comunidad) && nn(r[2]) === nn(b.vivienda)) || pis.find(r => r && String(r[0] || "").replace(/\D/g, "").slice(-9) === k9) || [];
+      const comu = (await leerComunidades()).find(c => nn(c.direccion) === nn(fp[1] || b.comunidad) || nn(c.comunidad) === nn(fp[1] || b.comunidad));
+      const via = comu && comu.tipo_via ? String(comu.tipo_via).trim() + " " : "";
+      const vivienda = (via + String(fp[1] || b.comunidad || "").trim() + " (" + String(fp[2] || b.vivienda || "").trim() + ")").trim();
+      const nombre = _p5NombreDirigido(fp[3], fp[4]);
+      const r = await bot.enviarOProgramar(String(b.programar || "") === "1", "pedirContacto", [tel, { nombre, vivienda }], { tel, desc: "pedir contacto" });
+      if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
+      res.json({ ok: true, programado: !!r.programado, cuandoTxt: r.cuandoTxt || "" });
+    } catch (e) {
+      console.error("[presupuestos] POST /hoy/pedir-contacto:", e.message);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
