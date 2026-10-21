@@ -533,7 +533,7 @@ module.exports = function (app) {
               + '<div data-adj="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px">'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjpc="1" title="PDF, JPG o PNG (hasta 10 MB)">\uD83D\uDCCE Adjuntar</button>'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="solicitud">toma datos</button>'
-              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="autorizacion">autorizacion usufructo</button>'   // v127: nombres de Guille; PDF de Drive arreglado
+              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-docs="1" title="Elige un documento del programa, rell\u00e9nalo y se adjunta">\uD83D\uDCC4 documento</button>'   // v128: menu de Imprimir documentos (antes: autorizacion usufructo en blanco)
               + '<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:none">'
               + '<span data-chip="1" style="display:none;align-items:center;gap:4px;background:#e8f0fe;border:1px solid #9bb8d8;border-radius:999px;padding:2px 8px"><span data-chipn="1"></span><a href="#" data-chipx="1" title="Quitar el adjunto" style="text-decoration:none;color:#a32d2d;font-weight:700">\u2715</a></span>'
               + '</div>'
@@ -555,6 +555,12 @@ module.exports = function (app) {
       fondo.querySelector('[data-chipx]').addEventListener('click', function (e) { e.preventDefault(); fin.value = ''; ponAdj(null); });
       fondo.querySelector('[data-adjpc]').addEventListener('click', function () { fin.click(); });
       fondo.querySelectorAll('[data-fijo]').forEach(function (x) { x.addEventListener('click', function () { ponAdj({ fijo: x.dataset.fijo }, x.textContent + ' (PDF)'); }); });
+      // v128 -- documento del programa (menu de Imprimir documentos con el piso ya elegido), relleno y adjunto
+      var bDoc = fondo.querySelector('[data-docs]');
+      if (bDoc) bDoc.addEventListener('click', function () {
+        if (!window.ptlDocsModal) { alert('No est\u00e1 disponible en esta pantalla.'); return; }
+        window.ptlDocsModal({ comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '', modo: 'adjuntar', alAdjuntar: function (a) { fin.value = ''; ponAdj(a, a.nombre); } });
+      });
       fin.addEventListener('change', function () {
         var f = fin.files && fin.files[0]; if (!f) return;
         if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(f.type)) { alert('Solo PDF, JPG o PNG.'); fin.value = ''; return; }
@@ -5726,6 +5732,136 @@ module.exports = function (app) {
     return _horarioP;
   }
   { const _t1 = setTimeout(_refrescarHorarioP, 5000); if (_t1.unref) _t1.unref(); const _t2 = setInterval(_refrescarHorarioP, 3 * 60 * 1000); if (_t2.unref) _t2.unref(); }
+  // v128 (21/10/2026, criterio de Guille) -- menu "Imprimir documentos" COMUN: desde la ficha descarga el PDF; desde el
+  //   robotito lo adjunta al mensaje (opc.modo = 'adjuntar', opc.alAdjuntar({nombre, mime, b64})). Un solo documento
+  //   cada vez; el archivo se llama como el documento: "<Documento> - <Comunidad> <piso>.pdf" (general: sin piso).
+  //   Los campos que se dejan vacios salen como raya larga para rellenar a mano.
+  //   opc: { ccppId | comunidad (nombre, desde HOY), vivienda (piso ya elegido), modo, alAdjuntar }
+  function _clienteDocsModal(U) {
+    var escH = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+    var q = function (u, extra) { return u + (u.indexOf('?') < 0 ? '?' : '&') + extra; };
+    window.ptlDocsModal = function (opc) {
+      opc = opc || {};
+      var adjuntar = opc.modo === 'adjuntar';
+      var est = { menu: null, clave: '', vivienda: opc.vivienda || '' };
+      var ident = function () { return opc.ccppId ? { id: opc.ccppId } : { comunidad: opc.comunidad || '' }; };
+      var cerrar = function () { var m = document.getElementById('ptlDocModal'); if (m) m.remove(); };
+      var cuerpo = function () { return document.getElementById('ptlDocBody'); };
+      cerrar();
+      var wrap = document.createElement('div');
+      wrap.id = 'ptlDocModal';
+      wrap.style.cssText = 'position:fixed;inset:0;z-index:10003;display:block';
+      wrap.innerHTML = '<div style="position:fixed;top:8%;left:50%;transform:translateX(-50%);width:560px;max-width:94vw;max-height:86vh;background:var(--ptl-general-flotante,#fff);color:#111;border:1px solid var(--ptl-gray-300,#ccc);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--ptl-warning-light,#fdf3d7);padding:10px 14px">'
+        + '<strong style="color:var(--ptl-warning-dark,#8a5a00)">\uD83D\uDCC4 ' + (adjuntar ? 'Adjuntar documento' : 'Imprimir documento') + '</strong>'
+        + '<button type="button" data-cx="1" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--ptl-warning-dark,#8a5a00);line-height:1">\u2715</button></div>'
+        + '<div id="ptlDocBody" style="padding:14px;overflow-y:auto"><div style="text-align:center;color:#777;padding:20px">Cargando\u2026</div></div></div>';
+      document.body.appendChild(wrap);
+      wrap.querySelector('[data-cx]').addEventListener('click', cerrar);
+      var error = function (e) { cuerpo().innerHTML = '<div style="color:#a32d2d">Error: ' + escH(e.message || e) + '</div>'; };
+
+      // PASO 1: elegir UN documento (y el piso si es de un piso)
+      var pintarMenu = function () {
+        var d = est.menu;
+        var h = '<div style="font-size:13px;margin-bottom:10px">Expediente: <strong>' + escH(d.comunidad) + '</strong></div>'
+          + '<div style="font-weight:600;font-size:13px;margin-bottom:6px">Elige el documento:</div><div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">';
+        d.documentos.forEach(function (x) {
+          var et = x.tipo === 'particular' ? ' <span style="font-size:11px;color:#8a5a00">(de un piso)</span>' : ' <span style="font-size:11px;color:#777">(general)</span>';
+          h += '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="radio" name="ptlDocUno" value="' + escH(x.clave) + '" data-tipo="' + escH(x.tipo) + '"' + (x.clave === est.clave ? ' checked' : '') + '/><span>' + escH(x.titulo) + et + '</span></label>';
+        });
+        h += '</div><div data-pw="1" style="display:none;margin-bottom:12px"><div style="font-weight:600;font-size:13px;margin-bottom:4px">Piso:</div>';
+        if (d.pisos && d.pisos.length) {
+          h += '<select data-piso="1" style="width:100%;padding:5px;border:1px solid #ccc;border-radius:4px;font-size:13px"><option value="">\u2014 Elige un piso \u2014</option>';
+          d.pisos.forEach(function (p) { h += '<option value="' + escH(p.vivienda) + '"' + (p.vivienda === est.vivienda ? ' selected' : '') + '>' + escH(p.vivienda + (p.propietario ? ' \u00b7 ' + p.propietario : '')) + '</option>'; });
+          h += '</select>';
+        } else h += '<div style="font-size:12px;color:#a32d2d">Este expediente no tiene pisos cargados. El documento saldr\u00e1 con los datos en blanco.</div>';
+        h += '</div><div style="text-align:right"><button type="button" data-sig="1" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">Siguiente \u2192</button></div>';
+        cuerpo().innerHTML = h;
+        var radios = Array.prototype.slice.call(cuerpo().querySelectorAll('input[name=ptlDocUno]'));
+        var pw = cuerpo().querySelector('[data-pw]');
+        var refrescar = function () { var r = radios.filter(function (x) { return x.checked; })[0]; pw.style.display = (r && r.dataset.tipo === 'particular') ? 'block' : 'none'; };
+        radios.forEach(function (r) { r.addEventListener('change', refrescar); }); refrescar();
+        cuerpo().querySelector('[data-sig]').addEventListener('click', function () {
+          var r = radios.filter(function (x) { return x.checked; })[0];
+          if (!r) { alert('Elige un documento.'); return; }
+          var sel = cuerpo().querySelector('[data-piso]');
+          var viv = (r.dataset.tipo === 'particular' && sel) ? sel.value : '';
+          if (r.dataset.tipo === 'particular' && sel && !viv) { alert('Elige el piso.'); return; }
+          est.clave = r.value; est.vivienda = r.dataset.tipo === 'particular' ? viv : (opc.vivienda || '');
+          est.tipo = r.dataset.tipo;
+          formulario();
+        });
+      };
+
+      // PASO 2: datos (precargados / a mano / en blanco = raya)
+      var formulario = function () {
+        cuerpo().innerHTML = '<div style="text-align:center;color:#777;padding:20px">Cargando datos\u2026</div>';
+        fetch(U.huecos, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams(Object.assign({ claves: JSON.stringify([est.clave]), vivienda: est.tipo === 'particular' ? est.vivienda : '' }, ident())).toString() })
+          .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Error'); return d; }); })
+          .then(function (d) {
+            var campos = d.campos || [];
+            var h = '<div style="font-size:13px;margin-bottom:10px">Revisa los datos. Los vac\u00edos puedes rellenarlos o dejarlos en blanco: saldr\u00e1n con una raya para rellenar a mano.</div>';
+            if (!campos.length) h += '<div style="font-size:12px;color:#777;margin-bottom:10px">Este documento no tiene datos que rellenar.</div>';
+            h += '<div style="border:1px solid #e3e1da;border-radius:8px;padding:10px;margin-bottom:10px">';
+            campos.forEach(function (c) { h += '<label style="display:block;font-size:12px;margin-bottom:8px"><span style="display:block;color:#555;margin-bottom:2px">' + escH(c.label) + (c.manual ? ' <span style="color:#999">(a mano)</span>' : '') + '</span><input type="text" data-hueco="' + escH(c.clave) + '" value="' + escH(c.valor) + '" style="width:100%;box-sizing:border-box;padding:5px;border:1px solid #ccc;border-radius:4px;font-size:13px"/></label>'; });
+            h += '</div><div data-prev="1" style="display:none;margin-bottom:10px;border:1px solid #ccc;border-radius:6px;overflow:hidden"><iframe style="width:100%;height:420px;border:0;background:#fff"></iframe></div>'
+              + '<div style="display:flex;justify-content:space-between;gap:8px"><button type="button" data-at="1" class="ptl-btn ptl-btn-secondary" style="padding:6px 14px">\u2190 Atr\u00e1s</button>'
+              + '<span style="display:flex;gap:8px"><button type="button" data-ver="1" class="ptl-btn ptl-btn-secondary" style="padding:6px 14px" title="Ver c\u00f3mo queda antes de ' + (adjuntar ? 'enviarlo' : 'imprimirlo') + '">\uD83D\uDC41 Ver</button>'
+              + '<button type="button" data-gen="1" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">' + (adjuntar ? '\uD83D\uDCCE Adjuntar al mensaje' : '\uD83D\uDCC4 Generar PDF') + '</button></span></div>';
+            cuerpo().innerHTML = h;
+            cuerpo().querySelector('[data-at]').addEventListener('click', pintarMenu);
+            cuerpo().querySelector('[data-gen]').addEventListener('click', generar);
+            cuerpo().querySelector('[data-ver]').addEventListener('click', ver);
+          }).catch(error);
+      };
+
+      // PASO 3: generar -> descargar (ficha) o adjuntar (robotito); "Ver" lo ensena antes en la misma ventana
+      var nombre = 'documento.pdf', urlVer = '';
+      var pedirPdf = function () {
+        var valores = {};
+        Array.prototype.forEach.call(cuerpo().querySelectorAll('input[data-hueco]'), function (i) { valores[i.dataset.hueco] = i.value; });
+        return fetch(U.gen, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams(Object.assign({ claves: JSON.stringify([est.clave]), vivienda: est.tipo === 'particular' ? est.vivienda : '', valores: JSON.stringify(valores) }, ident())).toString() })
+          .then(function (r) {
+            if (!r.ok) return r.json().catch(function () { return { error: 'Error' }; }).then(function (t) { throw new Error(t.error || 'Error'); });
+            try { var n = r.headers.get('X-Nombre-Archivo'); if (n) nombre = decodeURIComponent(n); } catch (e) {}
+            return r.blob();
+          });
+      };
+      var ver = function () {
+        var bv = cuerpo().querySelector('[data-ver]'); bv.disabled = true; bv.textContent = '\u23F3';
+        pedirPdf().then(function (blob) {
+          if (urlVer) URL.revokeObjectURL(urlVer);
+          urlVer = URL.createObjectURL(blob);
+          var pv = cuerpo().querySelector('[data-prev]'); pv.style.display = 'block';
+          pv.querySelector('iframe').src = urlVer;
+          var caja = wrap.firstChild; caja.style.width = '820px'; caja.style.top = '3%'; caja.style.maxHeight = '94vh';
+        }).catch(function (e) { alert('Error generando la vista previa: ' + e.message); })
+          .then(function () { bv.disabled = false; bv.textContent = '\uD83D\uDC41 Ver'; });
+      };
+      var generar = function () {
+        var bg = cuerpo().querySelector('[data-gen]'); bg.disabled = true; bg.textContent = '\u23F3 Generando\u2026';
+        pedirPdf()
+          .then(function (blob) {
+            if (!adjuntar) {
+              var url = URL.createObjectURL(blob), a = document.createElement('a');
+              a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+              setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+              cerrar(); return;
+            }
+            var rd = new FileReader();
+            rd.onload = function () { cerrar(); if (opc.alAdjuntar) opc.alAdjuntar({ nombre: nombre, mime: 'application/pdf', b64: String(rd.result || '').split(',')[1] || '' }); };
+            rd.readAsDataURL(blob);
+          })
+          .catch(function (e) { alert('Error generando el PDF: ' + e.message); bg.disabled = false; bg.textContent = adjuntar ? '\uD83D\uDCCE Adjuntar al mensaje' : '\uD83D\uDCC4 Generar PDF'; });
+      };
+
+      fetch(q(U.menu, new URLSearchParams(ident()).toString()))
+        .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Error'); return d; }); })
+        .then(function (d) { est.menu = d; pintarMenu(); }).catch(error);
+    };
+  }
   function _clienteConfirmarEnvio(U) {
     var _H = function () { try { return window.__ptlCalcHorario ? window.__ptlCalcHorario(window.__ptlHorario, new Date()) : { dentro: true }; } catch (e) { return { dentro: true }; } };
     window.ptlHorarioAhora = _H;
@@ -5937,6 +6073,7 @@ module.exports = function (app) {
       <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
     </div>
   </nav>
+  <script>(${_clienteDocsModal.toString()})(${JSON.stringify({ menu: urlT(token, "/presupuestos/docs/menu"), huecos: urlT(token, "/presupuestos/docs/huecos"), gen: urlT(token, "/presupuestos/docs/generar") })});</script>
   <script>window.__ptlHorario=${JSON.stringify(_horarioP)};window.__ptlHorarioTxt=${JSON.stringify(_horarioModP.textoHorario(_horarioP))};window.__ptlCalcHorario=${_horarioModP.calcHorario.toString()};</script>
   <script>(${_clienteConfirmarEnvio.toString()})(${JSON.stringify({ conv: urlT(token, "/presupuestos/hoy/conversacion") })});</script>
   <div class="ptl-page">
@@ -7668,181 +7805,9 @@ module.exports = function (app) {
             }
 
             // ===== Modal "Imprimir documentos" (Sprint A — Bloque 2) =====
-            // Flujo: (paso 1) elegir documentos + piso (si hay particulares) ->
-            // (paso 2) formulario de huecos precargados/editables -> generar PDF.
-            (function(){
-              const CCPP_ID = ${JSON.stringify(comu.ccpp_id)};
-              const TOKEN_GEN = '${urlT(token, "/presupuestos/docs/generar")}';
-              const URL_MENU = '${urlT(token, "/presupuestos/docs/menu")}';
-              const URL_HUECOS = '${urlT(token, "/presupuestos/docs/huecos")}';
-
-              let estado = { menu: null, seleccion: [], vivienda: '', campos: [] };
-
-              function cerrar(){ const m = document.getElementById('ptlDocModal'); if (m) m.remove(); }
-
-              function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-              function crearVentana(titulo, contenidoHtml){
-                cerrar();
-                const wrap = document.createElement('div');
-                wrap.id = 'ptlDocModal';
-                wrap.style.cssText = 'position:fixed;inset:0;z-index:9999;display:block';
-                wrap.innerHTML =
-                  '<div id="ptlDocBox" style="position:fixed;top:8%;left:50%;transform:translateX(-50%);width:560px;max-width:94vw;max-height:86vh;background:var(--ptl-general-flotante);border:1px solid var(--ptl-gray-300);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">'
-                  + '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--ptl-warning-light);padding:10px 14px;border-bottom:1px solid var(--ptl-warning-light)">'
-                  + '<strong style="color:var(--ptl-warning-dark)">📄 ' + escH(titulo) + '</strong>'
-                  + '<button type="button" id="ptlDocClose" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--ptl-warning-dark);line-height:1">✕</button>'
-                  + '</div>'
-                  + '<div id="ptlDocBody" style="padding:14px;overflow-y:auto">' + contenidoHtml + '</div>'
-                  + '</div>';
-                document.body.appendChild(wrap);
-                document.getElementById('ptlDocClose').addEventListener('click', cerrar);
-              }
-
-              // ---- PASO 1: menú de documentos + piso ----
-              async function abrirMenu(){
-                crearVentana('Imprimir documentos', '<div style="text-align:center;color:var(--ptl-gray-500);padding:20px">Cargando…</div>');
-                let data;
-                try {
-                  const r = await fetch(URL_MENU + '&id=' + encodeURIComponent(CCPP_ID));
-                  data = await r.json();
-                  if (!r.ok) throw new Error(data.error || 'Error');
-                } catch(e){
-                  document.getElementById('ptlDocBody').innerHTML = '<div style="color:var(--ptl-danger)">Error: ' + escH(e.message) + '</div>';
-                  return;
-                }
-                estado.menu = data;
-                pintarMenu();
-              }
-
-              function pintarMenu(){
-                const data = estado.menu;
-                let html = '<div style="font-size:13px;color:var(--ptl-gray-700);margin-bottom:10px">Expediente: <strong>' + escH(data.comunidad) + '</strong></div>';
-                html += '<div style="font-weight:600;font-size:13px;margin-bottom:6px">Marca los documentos a imprimir:</div>';
-                html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">';
-                data.documentos.forEach(d => {
-                  const et = d.tipo === 'particular' ? ' <span style="font-size:11px;color:var(--ptl-warning-dark)">(de un piso)</span>' : ' <span style="font-size:11px;color:var(--ptl-gray-500)">(general)</span>';
-                  html += '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
-                       + '<input type="checkbox" class="ptlDocChk" value="' + escH(d.clave) + '" data-tipo="' + escH(d.tipo) + '"/>'
-                       + '<span>' + escH(d.titulo) + et + '</span></label>';
-                });
-                html += '</div>';
-                // Selector de piso (solo si hay pisos). Se mostrará/ocultará según haga falta.
-                html += '<div id="ptlDocPisoWrap" style="display:none;margin-bottom:12px">';
-                html += '<div style="font-weight:600;font-size:13px;margin-bottom:4px">Piso (para los documentos de un piso):</div>';
-                if (data.pisos && data.pisos.length){
-                  html += '<select id="ptlDocPiso" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:13px">';
-                  html += '<option value="">— Elige un piso —</option>';
-                  data.pisos.forEach(p => {
-                    const etq = p.vivienda + (p.propietario ? ' · ' + p.propietario : '');
-                    html += '<option value="' + escH(p.vivienda) + '">' + escH(etq) + '</option>';
-                  });
-                  html += '</select>';
-                } else {
-                  html += '<div style="font-size:12px;color:var(--ptl-danger)">Este expediente no tiene pisos cargados. Los documentos de un piso saldrán con los datos en blanco.</div>';
-                }
-                html += '</div>';
-                html += '<div style="text-align:right"><button type="button" id="ptlDocSiguiente" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">Siguiente →</button></div>';
-                document.getElementById('ptlDocBody').innerHTML = html;
-
-                const chks = Array.from(document.querySelectorAll('.ptlDocChk'));
-                const pisoWrap = document.getElementById('ptlDocPisoWrap');
-                function refrescarPiso(){
-                  const hayParticular = chks.some(c => c.checked && c.dataset.tipo === 'particular');
-                  pisoWrap.style.display = hayParticular ? 'block' : 'none';
-                }
-                chks.forEach(c => c.addEventListener('change', refrescarPiso));
-                document.getElementById('ptlDocSiguiente').addEventListener('click', () => {
-                  const sel = chks.filter(c => c.checked).map(c => c.value);
-                  if (sel.length === 0){ alert('Marca al menos un documento.'); return; }
-                  const hayParticular = chks.some(c => c.checked && c.dataset.tipo === 'particular');
-                  const pisoSel = document.getElementById('ptlDocPiso');
-                  const viv = pisoSel ? pisoSel.value : '';
-                  if (hayParticular && !viv){ alert('Elige el piso para los documentos de un piso.'); return; }
-                  estado.seleccion = sel;
-                  estado.vivienda = viv;
-                  abrirFormulario();
-                });
-              }
-
-              // ---- PASO 2: formulario de huecos ----
-              async function abrirFormulario(){
-                document.getElementById('ptlDocBody').innerHTML = '<div style="text-align:center;color:var(--ptl-gray-500);padding:20px">Cargando datos…</div>';
-                let data;
-                try {
-                  const body = new URLSearchParams({
-                    id: CCPP_ID,
-                    claves: JSON.stringify(estado.seleccion),
-                    vivienda: estado.vivienda
-                  });
-                  const r = await fetch(URL_HUECOS, {
-                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-                    body: body.toString()
-                  });
-                  data = await r.json();
-                  if (!r.ok) throw new Error(data.error || 'Error');
-                } catch(e){
-                  document.getElementById('ptlDocBody').innerHTML = '<div style="color:var(--ptl-danger)">Error: ' + escH(e.message) + '</div>';
-                  return;
-                }
-                estado.campos = data.campos || [];
-                let html = '<div style="font-size:13px;color:var(--ptl-gray-700);margin-bottom:10px">Revisa los datos. Los precargados puedes corregirlos; los vacíos puedes rellenarlos o dejarlos en blanco para rellenar a mano.</div>';
-                if (estado.campos.length === 0){
-                  html += '<div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:10px">Estos documentos no tienen datos que rellenar.</div>';
-                }
-                html += '<div style="border:1px solid var(--ptl-gray-200);border-radius:8px;padding:10px;margin-bottom:10px">';
-                estado.campos.forEach(c => {
-                  html += '<label style="display:block;font-size:12px;margin-bottom:8px">'
-                       + '<span style="display:block;color:var(--ptl-gray-700);margin-bottom:2px">' + escH(c.label) + (c.manual ? ' <span style="color:var(--ptl-gray-400)">(a mano)</span>' : '') + '</span>'
-                       + '<input type="text" data-hueco="' + escH(c.clave) + '" value="' + escH(c.valor) + '" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:13px"/>'
-                       + '</label>';
-                });
-                html += '</div>';
-                html += '<div style="display:flex;justify-content:space-between;gap:8px">'
-                     + '<button type="button" id="ptlDocAtras" class="ptl-btn" style="padding:6px 14px;background:var(--ptl-gray-100);border:1px solid var(--ptl-gray-300)">← Atrás</button>'
-                     + '<button type="button" id="ptlDocGenerar" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">📄 Generar PDF</button>'
-                     + '</div>';
-                document.getElementById('ptlDocBody').innerHTML = html;
-                document.getElementById('ptlDocAtras').addEventListener('click', pintarMenu);
-                document.getElementById('ptlDocGenerar').addEventListener('click', generar);
-              }
-
-              // ---- PASO 3: generar y descargar ----
-              async function generar(){
-                const btnG = document.getElementById('ptlDocGenerar');
-                btnG.disabled = true; btnG.textContent = '⏳ Generando…';
-                // Recoger los valores de la lista única
-                const valores = {};
-                document.querySelectorAll('#ptlDocBody input[data-hueco]').forEach(inp => {
-                  valores[inp.dataset.hueco] = inp.value;
-                });
-                try {
-                  const body = new URLSearchParams({
-                    id: CCPP_ID,
-                    claves: JSON.stringify(estado.seleccion),
-                    vivienda: estado.vivienda,
-                    valores: JSON.stringify(valores)
-                  });
-                  const r = await fetch(TOKEN_GEN, {
-                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-                    body: body.toString()
-                  });
-                  if (!r.ok){ const t = await r.json().catch(()=>({error:'Error'})); throw new Error(t.error || 'Error'); }
-                  const blob = await r.blob();
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url; a.download = 'documentos.pdf';
-                  document.body.appendChild(a); a.click(); a.remove();
-                  setTimeout(()=>URL.revokeObjectURL(url), 4000);
-                  cerrar();
-                } catch(e){
-                  alert('Error generando el PDF: ' + e.message);
-                  btnG.disabled = false; btnG.textContent = '📄 Generar PDF';
-                }
-              }
-
-              window.ptlAbrirDocsModal = abrirMenu;
-            })();
+            // v128 (21/10/2026, criterio de Guille: "que ambos funcionen igual... uno imprime en pdf y otro envia por
+            //   bot") -- el menu vive en pageHtml (_clienteDocsModal) y lo usan la ficha (descarga) y el robotito (adjunta).
+            window.ptlAbrirDocsModal = function(){ window.ptlDocsModal({ ccppId: ${JSON.stringify(comu.ccpp_id)}, modo: 'imprimir' }); };
 
             // ===== Modal "Enviar mail manual" (compositor tipo Gmail) =====
             // v17.70: ventana flotante arrastrable estilo Windows. Sin overlay
@@ -17918,10 +17883,19 @@ module.exports = function (app) {
   // =================================================================
 
   // 1) GET /presupuestos/docs/menu?id=<ccpp_id>
+  // v128 -- desde HOY el robotito solo sabe el nombre de la comunidad: se busca su expediente
+  async function _ccppIdDocs(id, comunidad) {
+    id = String(id || "").trim(); if (id) return id;
+    const n = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    const c = n(comunidad); if (!c) return "";
+    const todas = await leerComunidades();
+    const f = todas.find(x => x.ccpp_id && (n(x.direccion) === c || n(x.comunidad) === c));
+    return f ? f.ccpp_id : "";
+  }
   app.get("/presupuestos/docs/menu", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
-      const ccppId = String(req.query.id || "").trim();
+      const ccppId = await _ccppIdDocs(req.query.id, req.query.comunidad);
       if (!ccppId) return res.status(400).json({ error: "Falta id" });
       const plantillas = await leerPlantillasDoc();
       // documentos = todas las plantillas que NO son encabezado/pie
@@ -17954,7 +17928,7 @@ module.exports = function (app) {
   app.post("/presupuestos/docs/huecos", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
-      const ccppId = String(req.body.id || "").trim();
+      const ccppId = await _ccppIdDocs(req.body.id, req.body.comunidad);
       let claves = [];
       try { claves = JSON.parse(req.body.claves || "[]"); } catch (_) { claves = []; }
       if (!Array.isArray(claves)) claves = [];
@@ -18004,7 +17978,7 @@ module.exports = function (app) {
   app.post("/presupuestos/docs/generar", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
-      const ccppId = String(req.body.id || "").trim();
+      const ccppId = await _ccppIdDocs(req.body.id, req.body.comunidad);
       let claves = [];
       try { claves = JSON.parse(req.body.claves || "[]"); } catch (_) { claves = []; }
       if (!Array.isArray(claves)) claves = [];
@@ -18067,8 +18041,15 @@ module.exports = function (app) {
       // Nombre de archivo a partir de la comunidad
       const base = (comu ? (comu.direccion || "documentos") : "documentos")
         .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      // v128 (criterio de Guille) -- el archivo se llama como el documento: "Autorización de usufructo - Tharsis 5 3IZ.pdf";
+      //   general: "Mantenimiento del grupo de presión - Tharsis 5.pdf"; varios: los titulos unidos con " + ".
+      const _tit = claves.map(k => (porClave[k] && String(porClave[k].titulo || "").trim()) || k).join(" + ");
+      const _gen = claves.every(k => DOCS_GENERALES.includes(k) || (DOC_HUECOS[k] && DOC_HUECOS[k].tipo === "general"));
+      const _dondeD = (String((comu && comu.direccion) || "").trim() + (!_gen && pisoTxt ? " " + pisoTxt : "")).trim();
+      const nombreArchivo = ((_tit || "Documento") + (_dondeD ? " - " + _dondeD : "")).replace(/[\\/:*?"<>|]+/g, "-") + ".pdf";
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="documentos_${base || "ccpp"}.pdf"`);
+      res.setHeader("Content-Disposition", `attachment; filename="documentos_${base || "ccpp"}.pdf"; filename*=UTF-8''${encodeURIComponent(nombreArchivo)}`);
+      res.setHeader("X-Nombre-Archivo", encodeURIComponent(nombreArchivo));
       res.send(pdf);
     } catch (e) {
       console.error("[presupuestos] POST /docs/generar:", e.message);

@@ -1784,7 +1784,8 @@ app.get("/media-tmp/:id/:nombre", (req, res) => {
   const m = _mediaTmp.get(String(req.params.id || ""));
   if (!m || m.exp < Date.now()) return res.status(404).send("No encontrado");
   res.setHeader("Content-Type", m.mime);
-  res.setHeader("Content-Disposition", "inline; filename=\"" + String(m.nombre).replace(/[^\w.\-]+/g, "_") + "\"");
+  // v128: el nombre real (con espacios y acentos), que es el que ensena WhatsApp
+  res.setHeader("Content-Disposition", "inline; filename=\"" + String(m.nombre).replace(/[^\w.\-]+/g, "_") + "\"; filename*=UTF-8''" + encodeURIComponent(String(m.nombre)));
   res.send(m.buf);
 });
 // Fecha (ISO) del ultimo mensaje que el vecino escribio al bot ("" si nunca). v127: lo usa tambien programarEnvio.
@@ -1812,7 +1813,7 @@ async function responderVecino(telefono, texto, archivo) {
       if (!buf.length) return { ok: false, error: "el archivo est\u00e1 vac\u00edo" };
       if (buf.length > 10 * 1024 * 1024) return { ok: false, error: "el archivo pasa de 10 MB" };
       _mNom = String(archivo.nombre || ("archivo." + _MIME_OK[mime])).trim();
-      const nomUrl = _mNom.replace(/[^\w.\-]+/g, "_") || ("archivo." + _MIME_OK[mime]);
+      const nomUrl = _mNom.replace(/[\\/?#%]+/g, "-").trim() || ("archivo." + _MIME_OK[mime]);   // v128: con espacios y acentos (lo ensena WhatsApp)
       _mUrl = base + "/media-tmp/" + _guardarMediaTmp(_mNom, mime, buf) + "/" + encodeURIComponent(nomUrl);
     }
   }
