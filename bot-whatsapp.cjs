@@ -1204,7 +1204,9 @@ function mapTipoExpediente(texto) {
 function mapFinanciacion(texto) {
   const t = (texto || "").trim().toLowerCase();
   if (t === "2" || t === "2\uFE0F\u20E3" || t === "3" || t === "3\uFE0F\u20E3" || t === "4" || t === "4\uFE0F\u20E3" || t === "si" || t === "s\u00ed" || t.includes("plazos") || t.includes("interesa") || t.includes("mes")) return "si";
-  if (t === "1" || t === "1\uFE0F\u20E3" || t === "5" || t === "5\uFE0F\u20E3" || t === "no" || t.includes("una vez") || t.includes("contado") || t.includes("comunitari")) return "no";
+  // v128 (21/10/2026, criterio de Guille: "un vecino no elige FFCC de por si, sino la comunidad") -- sin opcion 5:
+  //   el FFCC lo pone Guille en la ficha. Un "5" o "comunitaria" ya no vale y se repite la pregunta.
+  if (t === "1" || t === "1\uFE0F\u20E3" || t === "no" || t.includes("una vez") || t.includes("contado")) return "no";
   return null;
 }
 // Traduce la respuesta cruda (1-4) de la pregunta de pago al plazo elegido (para pisos!AM).
@@ -1214,8 +1216,6 @@ function plazoFinanciacion(texto) {
   if (t === "2" || t === "2\uFE0F\u20E3") return "6";
   if (t === "3" || t === "3\uFE0F\u20E3") return "12";
   if (t === "4" || t === "4\uFE0F\u20E3") return "18";
-  if (t === "5" || t === "5\uFE0F\u20E3") return "FFCC";
-  if (t.includes("comunitari") || t.includes("ffcc")) return "FFCC";
   if (t.includes("18")) return "18";
   if (t.includes("12")) return "12";
   if (t.includes("6")) return "6";
@@ -1250,8 +1250,91 @@ function buildPreguntaTipo(nombre) {
   return txtPlant("flujo_pregunta_tipo", "",
     { nombre: nombre ? " " + nombre : "" });
 }
-function buildPreguntaFinanciacion() {
-  return txtPlant("flujo_pregunta_financiacion", "");
+// v128 (21/10/2026, criterio de Guille) -- la pregunta de la forma de pago con lo que le toca pagar, sacado de la foto
+//   del presupuesto Plan 5 cerrado de su comunidad (plan5_toma_datos, datos_json.snapshot.cuadro: comunero, fin6,
+//   fin12, fin18). Marcas de la plantilla (las pone Guille donde quiera): {pago_1} " (unos 1.168 €)", {pago_6},
+//   {pago_12}, {pago_18} " (unos 199 €/mes)"; sin presupuesto cerrado con importes, las marcas quedan vacias.
+let _importesP5 = null, _importesP5Ts = 0;
+async function _cargarImportesP5() {
+  if (_importesP5 && Date.now() - _importesP5Ts < 10 * 60 * 1000) return _importesP5;
+  const m = {};
+  try {
+    const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "plan5_toma_datos!A:G" })).data.values || [];
+    for (const r of rows.slice(1)) {
+      let c = null; try { c = ((JSON.parse(r[6] || "{}").snapshot) || {}).cuadro || null; } catch (e) {}
+      if (!c || !(+c.comunero > 0)) continue;
+      const dir = _nnP5(r[0]); if (!dir) continue;
+      m[dir] = { comunero: +c.comunero, fin6: +c.fin6 || 0, fin12: +c.fin12 || 0, fin18: +c.fin18 || 0 };
+    }
+    _importesP5 = m; _importesP5Ts = Date.now();
+  } catch (e) { console.error("[bot] importes Plan 5:", e.message); }
+  return _importesP5 || {};
+}
+function _nnP5(x) { return String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase(); }
+async function importesComunidad(comunidad) {
+  const m = await _cargarImportesP5(), c = _nnP5(comunidad);
+  if (!c) return null;
+  for (const dir of Object.keys(m)) { if (dir.replace(/^\S+\s+/, "") === c) return m[dir]; }   // "c malvaloca 1" -> "malvaloca 1"
+  for (const dir of Object.keys(m)) { if (dir === c || dir.endsWith(" " + c)) return m[dir]; }
+  return null;
+}
+function _eurosP5(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }   // 1.168
+async function buildPreguntaFinanciacion(expediente) {
+  const im = expediente ? await importesComunidad(expediente.comunidad) : null;
+  const u = (n) => (im && n > 0) ? " (unos " + _eurosP5(n) + " \u20AC/mes)" : "";
+  // v128 (criterio de Guille: "la cantidad al contado es la que es: no pongas unos, solo en las financiadas")
+  const c = (im && im.comunero > 0) ? " (" + _eurosP5(im.comunero) + " \u20AC)" : "";   // sin centimos (Guille)
+  return txtPlant("flujo_pregunta_financiacion", "", im
+    ? { pago_1: c, pago_6: u(im.fin6), pago_12: u(im.fin12), pago_18: u(im.fin18) }
+    : { pago_1: "", pago_6: "", pago_12: "", pago_18: "" });
+}
+// Forma de pago ya puesta en la ficha del piso (pisos col AM): 6, 12, 18, FFCC, IPREM; "" = contado (como siempre).
+async function formaPagoDelPiso(telefono) {
+  try {
+    const telNorm = normalizarTelefono(telefono);
+    const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AM" })).data.values || [];
+    for (let i = 1; i < rows.length; i++) {
+      if (normalizarTelefono((rows[i] || [])[0] || "") !== telNorm) continue;
+      const v = String((rows[i] || [])[38] || "").trim().toUpperCase();
+      return ["6", "12", "18", "FFCC", "IPREM"].includes(v) ? v : "";
+    }
+  } catch (e) { console.error("[bot] forma de pago del piso:", e.message); }
+  return "";
+}
+// v128 (criterio de Guille: "si ya sabemos la forma de pago no hay que preguntar ni pedir nada") -- donde el bot iba
+//   a hacer la pregunta de la forma de pago: si la ficha ya la tiene (FFCC o IPREM puestos por Guille, o 6/12/18), no
+//   pregunta: FFCC / IPREM -> cierra; 6/12/18 -> pide los papeles de la financiacion que falten. Vacio es contado
+//   (como siempre, criterio de Guille 21/10/2026): la primera vez se pregunta; con la ficha REABIERTA (ya contesto
+//   antes) se da por contado y cierra sin volver a preguntar. Devuelve el texto y guarda el paso.
+async function _fichaReabierta(telefono) {
+  try {
+    const telNorm = normalizarTelefono(telefono);
+    const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:AB" })).data.values || [];
+    return rows.some((r, i) => i > 0 && r && normalizarTelefono(r[0] || "") === telNorm && /^REABIERTA/i.test(String(r[27] || "").trim()));
+  } catch (e) { return false; }
+}
+async function preguntaOFinFinanciacion(expediente, telefono) {
+  const fp = await formaPagoDelPiso(telefono || expediente.telefono);
+  if (!fp && !(await _fichaReabierta(telefono || expediente.telefono))) return buildPreguntaFinanciacion(expediente);
+  if (fp === "6" || fp === "12" || fp === "18") {
+    expediente.paso_actual = "recogida_financiacion";
+    expediente = await resolverEstadoConversacional(expediente);
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    await recalcularYActualizarTodo(expediente);
+    if (expediente.paso_actual === "recogida_financiacion" && expediente.documento_actual)
+      return txtPlant("flujo_estudiar_financiacion", "", { siguiente: getPromptPasoActual(expediente), persona: "pagador" });
+  } else {
+    expediente.paso_actual = "finalizado";
+    expediente.documento_actual = "";
+    expediente.estado_expediente = "documentacion_base_completa";
+    expediente.documentos_completos = "SI";
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    await recalcularYActualizarTodo(expediente);
+  }
+  notificarEquipo("expediente_completo", { nombre: expediente.nombre, comunidad: expediente.comunidad,
+    vivienda: expediente.vivienda, telefono: telefono || expediente.telefono, tipo: expediente.tipo_expediente }).catch(() => {});
+  console.log("[bot] forma de pago ya en la ficha (" + (fp || "contado") + "): sin preguntar", expediente.comunidad, expediente.vivienda, "->", expediente.paso_actual);
+  return txtPlant("flujo_base_completo", "");
 }
 
 // ================= IA TEXTO =================
@@ -2972,7 +3055,7 @@ async function cerrarDocumentoLargo(telefono, expediente) {
         return { texto: txtPlant("flujo_documento_completo", "") + "\n\n" + (promptSigListo || "") };
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
-        return { texto: txtPlant("flujo_documento_completo", "") + "\n\n" + buildPreguntaFinanciacion() };
+        return { texto: txtPlant("flujo_documento_completo", "") + "\n\n" + (await preguntaOFinFinanciacion(expediente, telefono)) };
       }
       return { texto: txtPlant("flujo_documento_completo", "") };
 }
@@ -3354,7 +3437,7 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
         }
         if (expediente.paso_actual === "pregunta_financiacion") {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_sin_opcional", "") + "\n\n" + buildPreguntaFinanciacion());
+            txtPlant("flujo_sin_opcional", "") + "\n\n" + (await preguntaOFinFinanciacion(expediente, telefono)));
         }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
           txtPlant("flujo_sin_opcional", ""));
@@ -3382,7 +3465,7 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
     // ================= PREGUNTA FINANCIACION =================
     if (numMedia === 0 && expediente.paso_actual === "pregunta_financiacion") {
       const respuestaFin = mapFinanciacion(msg);
-      if (!respuestaFin) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaFinanciacion());
+      if (!respuestaFin) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", await preguntaOFinFinanciacion(expediente, telefono));
 
       await guardarFinanciacionEnPiso(telefono, plazoFinanciacion(msg));
 
@@ -3565,7 +3648,7 @@ async function handleArchivos(ctx) {
           }
           if (expediente.paso_actual === "pregunta_financiacion") {
             return responderYLog(res, telefono, "archivo", "archivo",
-              msgReintentoBase + "\n\n" + buildPreguntaFinanciacion());
+              msgReintentoBase + "\n\n" + (await preguntaOFinFinanciacion(expediente, telefono)));
           }
           // Detectar si el vecino necesita atencion humana
       if (msgOriginal && msgOriginal.trim().length > 3) {
@@ -3730,7 +3813,7 @@ async function handleArchivos(ctx) {
         expediente.estado_expediente = "documentacion_base_completa";
         await recalcularYActualizarTodo(expediente);
         return responderYLog(res, telefono, "archivo", "archivo",
-          mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, buildPreguntaFinanciacion(), fallosDocActual || 0, documentoAValidar));
+          mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, await preguntaOFinFinanciacion(expediente, telefono), fallosDocActual || 0, documentoAValidar));
       }
 
       // DOCUMENTO LARGO EN FOTOS — recibe foto, no avanza hasta LISTO
@@ -3849,7 +3932,7 @@ async function handleArchivos(ctx) {
           // no es el cierre real. Se avisa en los dos finales verdaderos: al decir
           // NO a financiar, o al completar los documentos de financiacion.
           return responderYLog(res, telefono, "archivo", "archivo",
-            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, buildPreguntaFinanciacion(), fallosDocActual || 0, tipoDocAceptado));
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, await preguntaOFinFinanciacion(expediente, telefono), fallosDocActual || 0, tipoDocAceptado));
         }
         return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
       }
@@ -3952,7 +4035,7 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
           txtPlant("flujo_falta_enviar", "", { documento: docActualLabel }));
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
-        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaFinanciacion());
+        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", await preguntaOFinFinanciacion(expediente, telefono));
       }
       if (expediente.paso_actual === "finalizado") {
         const textoFinal = (msgOriginal || "").trim().toLowerCase();

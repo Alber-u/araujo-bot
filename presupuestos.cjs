@@ -10316,7 +10316,7 @@ module.exports = function (app) {
     ];
     // Financiacion integrada en la rejilla: bandas a lo ancho de 1-4 (Sociedad fuera: no se financia)
     const finFlujo = `
-          <div style="grid-column:1 / 5;grid-row:12">${card("flujo_pregunta_financiacion","Forma de pago",{})}</div>
+          <div style="grid-column:1 / 5;grid-row:12">${card("flujo_pregunta_financiacion","Forma de pago ({pago_1} {pago_6} {pago_12} {pago_18})",{})}</div>
           <div style="grid-column:1 / 5;grid-row:13">${card("flujo_estudiar_financiacion","Bienvenida financiación",{})}</div>
           <div style="grid-column:1 / 5;grid-row:14">${finCards[0]}</div>
           <div style="grid-column:1 / 5;grid-row:15">${finCards[1]}</div>
