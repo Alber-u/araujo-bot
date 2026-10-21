@@ -511,7 +511,7 @@ module.exports = function (app) {
           var g = document.createElement('div');
           g.style.cssText = 'max-width:82%;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.3;white-space:pre-wrap;word-break:break-word;background:' + (it.quien === 'vecino' ? '#f1efe8' : (it.quien === 'equipo' ? '#d6f0df' : '#e6f1fb'));
           var h = document.createElement('div'); h.style.cssText = 'font-size:10px;color:#666;margin-bottom:2px;font-weight:600';
-          h.textContent = (it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || '');
+          h.textContent = it.cab ? it.cab : ((it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || ''));   // v128: lo programado lleva su cabecera
           var t = document.createElement('div');
           if (it.titulo) {   // v126: envio con plantilla: titulo y, al pinchar, el texto exacto que le llego
             var tt = document.createElement('div'); tt.style.cssText = 'cursor:pointer;font-weight:600;text-decoration:underline dotted';
@@ -5992,7 +5992,7 @@ module.exports = function (app) {
               var g = document.createElement('div');
               g.style.cssText = 'max-width:82%;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.3;white-space:pre-wrap;word-break:break-word;background:' + (it.quien === 'vecino' ? '#f1efe8' : (it.quien === 'equipo' ? '#d6f0df' : '#e6f1fb'));
               var h = document.createElement('div'); h.style.cssText = 'font-size:10px;color:#666;margin-bottom:2px;font-weight:600';
-              h.textContent = (it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || '');
+              h.textContent = it.cab ? it.cab : ((it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || ''));   // v128: lo programado lleva su cabecera
               var x = document.createElement('div');
           if (it.titulo) {   // v126: envio con plantilla: titulo y, al pinchar, el texto exacto que le llego
             var tt = document.createElement('div'); tt.style.cssText = 'cursor:pointer;font-weight:600;text-decoration:underline dotted';
@@ -17548,6 +17548,19 @@ module.exports = function (app) {
         sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:H" }),
         sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:J" }),
       ]);
+      // v128 (21/10/2026, criterio de Guille: "tiene que salir en verde y quedarse despues en verde... cuando haya
+      //   salido se borra [el aviso de programado] y sabemos que se ha enviado") -- lo programado se cruza con
+      //   bot_programados (mismo telefono, apuntado a la vez, < 2 min): pendiente = UNA burbuja con el texto y arriba
+      //   "⏰ Programado para ..." (verde si es una respuesta tuya); enviado o anulado = no sale (ya esta la del envio);
+      //   error = la misma burbuja con "⚠️ No se pudo enviar" y el motivo.
+      let _progs = [];
+      try { _progs = (((await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_programados!A:I" })).data.values || []).slice(1)).filter(r => r && t9(r[7]) === k).map(r => ({ r, t: new Date(r[1] || 0).getTime(), usado: false })); } catch (e) { _progs = []; }
+      const _progDe = (c) => {
+        const tc = new Date(c[0] || 0).getTime(); let mej = null;
+        for (const p of _progs) { if (p.usado || !p.t) continue; const dif = Math.abs(tc - p.t); if (dif < 2 * 60 * 1000 && (!mej || dif < Math.abs(tc - mej.t))) mej = p; }
+        if (mej) mej.usado = true; return mej ? mej.r : null;
+      };
+      const _hayErrorProg = _progs.some(p => String(p.r[5] || "") === "error");
       const docs = ((rd.data.values || []).slice(1)).filter(d => d && t9(d[0]) === k && String(d[7] || "").trim() !== "manual").map(d => ({ t: new Date(d[5] || 0).getTime(), tipo: String(d[3] || ""), usado: false }));
       const etq = (c) => { const x = String(c || "").replace(/_/g, " ").trim(); return x ? x.charAt(0).toUpperCase() + x.slice(1) : "documento"; };
       const fmt = (iso) => { const d = new Date(iso); if (isNaN(d.getTime())) return String(iso || ""); return d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
@@ -17563,6 +17576,27 @@ module.exports = function (app) {
       }
       for (const c of _filasC) {
         const f = fmt(c[0]), tipo = String(c[3] || "").trim(), cli = String(c[2] || "").trim(), bot = String(c[4] || "").trim();
+        if (tipo === "bot" && cli === "programado") {   // v128: ver arriba
+          const pr = _progDe(c);
+          if (pr) {
+            const est = String(pr[5] || "").trim();
+            if (est === "enviado" || est === "anulado") continue;
+            const fn = String(pr[3] || ""), esResp = fn === "responderVecino";
+            let cuerpo = "";
+            if (esResp) {
+              let a = []; try { a = JSON.parse(pr[4] || "[]"); } catch (e) {}
+              const adj = a[2], tx = String(a[1] || "").trim();
+              const nAdj = adj ? (adj.fijo ? (adj.fijo === "solicitud" ? "toma datos" : String(adj.fijo)) : String(adj.nombre || "adjunto")) : "";
+              cuerpo = (nAdj ? "\uD83D\uDCCE " + nAdj + (tx ? "\n\n" : "") : "") + tx;
+            } else cuerpo = String(pr[8] || fn);
+            const mC = bot.match(/^\u23F0 Programado para (.+?): /);
+            const cuandoTx = mC ? mC[1] : fmt(pr[2]);
+            const cab = est === "error" ? "\u26A0\uFE0F No se pudo enviar: " + String(pr[6] || "").replace(/^error: /, "") : "\u23F0 Programado para " + cuandoTx;
+            items.push({ quien: esResp ? "equipo" : "bot", fecha: f, cab, texto: cuerpo });
+            continue;
+          }
+        }
+        if (tipo === "bot" && cli === "programado_error" && _hayErrorProg) continue;   // v128: ya sale en la burbuja de lo programado
         if (tipo === "equipo") { items.push({ quien: "equipo", fecha: f, texto: bot }); continue; }
         if (tipo === "bot") {
           // v126 (criterio de Guille: "un espejo de lo que el vecino ha visto") -- los envios con PLANTILLA salen con
