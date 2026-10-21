@@ -17663,7 +17663,7 @@ module.exports = function (app) {
       const _prog = String(req.body.programar || "") === "1" || req.body.programar === true;   // v127
       if (_prog && _adj && !_adj.fijo) return res.status(400).json({ ok: false, error: "no se puede programar con un archivo del PC: env\u00edalo ahora o usa uno de los botones" });
       const r = await bot.enviarOProgramar(_prog, "responderVecino", [String(req.body.tel || ""), String(req.body.texto || ""), _adj],
-        { tel: String(req.body.tel || ""), desc: "respuesta: " + String(req.body.texto || "").replace(/\s+/g, " ").slice(0, 80) + (_adj ? " (+ adjunto)" : "") });
+        { tel: String(req.body.tel || ""), desc: "respuesta" + (_adj ? " con \uD83D\uDCCE " + (_adj.fijo ? (_adj.fijo === "solicitud" ? "toma datos" : String(_adj.fijo)) : String(_adj.nombre || "adjunto")) : "") + ":\n\n" + String(req.body.texto || "").trim() });   // v128: el texto entero (Guille quiere ver que lo escribio bien)
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
       // v126 (criterio de Guille) -- contestado = ya no esta pendiente: se marca su "Pide ayuda" (bot_expedientes
       //   col AE = 1) y su "Ha respondido" (pisos col AZ R=ahora), conteste desde HOY o desde la ficha.
