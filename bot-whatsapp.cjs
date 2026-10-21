@@ -3354,7 +3354,7 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente, com
     const reglas = REQUIRED_DOCS[tipoExpediente] || { obligatorios: [], opcionales: [] };
     const docsDelFlujo = new Set([...(reglas.obligatorios || []), ...(reglas.opcionales || [])]);
 
-    // Politica: ultimo estado manda, manual gana sobre automatico
+    // Politica (v128): manda lo mas reciente; una marca manual OK/vacio no la cambia lo que llegue despues por el bot
     const ORIGENES_MANUALES_REC = ["validacion_manual", "rechazo_manual", "manual"];   // v19.114: "manual" = marca de la ficha (v19.112)
     const estadoPorTipoRec = {};
     for (let i = 1; i < rows.length; i++) {
@@ -3376,19 +3376,24 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente, com
         : (docsDelFlujo.has(tipoDoc) ? [tipoDoc] : []);
       if (!objetivos.length) continue;
       const esManual = ORIGENES_MANUALES_REC.includes(origen);
+      // v128 (21/10/2026, criterio de Guille: "lo marque como F para que se lo volviese a pedir, pero no eternamente")
+      //   -- manda lo MAS RECIENTE (fecha, col F), como en la pastilla de la ficha: si Guille lo puso en F y despues el
+      //   vecino lo manda, vale lo nuevo (REVISAR) y no se le vuelve a pedir. Lo que Guille da por bueno a mano (OK o
+      //   vacio) no lo cambia nada que llegue despues por el bot.
+      const ts = String(row[5] || "");
       for (const tipoObjetivo of objetivos) {
         const previo = estadoPorTipoRec[tipoObjetivo];
-        const actualizar = !previo
-          || (esManual && !previo.esManual)
-          || (esManual && previo.esManual && i > previo.fila)
-          || (!esManual && !previo.esManual && i > previo.fila);
-        if (actualizar) estadoPorTipoRec[tipoObjetivo] = { estado, esManual, fila: i };
+        const previoFinal = previo && previo.esManual && /^(OK|VACIO)$/i.test(String(previo.estado || "").trim());
+        const masNuevo = previo && (ts > previo.ts || (ts === previo.ts && i > previo.fila));
+        const actualizar = !previo || (masNuevo && !(previoFinal && !esManual));
+        if (actualizar) estadoPorTipoRec[tipoObjetivo] = { estado, esManual, fila: i, ts };
       }
     }
     // Solo cuentan como recibidos los que tienen estado OK o REVISAR vigente
     const recibidos = new Set();
-    for (const [tipo, { estado }] of Object.entries(estadoPorTipoRec)) {
+    for (const [tipo, { estado, esManual }] of Object.entries(estadoPorTipoRec)) {
       if (estado === "OK" || estado === "REVISAR") recibidos.add(tipo);
+      else if (esManual && String(estado).toUpperCase() === "VACIO") recibidos.add(tipo);   // v128: vacio puesto por Guille = no se le pide
     }
     return Array.from(recibidos);
   } catch (e) {
@@ -3449,6 +3454,23 @@ function esIntencionSaltarOpcional(texto) {
 async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
     // ================= TEXTO DURANTE RECOGIDA DOCUMENTACION =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion") {
+      // v128 (21/10/2026, criterio de Guille: "se lo pidio eternamente") -- antes de contestar, recalcula lo que le
+      //   falta con lo que hay ahora (marcas de Guille en la ficha y lo que ya mando): asi no se le pide un documento
+      //   que ya entrego o que Guille dio por bueno. (Un documento de varias paginas a medias no se toca.)
+      try {
+        const _largoAMedias = DOCS_LARGOS.includes(expediente.documento_actual) && await existeArchivoParaDocumento(telefono, expediente.documento_actual);
+        if (!_largoAMedias) {
+          const _rowIx = expediente.rowIndex, _docAntes = expediente.documento_actual;
+          const _re = await resolverEstadoConversacional(Object.assign({}, expediente));
+          if (_re.paso_actual === "recogida_documentacion" && _re.documento_actual && _re.documento_actual !== _docAntes) {
+            _re.rowIndex = _rowIx; expediente = _re; await recalcularYActualizarTodo(expediente);
+            console.log("[bot] documento actual recalculado:", telefono, _docAntes, "->", expediente.documento_actual);
+          } else if (_re.paso_actual === "pregunta_financiacion") {
+            _re.rowIndex = _rowIx; expediente = _re; await recalcularYActualizarTodo(expediente);
+            return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", await preguntaOFinFinanciacion(expediente, telefono));
+          }
+        }
+      } catch (eRe) { console.error("[bot] recalcular antes de contestar:", eRe.message); }
       const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
       if (mensajePlazo) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", mensajePlazo);
 
