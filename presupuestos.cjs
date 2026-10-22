@@ -9615,7 +9615,7 @@ module.exports = function (app) {
         "05_FIN_DOC":         'Envío manual al pulsar "→ Paso a 06-VISITA EMASESA" en fase 05.',
         "08_INICIO_CYCP":     'Envío manual al pulsar "→ Paso a 08-CYCP" en fase 07.',
         "08_SEGUIMIENTO_CYCP":'Envío automático de seguimiento al pulsar "→ Paso a 08-CYCP" en fase 07.',
-        "08_FIN_CYCP":        'Envío manual al pulsar "✓ Cerrar fase 08-CYCP" en fase 08.',
+        "08_FIN_CYCP":        'Envío manual al pulsar "✓ Tramitados" en fase 08.',
         "05_DOC_VECINO":      ('Correo a UN vecino en M, en fase 05: botón ' + ICONO_MAIL + ' de su fila en Datos documentación (el email se saca de sus notas). Abre el correo ya escrito para revisarlo y enviarlo. Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.'),
         "08_CYCP_VECINO":     ('Correo a UN vecino en M, en fases 07 y 08: botón ' + ICONO_MAIL + ' de su fila en Datos documentación. Adjunta además, solo, su contrato y su carta de pago de Drive (solo el contrato si la comunidad es FFCC). Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.'),
       };
