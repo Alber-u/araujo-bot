@@ -298,6 +298,26 @@ const CASOS = [
       ];
     },
   },
+  // ===== v142: columnas en su sitio =====
+  {
+    nombre: "Con el Sheet bien no avisa de columnas; si se inserta una columna, avisa y HOY lo dice",
+    desde: "v142",
+    prueba: async (S) => {
+      const bien = await S.P()._comprobarColumnas();
+      // se inserta una columna vacía en comunidades delante de la P (fase) y otra en pisos delante de la AU
+      S.DATA.comunidades.forEach((r, i) => r.splice(15, 0, i === 0 ? "columna_nueva" : ""));
+      S.DATA.pisos.forEach((r, i) => r.splice(46, 0, i === 0 ? "otra" : ""));
+      const mal = await S.P()._comprobarColumnas();
+      const r = await S.call("GET", "/presupuestos/hoy", {});
+      const aviso = [...String(r.body).matchAll(/⚠ ([^<]{0,500})/g)].map((m) => m[1]).filter((x) => /Columnas fuera/.test(x)).join(" | ");
+      return [
+        [bien.length === 0, "con el Sheet de hoy: ninguna columna descuadrada", bien.join(" | ")],
+        [mal.some((x) => /comunidades columna P/.test(x)), "detecta comunidades desde la P", mal.join(" | ")],
+        [mal.some((x) => /pisos columna AU/.test(x)), "detecta pisos desde la AU", mal.join(" | ")],
+        [/comunidades columna P/.test(aviso), "HOY lo avisa en rojo", aviso || "(no sale)"],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };

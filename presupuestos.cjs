@@ -13699,6 +13699,37 @@ module.exports = function (app) {
     setInterval(() => { verificarAdjuntosDePlantillasCron().catch(() => {}); }, 6 * 60 * 60 * 1000);   // v19.91: cada 6 h (antes cada hora)
   }
 
+  // v142 (criterio de Guille, 23/10/2026) -- COLUMNAS EN SU SITIO: comunidades se lee por posicion (COLS) y
+  //   documentacion.cjs lee pisos por posicion (r[46], r[47]...); la plataforma de Alberto tambien. Si alguien
+  //   inserta, borra o mueve una columna, todo lee el dato de al lado sin avisar. Al arrancar (a los 2 min) y
+  //   cada 6 h se compara la fila 1 de las dos pestanas con lo que espera el codigo; si no cuadra, aviso de
+  //   sistema en HOY con la primera columna descuadrada. Dos columnas de comunidades se llaman distinto en el
+  //   Sheet y en el codigo desde siempre (mismo sitio): Q y R.
+  const _ALIAS_COLS = { fecha_contacto: "fecha_solicitud_pto", fecha_visita: "fecha_visita_pto" };
+  const _CABECERA_PISOS = ["telefono","comunidad","vivienda","nota_simple","nombre","paso_actual","documento_actual","estado_expediente","fecha_inicio","fecha_primer_contacto","fecha_ultimo_contacto","fecha_limite_documentacion","fecha_limite_firma","documentos_completos","alerta_plazo","documentos_recibidos","documentos_pendientes","documentos_opcionales_pendientes","ultimo_documento_fallido","fecha_ultimo_fallo","reintento_hasta","motivo_bloqueo_actual","prioridad_expediente","requiere_intervencion_humana","documentos_opcionales_descartados","notificacion_financiacion_enviada","documentos_recibidos_sin_archivo","documentos_no_aplica","est_piso_toma_datos","est_piso_nif_toma_datos","est_piso_titularidad","est_piso_empadronamiento","est_piso_contrato_alquiler","est_piso_nif_propietario","est_piso_licencia_apertura","est_piso_escrituras_empresa","est_piso_poderes","est_piso_nif_apoderado","est_piso_meses_financiar","est_piso_nif_financiado","est_piso_justificante_ingresos","est_piso_cuenta_bancaria","est_piso_disidente","est_piso_contrato","est_piso_pago","en_hoy","notas_piso","bot_piso_activo","piso_tipo","acordeon","aviso_m3","aviso_manual"];
+  async function _comprobarColumnas() {
+    const res = [];
+    const _letra = (i) => { let s = "", n = i + 1; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+    const _mira = (tab, esperado, real) => {
+      for (let i = 0; i < esperado.length; i++) {
+        const e = esperado[i], r = String(real[i] || "").trim();
+        if (r !== e && r !== (_ALIAS_COLS[e] || "")) { res.push(tab + " columna " + _letra(i) + ": el programa espera «" + e + "» y en el Sheet pone «" + (r || "(vacía)") + "»"); return; }
+      }
+    };
+    const sh = getSheetsClient();
+    const rc = await sh.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "comunidades!1:1" });
+    _mira("comunidades", COLS, (rc.data.values || [[]])[0] || []);
+    const rp = await sh.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!1:1" });
+    _mira("pisos", _CABECERA_PISOS, (rp.data.values || [[]])[0] || []);
+    _salud.columnas = res; _salud.columnasTs = Date.now();
+    if (res.length) console.warn("[presupuestos] columnas descuadradas:", res.join(" | "));
+    return res;
+  }
+  if (typeof setInterval === "function") {
+    setTimeout(() => { _comprobarColumnas().catch((e) => console.warn("[presupuestos] comprobar columnas:", e.message)); }, 120 * 1000);
+    setInterval(() => { _comprobarColumnas().catch(() => {}); }, 6 * 60 * 60 * 1000);
+  }
+
   // GET /presupuestos/cron-status — diagnóstico del cron
   // GET /presupuestos/adjuntos-rotos
   // Devuelve los links de Drive que han fallado en el último intento de envío
@@ -14845,6 +14876,7 @@ module.exports = function (app) {
         if (_bs && Array.isArray(_bs.p5SinImportes) && _bs.p5SinImportes.length) {
           _avSis.push("Presupuestos de Plan 5 cerrados en los que el bot no encuentra los importes (la pregunta de la forma de pago sale sin cantidades): " + _bs.p5SinImportes.join(", ") + ".");
         }
+        if (Array.isArray(_salud.columnas) && _salud.columnas.length) _avSis.push("¡Columnas fuera de su sitio en el Sheet! " + _salud.columnas.join(" · ") + ". El programa (y la plataforma de Alberto) leería el dato de al lado: no tocar nada hasta devolver la columna a su sitio.");   // v142
         const _faltaM = Object.keys(_salud.plantillasFalta || {}).sort();
         if (_faltaM.length) _avSis.push("El programa ha necesitado estas plantillas de correo y no están en Plantillas mail: " + _faltaM.join(", ") + ".");
         const _faltaB = Object.keys((_bs && _bs.plantillasFalta) || {}).sort();
@@ -18485,6 +18517,7 @@ module.exports = function (app) {
   app.locals.presupuestos = {
     _p5NombreDirigido,   // v127: nombre de la Nota simple para los mensajes (ficha)
     _scriptVecinoBot,   // v126: robotito de la caja Datos documentacion
+    _comprobarColumnas,   // v142: comprobacion de columnas (la usa el banco de pruebas)
     obtenerTextoTwilio,   // v126: el bot guarda el texto exacto de cada plantilla enviada (espejo)
     leerComunidades,
     buscarComunidadPorId,
