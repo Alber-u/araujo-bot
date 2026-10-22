@@ -156,26 +156,30 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
     return null;
   }
 
-  // (22/10/2026) Etiqueta en cualquier columna (la toma de datos no la pone siempre en la A): el valor es la primera
-  // celda con algo a su derecha (hasta 3) o, si no, la de debajo
-  function buscarEnCualquierColumna(matriz, re) {
+  // (22/10/2026) Etiqueta en cualquier columna (la toma de datos no la pone siempre en la A).
+  // (23/10/2026) El valor es la celda de DEBAJO de la etiqueta y sólo si es un valor válido (`valido`); si no, la de su
+  // derecha, también sólo si es válida. Nunca otra etiqueta: en Doña Francisquita 20 la fila es «No PLANTAS | No
+  // SUMINISTROS | 41 suministros» con «BAJO+10» debajo, y salía «Nº SUMINISTROS». Sin valor válido → null.
+  function buscarEnCualquierColumna(matriz, re, valido = () => true) {
     for (let f = 0; f < matriz.length; f++) {
       const row = matriz[f] || [];
       for (let c = 0; c < row.length; c++) {
         if (!row[c] || !re.test(norm(row[c]))) continue;
-        for (let d = 1; d <= 3; d++) if (String(row[c + d] ?? "").trim() !== "") return row[c + d];
-        const abajo = (matriz[f + 1] || [])[c];
-        return String(abajo ?? "").trim() !== "" ? abajo : null;
+        for (const v of [(matriz[f + 1] || [])[c], row[c + 1]]) if (String(v ?? "").trim() !== "" && valido(v)) return v;
+        return null;
       }
     }
     return null;
   }
-  // «BAJO+10», «PB + 10», «Bajo y 10» → «B+10» (como se escribe en los certificados); otra cosa, tal cual
+  // «BAJO+10», «PB + 10», «Bajo y 10» → «B+10» (como se escribe en los certificados); «B+3+ÁTICO» tal cual; otra cosa
+  // (una etiqueta, un texto) → "" (vacío y aviso)
+  const RE_PLANTAS = /^(?:bajo|baja|pb|b|planta baja)\s*(?:\+|y|mas)\s*(\d+)(\s*\+\s*[a-z]+)?$/;
+  const esPlantas = (v) => RE_PLANTAS.test(norm(v));
   function numPlantas(v) {
     const t = String(v ?? "").trim();
-    if (!t) return "";
-    const m = norm(t).match(/^(?:bajo|baja|pb|b|planta baja)\s*(?:\+|y|mas)\s*(\d+)$/);
-    return m ? `B+${parseInt(m[1], 10)}` : t.toUpperCase();
+    const m = norm(t).match(RE_PLANTAS);
+    if (!m) return "";
+    return m[2] ? t.toUpperCase().replace(/\s+/g, "").replace(/^(BAJO|BAJA|PB|B|PLANTABAJA)(\+|Y|MAS)/, "B+") : `B+${parseInt(m[1], 10)}`;
   }
 
   // ----------------------------------------------------------------
@@ -325,7 +329,7 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
     const grupo_tubo_alim_long     = get("longitud tubo alimentacion");
     const aljibe                   = get("aljibe");
     // (22/10/2026) «Nº PLANTAS» de la toma de datos (Doña Francisquita 20: «BAJO+10»): para el CO 080 / CO 073
-    const num_plantas              = numPlantas(buscarEnCualquierColumna(matriz, /^n[º°o.]?\s*(de\s*)?plantas:?$/));
+    const num_plantas              = numPlantas(buscarEnCualquierColumna(matriz, /^n[º°o.]?\s*(de\s*)?plantas:?$/, esPlantas));
     if (num_plantas) encontrados.push("num_plantas"); else faltantes.push("num_plantas");
 
     // Totales (filas 33-50, columnas D/E/F).
@@ -495,7 +499,7 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
   const ENDPOINT = "/api/ara-os/panel-obras/fase14/datos-presupuesto";
 
   // para las pruebas (lib/relacion-tomas-dfrancisquita.test.cjs)
-  if (app && app.locals) app.locals._fase14Presupuesto = { extraerDatos, numPlantas, buscarEnCualquierColumna };
+  if (app && app.locals) app.locals._fase14Presupuesto = { extraerDatos, numPlantas, buscarEnCualquierColumna, esPlantas };
 
   app.options(ENDPOINT, (req, res) => {
     responderCORS(res);
