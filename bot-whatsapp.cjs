@@ -1259,9 +1259,13 @@ async function _cargarImportesP5() {
   if (_importesP5 && Date.now() - _importesP5Ts < 10 * 60 * 1000) return _importesP5;
   const m = {};
   try {
-    const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "plan5_toma_datos!A:G" })).data.values || [];
+    // v140: la foto del presupuesto cerrado vive en la columna I desde el 23/09/2026 (como _p5MergeSnap de Plan 5);
+    //   si I esta vacia (cerrados antes), se mira dentro de G (datos_json.snapshot).
+    const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "plan5_toma_datos!A:I" })).data.values || [];
     for (const r of rows.slice(1)) {
-      let c = null; try { c = ((JSON.parse(r[6] || "{}").snapshot) || {}).cuadro || null; } catch (e) {}
+      let c = null;
+      if (r[8]) { try { c = (JSON.parse(r[8]) || {}).cuadro || null; } catch (e) {} }
+      if (!c) { try { c = ((JSON.parse(r[6] || "{}").snapshot) || {}).cuadro || null; } catch (e) {} }
       if (!c || !(+c.comunero > 0)) continue;
       const dir = _nnP5(r[0]); if (!dir) continue;
       m[dir] = { comunero: +c.comunero, fin6: +c.fin6 || 0, fin12: +c.fin12 || 0, fin18: +c.fin18 || 0 };
