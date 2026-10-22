@@ -102,7 +102,12 @@ function _p5NombreWa(n) { return String(n || "").replace(/^\s*\([^)]*\)\s*/, "")
 // v127 (20/10/2026, criterio de Guille) -- nombre con el que se dirige uno al vecino en TODOS los mensajes: el
 //   primero de la Nota simple (col D, varios separados por "/"; es el propietario, tambien en inquilinos); si no
 //   hay Nota simple o es una anotacion, el nombre de arriba (col E). Igual que nombreDeNota del bot.
-function _p5NombreDirigido(nota, nombre) {
+// v128 (21/10/2026, criterio de Guille: "cuando el piso sea en usufructo, deberiamos comunicarnos con el usufructuario")
+//   -- tipo FAMILIAR: se saluda al nombre de arriba (pisos col E), no al titular de la Nota simple. Los demas tipos
+//   (inquilino incluido: "con los inquilinos quiero tratar directamente con el dueño"), el primero de la Nota simple;
+//   sin Nota simple, el de arriba (en todos).
+function _p5NombreDirigido(nota, nombre, tipo) {
+  if (String(tipo || "").trim().toLowerCase() === "familiar") { const nb = String(nombre || "").replace(/^\s*\(\?\)\s*/, "").trim(); if (nb) return nb; }
   let n = String(nota || "").split("/")[0].replace(/^\s*\([^)]*\)\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+/g, " ").trim();
   if (n.length < 3 || /^(mismo|misma|piso|pte|pendiente|sin|ver|no )/i.test(n)) n = "";
   return n || String(nombre || "").replace(/^\s*\(\?\)\s*/, "").trim();
@@ -506,7 +511,7 @@ module.exports = function (app) {
           var g = document.createElement('div');
           g.style.cssText = 'max-width:82%;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.3;white-space:pre-wrap;word-break:break-word;background:' + (it.quien === 'vecino' ? '#f1efe8' : (it.quien === 'equipo' ? '#d6f0df' : '#e6f1fb'));
           var h = document.createElement('div'); h.style.cssText = 'font-size:10px;color:#666;margin-bottom:2px;font-weight:600';
-          h.textContent = (it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || '');
+          h.textContent = it.cab ? it.cab : ((it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || ''));   // v128: lo programado lleva su cabecera
           var t = document.createElement('div');
           if (it.titulo) {   // v126: envio con plantilla: titulo y, al pinchar, el texto exacto que le llego
             var tt = document.createElement('div'); tt.style.cssText = 'cursor:pointer;font-weight:600;text-decoration:underline dotted';
@@ -533,13 +538,14 @@ module.exports = function (app) {
               + '<div data-adj="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px">'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjpc="1" title="PDF, JPG o PNG (hasta 10 MB)">\uD83D\uDCCE Adjuntar</button>'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="solicitud">toma datos</button>'
-              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="autorizacion">autorizacion usufructo</button>'   // v127: nombres de Guille; PDF de Drive arreglado
+              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-docs="1" title="Elige un documento del programa, rell\u00e9nalo y se adjunta">\uD83D\uDCC4 documento</button>'   // v128: menu de Imprimir documentos (antes: autorizacion usufructo en blanco)
               + '<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:none">'
               + '<span data-chip="1" style="display:none;align-items:center;gap:4px;background:#e8f0fe;border:1px solid #9bb8d8;border-radius:999px;padding:2px 8px"><span data-chipn="1"></span><a href="#" data-chipx="1" title="Quitar el adjunto" style="text-decoration:none;color:#a32d2d;font-weight:700">\u2715</a></span>'
               + '</div>'
               : '<div data-rojo="1" style="font-size:12px;color:#a32d2d;font-weight:600"></div>')
         + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-x="1">' + (ok ? 'Cancelar' : 'Cerrar') + '</button>'
-        + (ok ? '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-s="1">Enviar</button>' : '') + '</div></div>';
+        + (ok ? '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-s="1">Enviar</button>'
+              : '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-pc="1" title="Plantilla de WhatsApp: le pide que responda HOLA; cuando conteste se abren las 24 h">\uD83D\uDCE8 Pedir contacto</button>') + '</div></div>';
       fondo.querySelector('[data-sub]').textContent = (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + (b.dataset.nom ? ' · ' + b.dataset.nom : '');
       if (!ok) fondo.querySelector('[data-rojo]').textContent = b.title || '';
       document.body.appendChild(fondo);
@@ -547,6 +553,21 @@ module.exports = function (app) {
       fondo.querySelector('[data-x]').addEventListener('click', cerrar);
       fondo.addEventListener('click', function (e) { if (e.target === fondo) cerrar(); });
       conversacion(b, fondo.querySelector('[data-conv]'));
+      // v128 -- sin 24 h: "Pedir contacto" (plantilla plan5_contacto); su respuesta te llega a ti, el bot no la contesta
+      var bPc = fondo.querySelector('[data-pc]');
+      if (bPc) bPc.addEventListener('click', async function () {
+        var rc = await window.ptlConfirmarEnvio('\u00bfEnviar por el bot el mensaje de Pedir contacto a ' + (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + '?\n\nLe pide que responda HOLA. Lo que conteste te llega a ti (Pide ayuda en HOY) y el bot no le responde.', 'Pedir contacto', { tel: b.dataset.tel || '' });
+        if (!rc) return;
+        bPc.disabled = true; bPc.textContent = 'Enviando...';
+        try {
+          var r = await fetch(U.contacto, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ tel: b.dataset.tel || '', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '', programar: window.ptlEsProgramar(rc) ? '1' : '' }).toString() });
+          var d = await r.json().catch(function () { return {}; });
+          if (!r.ok || !d.ok) { alert('No se ha enviado: ' + ((d && d.error) || r.status)); bPc.disabled = false; bPc.textContent = '\uD83D\uDCE8 Pedir contacto'; return; }
+          cerrar();
+          if (d.programado) window.ptlAvisoProgramado(d.cuandoTxt); else alert('Enviado. Cuando conteste, te saldr\u00e1 en HOY y podr\u00e1s escribirle por el bot.');
+        } catch (e) { alert('No se ha enviado: ' + e.message); bPc.disabled = false; bPc.textContent = '\uD83D\uDCE8 Pedir contacto'; }
+      });
       if (!ok) return;
       var ta = fondo.querySelector('textarea'); setTimeout(function () { ta.focus(); }, 30);
       // v127 -- adjunto: uno del PC (PDF/JPG/PNG, hasta 10 MB) o uno de los fijos del bot
@@ -555,6 +576,12 @@ module.exports = function (app) {
       fondo.querySelector('[data-chipx]').addEventListener('click', function (e) { e.preventDefault(); fin.value = ''; ponAdj(null); });
       fondo.querySelector('[data-adjpc]').addEventListener('click', function () { fin.click(); });
       fondo.querySelectorAll('[data-fijo]').forEach(function (x) { x.addEventListener('click', function () { ponAdj({ fijo: x.dataset.fijo }, x.textContent + ' (PDF)'); }); });
+      // v128 -- documento del programa (menu de Imprimir documentos con el piso ya elegido), relleno y adjunto
+      var bDoc = fondo.querySelector('[data-docs]');
+      if (bDoc) bDoc.addEventListener('click', function () {
+        if (!window.ptlDocsModal) { alert('No est\u00e1 disponible en esta pantalla.'); return; }
+        window.ptlDocsModal({ comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '', modo: 'adjuntar', alAdjuntar: function (a) { fin.value = ''; ponAdj(a, a.nombre); } });
+      });
       fin.addEventListener('change', function () {
         var f = fin.files && fin.files[0]; if (!f) return;
         if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(f.type)) { alert('Solo PDF, JPG o PNG.'); fin.value = ''; return; }
@@ -625,7 +652,7 @@ module.exports = function (app) {
         if (fila) { setTimeout(function () { if (fila.parentNode) fila.remove(); }, 400); return; }
         // ficha: vuelve a ser el robotito de siempre (su color por las 24 h, sin punto)
         b.classList.remove('hoy-m-bot'); b.disabled = false; b.innerHTML = '\uD83E\uDD16\uD83D\uDCAC';
-        b.style.background = b.dataset.colbase || '#9aa0a6'; b.title = (d.programado ? 'Aviso programado para ' + (d.cuandoTxt || '') + '. ' : 'Aviso enviado. ') + (b.dataset.titbase || '');
+        b.style.background = b.dataset.colbase || 'var(--ptl-gray-400)'; b.title = (d.programado ? 'Aviso programado para ' + (d.cuandoTxt || '') + '. ' : 'Aviso enviado. ') + (b.dataset.titbase || '');
       } catch (e) { alert('No se ha enviado: ' + e.message); b.disabled = false; b.innerHTML = antes; }
     }
     // v126 -- FICHA: el robotito del vecino con un aviso M pendiente sale verde con punto y lo envia como en HOY
@@ -643,8 +670,8 @@ module.exports = function (app) {
           b.dataset.clave = a.clave; b.dataset.etq = a.etiqueta; b.dataset.nom = a.nombre || b.dataset.nom; b.dataset.piso = a.piso; b.dataset.pend = a.pendiente; b.dataset.fecha = a.fecha;
           b.dataset.campo = a.campo; b.dataset.telcheck = a.telCheck; b.dataset.comm = a.comPiso;
           b.dataset.com = a.comunidad || b.dataset.com;   // via + comunidad, para la plantilla
-          b.style.background = '#1f9d55'; b.title = a.etiqueta + ' pendiente: pulsa para enviarlo por el bot';
-          if (!b.querySelector('.ptl-bot-pend')) { var s = document.createElement('span'); s.className = 'ptl-bot-pend'; s.style.cssText = 'position:absolute;top:-7px;right:-7px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#fff;font:700 9px/13px Arial,sans-serif;text-align:center'; b.appendChild(s); }
+          b.style.background = 'var(--ptl-success)'; b.title = a.etiqueta + ' pendiente: pulsa para enviarlo por el bot';
+          if (!b.querySelector('.ptl-bot-pend')) { var s = document.createElement('span'); s.className = 'ptl-bot-pend'; s.style.cssText = 'position:absolute;top:-7px;right:-7px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:var(--ptl-general-1);border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#fff;font:700 9px/13px Arial,sans-serif;text-align:center'; b.appendChild(s); }
         });
         // v127 -- el sobre del vecino con un M (o inicio) por correo pendiente: circulito azul y abre ese correo
         //   (__ptlMailVecino lee data-recfase). Al enviarlo, la ficha se recarga y el punto ya no sale.
@@ -655,7 +682,7 @@ module.exports = function (app) {
           if (!a) return;
           el.dataset.recfase = a.mailFase; el.style.position = 'relative'; el.style.display = el.style.display === 'none' ? 'none' : 'inline-block';
           el.title = 'Recordatorio por correo pendiente: pulsa para abrirlo ya escrito';
-          if (!el.querySelector('.ptl-bot-pend')) { var s2 = document.createElement('span'); s2.className = 'ptl-bot-pend'; s2.style.cssText = 'position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)'; el.appendChild(s2); }
+          if (!el.querySelector('.ptl-bot-pend')) { var s2 = document.createElement('span'); s2.className = 'ptl-bot-pend'; s2.style.cssText = 'position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:var(--ptl-general-1);border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)'; el.appendChild(s2); }
         });
         // v127 -- y el 💬 blanco cuando el aviso pendiente va por WhatsApp manual: abre el chat con el mensaje
         //   y pregunta si se ha enviado para marcarlo igual que el check de HOY.
@@ -667,7 +694,7 @@ module.exports = function (app) {
           el.dataset.avisowa = a.waMsg; el.dataset.campo = a.campo; el.dataset.telcheck = a.telCheck; el.dataset.comm = a.comPiso; el.dataset.vivm = a.vivienda;
           el.style.position = 'relative'; if (el.style.display !== 'none') el.style.display = 'inline-block';
           el.title = 'Aviso pendiente por WhatsApp: pulsa para abrirlo ya escrito';
-          if (!el.querySelector('.ptl-bot-pend')) { var s3 = document.createElement('span'); s3.className = 'ptl-bot-pend'; s3.style.cssText = 'position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)'; el.appendChild(s3); }
+          if (!el.querySelector('.ptl-bot-pend')) { var s3 = document.createElement('span'); s3.className = 'ptl-bot-pend'; s3.style.cssText = 'position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:var(--ptl-general-1);border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)'; el.appendChild(s3); }
         });
       }).catch(function () {});
     };
@@ -702,7 +729,7 @@ module.exports = function (app) {
     });
   }
   function _scriptVecinoBot(token) {
-    const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"),
+    const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"), contacto: urlT(token, "/presupuestos/hoy/pedir-contacto"),
       mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }) };
     return "(" + _clienteVecinoBot.toString() + ")(" + JSON.stringify(U) + ");";
   }
@@ -2656,6 +2683,10 @@ module.exports = function (app) {
       flujo_progreso: ["flujo_progreso", "vecino", "texto", "", "", "{n} {total}", "SI", "v19.118: contador encima de cada peticion de documento"],
       flujo_sin_ia: ["flujo_sin_ia", "vecino", "texto", "", "", "{siguiente}", "SI", "v19.118: respuesta al texto libre del vecino con la IA dormida"],
       flujo_falta_antes_de_cerrar: ["flujo_falta_antes_de_cerrar", "vecino", "texto", "", "", "{falta}", "SI", "v127: al cerrar la ficha, si Guille tiene algo en F o INCORRECTO"],
+      // v128 -- texto libre del vecino: pregunta (el bot espera), aviso, y "1" sin paginas
+      flujo_pregunta_espera: ["flujo_pregunta_espera", "vecino", "texto", "", "", "", "SI", "v128: el vecino pregunta algo: va a Pide ayuda y el bot espera a que contestes"],
+      flujo_aviso_vecino: ["flujo_aviso_vecino", "vecino", "texto", "", "", "", "SI", "v128: el vecino avisa de algo (manana lo mando...): va a Pide ayuda y el bot sigue"],
+      flujo_largo_sin_paginas: ["flujo_largo_sin_paginas", "vecino", "texto", "", "", "{documento}", "SI", "v128: responde 1 sin haber mandado ninguna pagina"],
       // v126 -- avisos M por el bot (plantillas de Alberto): la fila se crea al guardar su HX
       ..._FILAS_AVISOS_M };
     if (rowIndex < 0 && _CLAVES_NUEVAS[clave]) {
@@ -2732,6 +2763,7 @@ module.exports = function (app) {
     plan5_recordatorio_prorroga: ["plan5_recordatorio_prorroga", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M2 (05) / M3 (08) amable durante la prorroga, por el bot al pulsar en HOY"],
     plan5_aviso_vencido_doc: ["plan5_aviso_vencido_doc", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M2 duro (fase 05, plazo vencido), por el bot al pulsar en HOY"],
     plan5_aviso_vencido_cycp: ["plan5_aviso_vencido_cycp", "vecino", "twilio", "", "", _VARS_AVISOS_M, "SI", "v126: M3 duro (fase 08, plazo vencido), por el bot al pulsar en HOY"],
+    plan5_contacto: ["plan5_contacto", "vecino", "twilio", "", "", "{{1}} nombre, {{2}} vivienda (C Comunidad (piso))", "SI", "v128: Pedir contacto (robotito rojo o gris): que responda HOLA; su respuesta va a Guille"],
   };
   // v126 (18/10/2026, criterio de Guille: "guardalos para que no varien en el futuro") -- los avisos M que se
   //   mandaron el 18/10 antes de guardar el texto entero (solo "falta ...; fecha limite ...") se completan UNA vez
@@ -2794,6 +2826,21 @@ module.exports = function (app) {
     console.log("[presupuestos] v127: creada la fila flujo_falta_antes_de_cerrar");
   }
   setTimeout(() => { _migFaltaCerrarV127().catch(e => console.error("[presupuestos] v127 falta antes de cerrar:", e.message)); }, 62000);
+  // v128 (22/10/2026, criterio de Guille: "si alguien pregunta algo, que el bot pida ayuda y se pare") -- textos nuevos
+  //   del bot: se crea su fila UNA vez, con el texto por defecto, para que se vean y se puedan cambiar en Flujo bot.
+  async function _migTextoLibreV128() {
+    const sheets = getSheetsClient();
+    const rows = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS })).data.values || [];
+    const NUEVOS = [
+      ["flujo_pregunta_espera", "vecino", "texto", "Gracias por su mensaje. Lo vemos y le contestamos lo antes posible.", "", "", "SI", "v128: el vecino pregunta algo: va a Pide ayuda y el bot espera a que contestes"],
+      ["flujo_aviso_vecino", "vecino", "texto", "De acuerdo, gracias por avisarnos. Cuando lo tenga, env\u00edenoslo por aqu\u00ed.", "", "", "SI", "v128: el vecino avisa de algo (manana lo mando...): va a Pide ayuda y el bot sigue"],
+      ["flujo_largo_sin_paginas", "vecino", "texto", "Todav\u00eda no nos ha llegado ninguna p\u00e1gina de: *{documento}*.\n\nEnv\u00edela primero por aqu\u00ed (foto o PDF) y, cuando haya mandado todas, responda *1*.\nSi no lo tiene, escr\u00edbanoslo y lo vemos.", "", "{documento}", "SI", "v128: responde 1 sin haber mandado ninguna pagina"],
+    ].filter(f => !rows.some(x => x && String(x[0] || "").trim() === f[0]));
+    if (!NUEVOS.length) return;
+    await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: NUEVOS } });
+    console.log("[presupuestos] v128: creadas las filas", NUEVOS.map(f => f[0]).join(", "));
+  }
+  setTimeout(() => { _migTextoLibreV128().catch(e => console.error("[presupuestos] v128 textos libres:", e.message)); }, 64000);
   async function _migBotV19118() {
     const sheets = getSheetsClient();
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
@@ -4393,6 +4440,23 @@ module.exports = function (app) {
     }
     let t = sustituirVariables(texto, comu);
     if (!t) return "";
+    // v130 (22/10/2026, criterio de Guille) -- {{si_financiacion}}: marca que se pone al principio de una
+    //   linea de la plantilla (el texto sigue en el Sheet, regla 9). Si algun piso de la comunidad tiene
+    //   Forma de pago 6, 12, 18 o IPREM (pisos col AM; FFCC NO cuenta), la linea se queda (sin la marca);
+    //   si no, la linea entera desaparece. La usa 08-FIN CYCP.
+    if (/\{\{si_financiacion\}\}/.test(t)) {
+      let _hayFin = false;
+      try {
+        const _rows = await _leerRangoCorto(RANGO_PISOS, 3000);
+        const _h = _rows[0] || [];
+        const _iC = _h.indexOf("comunidad"), _iF = _h.indexOf("est_piso_meses_financiar");
+        const _n = x => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+        const _obj = _n(comu && comu.direccion);
+        if (_iC >= 0 && _iF >= 0) _hayFin = _rows.slice(1).some(f => f && _n(f[_iC]) === _obj && /^(6|12|18|IPREM)$/i.test(String(f[_iF] || "").trim()));
+      } catch (e) { console.warn("[presupuestos] si_financiacion:", e && e.message); _hayFin = true; }
+      if (_hayFin) t = t.replace(/\{\{si_financiacion\}\}/g, "");
+      else t = t.replace(/^[^\n]*\{\{si_financiacion\}\}[^\n]*(\r?\n|$)/gm, "");
+    }
     const necesitaResumen = /\{\{(DOC_CCPP|DOC_PISOS|PCT_PISOS|DOC_PISOS_SIN_MOVIL)\}\}/.test(t);
     if (necesitaResumen) {
       const r = await calcularResumenDocumentacion(comu);
@@ -5726,6 +5790,136 @@ module.exports = function (app) {
     return _horarioP;
   }
   { const _t1 = setTimeout(_refrescarHorarioP, 5000); if (_t1.unref) _t1.unref(); const _t2 = setInterval(_refrescarHorarioP, 3 * 60 * 1000); if (_t2.unref) _t2.unref(); }
+  // v128 (21/10/2026, criterio de Guille) -- menu "Imprimir documentos" COMUN: desde la ficha descarga el PDF; desde el
+  //   robotito lo adjunta al mensaje (opc.modo = 'adjuntar', opc.alAdjuntar({nombre, mime, b64})). Un solo documento
+  //   cada vez; el archivo se llama como el documento: "<Documento> - <Comunidad> <piso>.pdf" (general: sin piso).
+  //   Los campos que se dejan vacios salen como raya larga para rellenar a mano.
+  //   opc: { ccppId | comunidad (nombre, desde HOY), vivienda (piso ya elegido), modo, alAdjuntar }
+  function _clienteDocsModal(U) {
+    var escH = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+    var q = function (u, extra) { return u + (u.indexOf('?') < 0 ? '?' : '&') + extra; };
+    window.ptlDocsModal = function (opc) {
+      opc = opc || {};
+      var adjuntar = opc.modo === 'adjuntar';
+      var est = { menu: null, clave: '', vivienda: opc.vivienda || '' };
+      var ident = function () { return opc.ccppId ? { id: opc.ccppId } : { comunidad: opc.comunidad || '' }; };
+      var cerrar = function () { var m = document.getElementById('ptlDocModal'); if (m) m.remove(); };
+      var cuerpo = function () { return document.getElementById('ptlDocBody'); };
+      cerrar();
+      var wrap = document.createElement('div');
+      wrap.id = 'ptlDocModal';
+      wrap.style.cssText = 'position:fixed;inset:0;z-index:10003;display:block';
+      wrap.innerHTML = '<div style="position:fixed;top:8%;left:50%;transform:translateX(-50%);width:560px;max-width:94vw;max-height:86vh;background:var(--ptl-general-flotante,#fff);color:#111;border:1px solid var(--ptl-gray-300,#ccc);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--ptl-warning-light,#fdf3d7);padding:10px 14px">'
+        + '<strong style="color:var(--ptl-warning-dark,#8a5a00)">\uD83D\uDCC4 ' + (adjuntar ? 'Adjuntar documento' : 'Imprimir documento') + '</strong>'
+        + '<button type="button" data-cx="1" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--ptl-warning-dark,#8a5a00);line-height:1">\u2715</button></div>'
+        + '<div id="ptlDocBody" style="padding:14px;overflow-y:auto"><div style="text-align:center;color:#777;padding:20px">Cargando\u2026</div></div></div>';
+      document.body.appendChild(wrap);
+      wrap.querySelector('[data-cx]').addEventListener('click', cerrar);
+      var error = function (e) { cuerpo().innerHTML = '<div style="color:#a32d2d">Error: ' + escH(e.message || e) + '</div>'; };
+
+      // PASO 1: elegir UN documento (y el piso si es de un piso)
+      var pintarMenu = function () {
+        var d = est.menu;
+        var h = '<div style="font-size:13px;margin-bottom:10px">Expediente: <strong>' + escH(d.comunidad) + '</strong></div>'
+          + '<div style="font-weight:600;font-size:13px;margin-bottom:6px">Elige el documento:</div><div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">';
+        d.documentos.forEach(function (x) {
+          var et = x.tipo === 'particular' ? ' <span style="font-size:11px;color:#8a5a00">(de un piso)</span>' : ' <span style="font-size:11px;color:#777">(general)</span>';
+          h += '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="radio" name="ptlDocUno" value="' + escH(x.clave) + '" data-tipo="' + escH(x.tipo) + '"' + (x.clave === est.clave ? ' checked' : '') + '/><span>' + escH(x.titulo) + et + '</span></label>';
+        });
+        h += '</div><div data-pw="1" style="display:none;margin-bottom:12px"><div style="font-weight:600;font-size:13px;margin-bottom:4px">Piso:</div>';
+        if (d.pisos && d.pisos.length) {
+          h += '<select data-piso="1" style="width:100%;padding:5px;border:1px solid #ccc;border-radius:4px;font-size:13px"><option value="">\u2014 Elige un piso \u2014</option>';
+          d.pisos.forEach(function (p) { h += '<option value="' + escH(p.vivienda) + '"' + (p.vivienda === est.vivienda ? ' selected' : '') + '>' + escH(p.vivienda + (p.propietario ? ' \u00b7 ' + p.propietario : '')) + '</option>'; });
+          h += '</select>';
+        } else h += '<div style="font-size:12px;color:#a32d2d">Este expediente no tiene pisos cargados. El documento saldr\u00e1 con los datos en blanco.</div>';
+        h += '</div><div style="text-align:right"><button type="button" data-sig="1" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">Siguiente \u2192</button></div>';
+        cuerpo().innerHTML = h;
+        var radios = Array.prototype.slice.call(cuerpo().querySelectorAll('input[name=ptlDocUno]'));
+        var pw = cuerpo().querySelector('[data-pw]');
+        var refrescar = function () { var r = radios.filter(function (x) { return x.checked; })[0]; pw.style.display = (r && r.dataset.tipo === 'particular') ? 'block' : 'none'; };
+        radios.forEach(function (r) { r.addEventListener('change', refrescar); }); refrescar();
+        cuerpo().querySelector('[data-sig]').addEventListener('click', function () {
+          var r = radios.filter(function (x) { return x.checked; })[0];
+          if (!r) { alert('Elige un documento.'); return; }
+          var sel = cuerpo().querySelector('[data-piso]');
+          var viv = (r.dataset.tipo === 'particular' && sel) ? sel.value : '';
+          if (r.dataset.tipo === 'particular' && sel && !viv) { alert('Elige el piso.'); return; }
+          est.clave = r.value; est.vivienda = r.dataset.tipo === 'particular' ? viv : (opc.vivienda || '');
+          est.tipo = r.dataset.tipo;
+          formulario();
+        });
+      };
+
+      // PASO 2: datos (precargados / a mano / en blanco = raya)
+      var formulario = function () {
+        cuerpo().innerHTML = '<div style="text-align:center;color:#777;padding:20px">Cargando datos\u2026</div>';
+        fetch(U.huecos, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams(Object.assign({ claves: JSON.stringify([est.clave]), vivienda: est.tipo === 'particular' ? est.vivienda : '' }, ident())).toString() })
+          .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Error'); return d; }); })
+          .then(function (d) {
+            var campos = d.campos || [];
+            var h = '<div style="font-size:13px;margin-bottom:10px">Revisa los datos. Los vac\u00edos puedes rellenarlos o dejarlos en blanco: saldr\u00e1n con una raya para rellenar a mano.</div>';
+            if (!campos.length) h += '<div style="font-size:12px;color:#777;margin-bottom:10px">Este documento no tiene datos que rellenar.</div>';
+            h += '<div style="border:1px solid #e3e1da;border-radius:8px;padding:10px;margin-bottom:10px">';
+            campos.forEach(function (c) { h += '<label style="display:block;font-size:12px;margin-bottom:8px"><span style="display:block;color:#555;margin-bottom:2px">' + escH(c.label) + (c.manual ? ' <span style="color:#999">(a mano)</span>' : '') + '</span><input type="text" data-hueco="' + escH(c.clave) + '" value="' + escH(c.valor) + '" style="width:100%;box-sizing:border-box;padding:5px;border:1px solid #ccc;border-radius:4px;font-size:13px"/></label>'; });
+            h += '</div><div data-prev="1" style="display:none;margin-bottom:10px;border:1px solid #ccc;border-radius:6px;overflow:hidden"><iframe style="width:100%;height:420px;border:0;background:#fff"></iframe></div>'
+              + '<div style="display:flex;justify-content:space-between;gap:8px"><button type="button" data-at="1" class="ptl-btn ptl-btn-secondary" style="padding:6px 14px">\u2190 Atr\u00e1s</button>'
+              + '<span style="display:flex;gap:8px"><button type="button" data-ver="1" class="ptl-btn ptl-btn-secondary" style="padding:6px 14px" title="Ver c\u00f3mo queda antes de ' + (adjuntar ? 'enviarlo' : 'imprimirlo') + '">\uD83D\uDC41 Ver</button>'
+              + '<button type="button" data-gen="1" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">' + (adjuntar ? '\uD83D\uDCCE Adjuntar al mensaje' : '\uD83D\uDCC4 Generar PDF') + '</button></span></div>';
+            cuerpo().innerHTML = h;
+            cuerpo().querySelector('[data-at]').addEventListener('click', pintarMenu);
+            cuerpo().querySelector('[data-gen]').addEventListener('click', generar);
+            cuerpo().querySelector('[data-ver]').addEventListener('click', ver);
+          }).catch(error);
+      };
+
+      // PASO 3: generar -> descargar (ficha) o adjuntar (robotito); "Ver" lo ensena antes en la misma ventana
+      var nombre = 'documento.pdf', urlVer = '';
+      var pedirPdf = function () {
+        var valores = {};
+        Array.prototype.forEach.call(cuerpo().querySelectorAll('input[data-hueco]'), function (i) { valores[i.dataset.hueco] = i.value; });
+        return fetch(U.gen, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams(Object.assign({ claves: JSON.stringify([est.clave]), vivienda: est.tipo === 'particular' ? est.vivienda : '', valores: JSON.stringify(valores) }, ident())).toString() })
+          .then(function (r) {
+            if (!r.ok) return r.json().catch(function () { return { error: 'Error' }; }).then(function (t) { throw new Error(t.error || 'Error'); });
+            try { var n = r.headers.get('X-Nombre-Archivo'); if (n) nombre = decodeURIComponent(n); } catch (e) {}
+            return r.blob();
+          });
+      };
+      var ver = function () {
+        var bv = cuerpo().querySelector('[data-ver]'); bv.disabled = true; bv.textContent = '\u23F3';
+        pedirPdf().then(function (blob) {
+          if (urlVer) URL.revokeObjectURL(urlVer);
+          urlVer = URL.createObjectURL(blob);
+          var pv = cuerpo().querySelector('[data-prev]'); pv.style.display = 'block';
+          pv.querySelector('iframe').src = urlVer;
+          var caja = wrap.firstChild; caja.style.width = '820px'; caja.style.top = '3%'; caja.style.maxHeight = '94vh';
+        }).catch(function (e) { alert('Error generando la vista previa: ' + e.message); })
+          .then(function () { bv.disabled = false; bv.textContent = '\uD83D\uDC41 Ver'; });
+      };
+      var generar = function () {
+        var bg = cuerpo().querySelector('[data-gen]'); bg.disabled = true; bg.textContent = '\u23F3 Generando\u2026';
+        pedirPdf()
+          .then(function (blob) {
+            if (!adjuntar) {
+              var url = URL.createObjectURL(blob), a = document.createElement('a');
+              a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+              setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+              cerrar(); return;
+            }
+            var rd = new FileReader();
+            rd.onload = function () { cerrar(); if (opc.alAdjuntar) opc.alAdjuntar({ nombre: nombre, mime: 'application/pdf', b64: String(rd.result || '').split(',')[1] || '' }); };
+            rd.readAsDataURL(blob);
+          })
+          .catch(function (e) { alert('Error generando el PDF: ' + e.message); bg.disabled = false; bg.textContent = adjuntar ? '\uD83D\uDCCE Adjuntar al mensaje' : '\uD83D\uDCC4 Generar PDF'; });
+      };
+
+      fetch(q(U.menu, new URLSearchParams(ident()).toString()))
+        .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Error'); return d; }); })
+        .then(function (d) { est.menu = d; pintarMenu(); }).catch(error);
+    };
+  }
   function _clienteConfirmarEnvio(U) {
     var _H = function () { try { return window.__ptlCalcHorario ? window.__ptlCalcHorario(window.__ptlHorario, new Date()) : { dentro: true }; } catch (e) { return { dentro: true }; } };
     window.ptlHorarioAhora = _H;
@@ -5834,7 +6028,7 @@ module.exports = function (app) {
               var g = document.createElement('div');
               g.style.cssText = 'max-width:82%;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.3;white-space:pre-wrap;word-break:break-word;background:' + (it.quien === 'vecino' ? '#f1efe8' : (it.quien === 'equipo' ? '#d6f0df' : '#e6f1fb'));
               var h = document.createElement('div'); h.style.cssText = 'font-size:10px;color:#666;margin-bottom:2px;font-weight:600';
-              h.textContent = (it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || '');
+              h.textContent = it.cab ? it.cab : ((it.quien === 'vecino' ? 'Vecino' : (it.quien === 'equipo' ? 'Tú (desde el programa)' : 'Bot')) + ' · ' + (it.fecha || ''));   // v128: lo programado lleva su cabecera
               var x = document.createElement('div');
           if (it.titulo) {   // v126: envio con plantilla: titulo y, al pinchar, el texto exacto que le llego
             var tt = document.createElement('div'); tt.style.cssText = 'cursor:pointer;font-weight:600;text-decoration:underline dotted';
@@ -5937,6 +6131,7 @@ module.exports = function (app) {
       <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
     </div>
   </nav>
+  <script>(${_clienteDocsModal.toString()})(${JSON.stringify({ menu: urlT(token, "/presupuestos/docs/menu"), huecos: urlT(token, "/presupuestos/docs/huecos"), gen: urlT(token, "/presupuestos/docs/generar") })});</script>
   <script>window.__ptlHorario=${JSON.stringify(_horarioP)};window.__ptlHorarioTxt=${JSON.stringify(_horarioModP.textoHorario(_horarioP))};window.__ptlCalcHorario=${_horarioModP.calcHorario.toString()};</script>
   <script>(${_clienteConfirmarEnvio.toString()})(${JSON.stringify({ conv: urlT(token, "/presupuestos/hoy/conversacion") })});</script>
   <div class="ptl-page">
@@ -7224,7 +7419,7 @@ module.exports = function (app) {
         <div id="ptlComSendModal" class="ptl-floating-wrapper">
           <div id="ptlComSendBox" class="ptl-floating-window" style="width:680px">
             <div id="ptlComSendTitle" class="ptl-floating-title">
-              <span class="ptl-floating-title-text">${ICONO_MAIL} Enviar mail manual</span>
+              <span id="ptlComStitulo" class="ptl-floating-title-text">${ICONO_MAIL} Enviar mail manual</span>
               <button type="button" id="ptlComSxclose" class="ptl-floating-close" title="Cerrar">✕</button>
             </div>
             <div class="ptl-floating-body">
@@ -7247,7 +7442,7 @@ module.exports = function (app) {
               </div>
               ${_respTipo.length ? `<div>
                 <label class="ptl-form-label">Insertar respuesta tipo</label>
-                <select id="ptlComSresp" class="ptl-input-modal"><option value="">— elegir —</option>${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
+                <select id="ptlComSresp" class="ptl-input-modal" style="height:28px;padding:2px 8px;font-size:12px;line-height:1.3"><option value="">— elegir —</option>${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
               </div>` : ""}
               <div>
                 <label class="ptl-form-label">Cuerpo del mensaje</label>
@@ -7531,7 +7726,7 @@ module.exports = function (app) {
                 // Destinatario: si era entrante, contestamos al remitente
                 // (lo guardamos en col "destinatario" tras clasificar); si era
                 // saliente, contestamos al destinatario original.
-                sAbrir();
+                sAbrir('Responder mail');
                 sDest.value = dest;
                 sAs.value = _prefijar('Re: ', asunto);
                 const cita = _fmtFechaCita(fecha) + ', escribió:\\n' + _citar(cuerpo);
@@ -7549,7 +7744,7 @@ module.exports = function (app) {
                 const asunto = _b64dec(btn.dataset.asunto || '');
                 const cuerpo = _b64dec(btn.dataset.cuerpo || '');
                 const adjuntos = btn.dataset.adjuntos || '';
-                sAbrir();
+                sAbrir('Reenviar mail');
                 sDest.value = '';   // destinatario vacío
                 sAs.value = _prefijar('Fwd: ', asunto);
                 const cabecera = '---------- Mensaje reenviado ----------\\n'
@@ -7668,181 +7863,9 @@ module.exports = function (app) {
             }
 
             // ===== Modal "Imprimir documentos" (Sprint A — Bloque 2) =====
-            // Flujo: (paso 1) elegir documentos + piso (si hay particulares) ->
-            // (paso 2) formulario de huecos precargados/editables -> generar PDF.
-            (function(){
-              const CCPP_ID = ${JSON.stringify(comu.ccpp_id)};
-              const TOKEN_GEN = '${urlT(token, "/presupuestos/docs/generar")}';
-              const URL_MENU = '${urlT(token, "/presupuestos/docs/menu")}';
-              const URL_HUECOS = '${urlT(token, "/presupuestos/docs/huecos")}';
-
-              let estado = { menu: null, seleccion: [], vivienda: '', campos: [] };
-
-              function cerrar(){ const m = document.getElementById('ptlDocModal'); if (m) m.remove(); }
-
-              function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-              function crearVentana(titulo, contenidoHtml){
-                cerrar();
-                const wrap = document.createElement('div');
-                wrap.id = 'ptlDocModal';
-                wrap.style.cssText = 'position:fixed;inset:0;z-index:9999;display:block';
-                wrap.innerHTML =
-                  '<div id="ptlDocBox" style="position:fixed;top:8%;left:50%;transform:translateX(-50%);width:560px;max-width:94vw;max-height:86vh;background:var(--ptl-general-flotante);border:1px solid var(--ptl-gray-300);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">'
-                  + '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--ptl-warning-light);padding:10px 14px;border-bottom:1px solid var(--ptl-warning-light)">'
-                  + '<strong style="color:var(--ptl-warning-dark)">📄 ' + escH(titulo) + '</strong>'
-                  + '<button type="button" id="ptlDocClose" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--ptl-warning-dark);line-height:1">✕</button>'
-                  + '</div>'
-                  + '<div id="ptlDocBody" style="padding:14px;overflow-y:auto">' + contenidoHtml + '</div>'
-                  + '</div>';
-                document.body.appendChild(wrap);
-                document.getElementById('ptlDocClose').addEventListener('click', cerrar);
-              }
-
-              // ---- PASO 1: menú de documentos + piso ----
-              async function abrirMenu(){
-                crearVentana('Imprimir documentos', '<div style="text-align:center;color:var(--ptl-gray-500);padding:20px">Cargando…</div>');
-                let data;
-                try {
-                  const r = await fetch(URL_MENU + '&id=' + encodeURIComponent(CCPP_ID));
-                  data = await r.json();
-                  if (!r.ok) throw new Error(data.error || 'Error');
-                } catch(e){
-                  document.getElementById('ptlDocBody').innerHTML = '<div style="color:var(--ptl-danger)">Error: ' + escH(e.message) + '</div>';
-                  return;
-                }
-                estado.menu = data;
-                pintarMenu();
-              }
-
-              function pintarMenu(){
-                const data = estado.menu;
-                let html = '<div style="font-size:13px;color:var(--ptl-gray-700);margin-bottom:10px">Expediente: <strong>' + escH(data.comunidad) + '</strong></div>';
-                html += '<div style="font-weight:600;font-size:13px;margin-bottom:6px">Marca los documentos a imprimir:</div>';
-                html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">';
-                data.documentos.forEach(d => {
-                  const et = d.tipo === 'particular' ? ' <span style="font-size:11px;color:var(--ptl-warning-dark)">(de un piso)</span>' : ' <span style="font-size:11px;color:var(--ptl-gray-500)">(general)</span>';
-                  html += '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
-                       + '<input type="checkbox" class="ptlDocChk" value="' + escH(d.clave) + '" data-tipo="' + escH(d.tipo) + '"/>'
-                       + '<span>' + escH(d.titulo) + et + '</span></label>';
-                });
-                html += '</div>';
-                // Selector de piso (solo si hay pisos). Se mostrará/ocultará según haga falta.
-                html += '<div id="ptlDocPisoWrap" style="display:none;margin-bottom:12px">';
-                html += '<div style="font-weight:600;font-size:13px;margin-bottom:4px">Piso (para los documentos de un piso):</div>';
-                if (data.pisos && data.pisos.length){
-                  html += '<select id="ptlDocPiso" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:13px">';
-                  html += '<option value="">— Elige un piso —</option>';
-                  data.pisos.forEach(p => {
-                    const etq = p.vivienda + (p.propietario ? ' · ' + p.propietario : '');
-                    html += '<option value="' + escH(p.vivienda) + '">' + escH(etq) + '</option>';
-                  });
-                  html += '</select>';
-                } else {
-                  html += '<div style="font-size:12px;color:var(--ptl-danger)">Este expediente no tiene pisos cargados. Los documentos de un piso saldrán con los datos en blanco.</div>';
-                }
-                html += '</div>';
-                html += '<div style="text-align:right"><button type="button" id="ptlDocSiguiente" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">Siguiente →</button></div>';
-                document.getElementById('ptlDocBody').innerHTML = html;
-
-                const chks = Array.from(document.querySelectorAll('.ptlDocChk'));
-                const pisoWrap = document.getElementById('ptlDocPisoWrap');
-                function refrescarPiso(){
-                  const hayParticular = chks.some(c => c.checked && c.dataset.tipo === 'particular');
-                  pisoWrap.style.display = hayParticular ? 'block' : 'none';
-                }
-                chks.forEach(c => c.addEventListener('change', refrescarPiso));
-                document.getElementById('ptlDocSiguiente').addEventListener('click', () => {
-                  const sel = chks.filter(c => c.checked).map(c => c.value);
-                  if (sel.length === 0){ alert('Marca al menos un documento.'); return; }
-                  const hayParticular = chks.some(c => c.checked && c.dataset.tipo === 'particular');
-                  const pisoSel = document.getElementById('ptlDocPiso');
-                  const viv = pisoSel ? pisoSel.value : '';
-                  if (hayParticular && !viv){ alert('Elige el piso para los documentos de un piso.'); return; }
-                  estado.seleccion = sel;
-                  estado.vivienda = viv;
-                  abrirFormulario();
-                });
-              }
-
-              // ---- PASO 2: formulario de huecos ----
-              async function abrirFormulario(){
-                document.getElementById('ptlDocBody').innerHTML = '<div style="text-align:center;color:var(--ptl-gray-500);padding:20px">Cargando datos…</div>';
-                let data;
-                try {
-                  const body = new URLSearchParams({
-                    id: CCPP_ID,
-                    claves: JSON.stringify(estado.seleccion),
-                    vivienda: estado.vivienda
-                  });
-                  const r = await fetch(URL_HUECOS, {
-                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-                    body: body.toString()
-                  });
-                  data = await r.json();
-                  if (!r.ok) throw new Error(data.error || 'Error');
-                } catch(e){
-                  document.getElementById('ptlDocBody').innerHTML = '<div style="color:var(--ptl-danger)">Error: ' + escH(e.message) + '</div>';
-                  return;
-                }
-                estado.campos = data.campos || [];
-                let html = '<div style="font-size:13px;color:var(--ptl-gray-700);margin-bottom:10px">Revisa los datos. Los precargados puedes corregirlos; los vacíos puedes rellenarlos o dejarlos en blanco para rellenar a mano.</div>';
-                if (estado.campos.length === 0){
-                  html += '<div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:10px">Estos documentos no tienen datos que rellenar.</div>';
-                }
-                html += '<div style="border:1px solid var(--ptl-gray-200);border-radius:8px;padding:10px;margin-bottom:10px">';
-                estado.campos.forEach(c => {
-                  html += '<label style="display:block;font-size:12px;margin-bottom:8px">'
-                       + '<span style="display:block;color:var(--ptl-gray-700);margin-bottom:2px">' + escH(c.label) + (c.manual ? ' <span style="color:var(--ptl-gray-400)">(a mano)</span>' : '') + '</span>'
-                       + '<input type="text" data-hueco="' + escH(c.clave) + '" value="' + escH(c.valor) + '" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:13px"/>'
-                       + '</label>';
-                });
-                html += '</div>';
-                html += '<div style="display:flex;justify-content:space-between;gap:8px">'
-                     + '<button type="button" id="ptlDocAtras" class="ptl-btn" style="padding:6px 14px;background:var(--ptl-gray-100);border:1px solid var(--ptl-gray-300)">← Atrás</button>'
-                     + '<button type="button" id="ptlDocGenerar" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">📄 Generar PDF</button>'
-                     + '</div>';
-                document.getElementById('ptlDocBody').innerHTML = html;
-                document.getElementById('ptlDocAtras').addEventListener('click', pintarMenu);
-                document.getElementById('ptlDocGenerar').addEventListener('click', generar);
-              }
-
-              // ---- PASO 3: generar y descargar ----
-              async function generar(){
-                const btnG = document.getElementById('ptlDocGenerar');
-                btnG.disabled = true; btnG.textContent = '⏳ Generando…';
-                // Recoger los valores de la lista única
-                const valores = {};
-                document.querySelectorAll('#ptlDocBody input[data-hueco]').forEach(inp => {
-                  valores[inp.dataset.hueco] = inp.value;
-                });
-                try {
-                  const body = new URLSearchParams({
-                    id: CCPP_ID,
-                    claves: JSON.stringify(estado.seleccion),
-                    vivienda: estado.vivienda,
-                    valores: JSON.stringify(valores)
-                  });
-                  const r = await fetch(TOKEN_GEN, {
-                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-                    body: body.toString()
-                  });
-                  if (!r.ok){ const t = await r.json().catch(()=>({error:'Error'})); throw new Error(t.error || 'Error'); }
-                  const blob = await r.blob();
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url; a.download = 'documentos.pdf';
-                  document.body.appendChild(a); a.click(); a.remove();
-                  setTimeout(()=>URL.revokeObjectURL(url), 4000);
-                  cerrar();
-                } catch(e){
-                  alert('Error generando el PDF: ' + e.message);
-                  btnG.disabled = false; btnG.textContent = '📄 Generar PDF';
-                }
-              }
-
-              window.ptlAbrirDocsModal = abrirMenu;
-            })();
+            // v128 (21/10/2026, criterio de Guille: "que ambos funcionen igual... uno imprime en pdf y otro envia por
+            //   bot") -- el menu vive en pageHtml (_clienteDocsModal) y lo usan la ficha (descarga) y el robotito (adjunta).
+            window.ptlAbrirDocsModal = function(){ window.ptlDocsModal({ ccppId: ${JSON.stringify(comu.ccpp_id)}, modo: 'imprimir' }); };
 
             // ===== Modal "Enviar mail manual" (compositor tipo Gmail) =====
             // v17.70: ventana flotante arrastrable estilo Windows. Sin overlay
@@ -7867,7 +7890,11 @@ module.exports = function (app) {
               ['ptlComSadj1lbl','ptlComSadj1url','ptlComSadj2lbl','ptlComSadj2url','ptlComSadj3lbl','ptlComSadj3url']
                 .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
             }
-            function sAbrir() {
+            // v129 (22/10/2026, criterio de Guille): el titulo dice que se esta haciendo
+            const sTitTxt = document.getElementById('ptlComStitulo');
+            const ICO_MAIL_T = ${JSON.stringify(ICONO_MAIL)};
+            function sAbrir(titulo) {
+              if (sTitTxt) sTitTxt.textContent = ICO_MAIL_T + ' ' + (titulo || 'Enviar mail manual');
               sLimpiar();
               sModal.style.display = 'block';
               // v17.71: usa helper global window.ptlCentrarVentana.
@@ -8906,7 +8933,9 @@ module.exports = function (app) {
             const enviados = data.estado.enviados || 0;
             const max = data.plantilla.max_envios || 0;
             const stEl = document.getElementById('ptl-mm-estado');
-            if (max > 0) {
+            stEl.textContent = '';
+            // v130 (22/10/2026): la nota del cron solo donde hay reenvios automaticos de verdad
+            if (max > 0 && (fase === '01_CONTACTO' || fase === '03_ENVIO_PTO')) {
               // 'enviados' aquí es el total (manuales + automáticos). Para el
               // primer envío manual de la fase será 0. max_envios es el tope
               // de reenvíos automáticos. Mostramos info útil sin mezclar.
@@ -9586,7 +9615,7 @@ module.exports = function (app) {
         "05_FIN_DOC":         'Envío manual al pulsar "→ Paso a 06-VISITA EMASESA" en fase 05.',
         "08_INICIO_CYCP":     'Envío manual al pulsar "→ Paso a 08-CYCP" en fase 07.',
         "08_SEGUIMIENTO_CYCP":'Envío automático de seguimiento al pulsar "→ Paso a 08-CYCP" en fase 07.',
-        "08_FIN_CYCP":        'Envío manual al pulsar "✓ Cerrar fase 08-CYCP" en fase 08.',
+        "08_FIN_CYCP":        'Envío manual al pulsar "✓ Tramitados" en fase 08.',
         "05_DOC_VECINO":      ('Correo a UN vecino en M, en fase 05: botón ' + ICONO_MAIL + ' de su fila en Datos documentación (el email se saca de sus notas). Abre el correo ya escrito para revisarlo y enviarlo. Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.'),
         "08_CYCP_VECINO":     ('Correo a UN vecino en M, en fases 07 y 08: botón ' + ICONO_MAIL + ' de su fila en Datos documentación. Adjunta además, solo, su contrato y su carta de pago de Drive (solo el contrato si la comunidad es FFCC). Variables: {nombre} {tipo_via} {comunidad} {piso} {fecha_limite_vigente} {prorroga_nota}.'),
       };
@@ -10316,7 +10345,7 @@ module.exports = function (app) {
     ];
     // Financiacion integrada en la rejilla: bandas a lo ancho de 1-4 (Sociedad fuera: no se financia)
     const finFlujo = `
-          <div style="grid-column:1 / 5;grid-row:12">${card("flujo_pregunta_financiacion","Forma de pago",{})}</div>
+          <div style="grid-column:1 / 5;grid-row:12">${card("flujo_pregunta_financiacion","Forma de pago ({pago_1} {pago_6} {pago_12} {pago_18})",{})}</div>
           <div style="grid-column:1 / 5;grid-row:13">${card("flujo_estudiar_financiacion","Bienvenida financiación",{})}</div>
           <div style="grid-column:1 / 5;grid-row:14">${finCards[0]}</div>
           <div style="grid-column:1 / 5;grid-row:15">${finCards[1]}</div>
@@ -10332,7 +10361,10 @@ module.exports = function (app) {
       card("flujo_documento_completo","doc - validado",{}),
       card("flujo_sin_opcional","doc - seguir sin opcional",{}),
       card("flujo_progreso","doc - contador ({n} de {total})",{}),   // v19.118
-      card("flujo_sin_ia","texto del vecino con la IA dormida",{}),   // v19.118
+      card("flujo_pregunta_espera","texto del vecino - pregunta (el bot espera)",{}),   // v128
+      card("flujo_aviso_vecino","texto del vecino - aviso (el bot sigue)",{}),   // v128
+      card("flujo_largo_sin_paginas","doc - \"1\" sin ninguna página ({documento})",{}),   // v128
+      card("flujo_sin_ia","texto del vecino con la IA dormida (sustituida por las dos de arriba)",{}),   // v19.118; v128: lo sustituyen las dos de arriba
       card("flujo_falta_antes_de_cerrar","doc - falta algo al terminar ({falta})",{}),   // v127
     ].map(c => "<div>" + c + "</div>").join("");
     const erroresCards = stack([["error_mensaje","error - mensaje"],["error_documento","error - doc"]]);
@@ -10564,7 +10596,7 @@ module.exports = function (app) {
         wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m1c", "Aviso M1", 5) + wamanualcard("m3", "Aviso M3", 11) +
         /* v126: los M1/M2/M3 de HOY salen POR EL BOT con estas plantillas de Twilio (pegar aqui su codigo HX) */
         twcard("plan5_recordatorio_m1", "Twilio - M1 amable (05 y 08)") + twcard("plan5_recordatorio_prorroga", "Twilio - M2/M3 amable (pr\u00f3rroga)") +
-        twcard("plan5_aviso_vencido_doc", "Twilio - M2 duro (05)") + twcard("plan5_aviso_vencido_cycp", "Twilio - M3 duro (08)") +   /* v19.110: M1 de la fase 08 */ wamanualcard("ini05", "Inicio doc", 0, true) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
+        twcard("plan5_aviso_vencido_doc", "Twilio - M2 duro (05)") + twcard("plan5_aviso_vencido_cycp", "Twilio - M3 duro (08)") + twcard("plan5_contacto", "Twilio - Pedir contacto (robotito)") +   /* v128 */   /* v19.110: M1 de la fase 08 */ wamanualcard("ini05", "Inicio doc", 0, true) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -14189,6 +14221,8 @@ module.exports = function (app) {
         // v18.99d — nombres MAESTROS desde la pestaña "pisos" (donde el usuario los edita).
         // bot_expedientes puede tener copias antiguas con "(?)". Mapa comunidad|vivienda -> nombre.
         const _pisosNombre = {}; const _pisosNomMsg = {};
+        const _tipoBotTel = {};   // v128: tipo de la ficha del bot por telefono (para saludar al de arriba si es familiar)
+        for (let i = 1; i < _erows.length; i++) { const r = _erows[i]; if (r && r[0]) _tipoBotTel[String(r[0]).replace(/\D/g, "").slice(-9)] = r[4]; }
         const _pisosModo = {}; const _pisosTel = {};   // v19.61 — telefono ACTUAL de cada piso (ultimos 9 digitos) // v18.99f — bot_piso_activo (AV): MANUAL silencia los avisos de HOY
         let _piRowsAll = [];   // v19.19 — filas completas de "pisos" (hasta AY aviso_m3) para el aviso M3 de fase 08
         try {
@@ -14204,7 +14238,7 @@ module.exports = function (app) {
             const _k = _com + "|" + _viv;
             const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
             if (_nom) _pisosNombre[_k] = _nom;
-            _pisosNomMsg[_k] = _p5NombreDirigido(_pr[3], _nom);   // v127: nombre de la Nota simple para los mensajes
+            _pisosNomMsg[_k] = _p5NombreDirigido(_pr[3], _nom, String(_pr[48] || "").trim() || _tipoBotTel[String(_pr[0] || "").replace(/\D/g, "").slice(-9)]);   // v128   // v127: nombre de la Nota simple para los mensajes
             _pisosModo[_k] = String(_pr[47] || "").trim().toUpperCase();
             _pisosTel[_k] = String(_pr[0] || "").replace(/\D/g, "").slice(-9);   // v19.61
           }
@@ -14524,7 +14558,7 @@ module.exports = function (app) {
               const canal = enW ? "bot" : (conMail ? "mail" : (movil ? "wa" : "nada"));
               const ult = (f) => (mv[f] || []).slice().sort().pop() || "";
               const nom = String(pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
-              const nomMsg = _p5NombreDirigido(pr[3], nom);   // v127: Nota simple
+              const nomMsg = _p5NombreDirigido(pr[3], nom, String(pr[48] || "").trim() || (bot ? bot[4] : ""));   // v128: tipo de la ficha o del bot   // v127: Nota simple
               const v = { nombre: nomMsg, via, comunidad: c.direccion || c.comunidad || "", piso: viv, fL: _fmtD(dL), fP: _fmtD(dP), conced, pend: pendTxt, es08 };
               const base = { comunidad: pr[1] || "", vivienda: viv, nombre: nom, telefono: pr[0] || "", canal, fecha: _fmtD(dIni), ts: dIni.getTime(), dias, flag: false };
               // v126 (18/10/2026, criterio de Guille) -- los avisos que iban por WhatsApp (bot o manual, con movil)
@@ -14761,13 +14795,13 @@ module.exports = function (app) {
         // v19.102 -- avisos por correo: boton de la carta que abre la ficha de documentacion en ese
         //   piso con el correo ya escrito (parametros mailaviso y piso).
         const _mailHtml = (p.mailFase && _ccpp)
-          ? `<a href="${_esc(urlT(token, "/documentacion/expediente", { id: _ccpp, mailaviso: p.mailFase, piso: p.vivienda || "" }) + "#piso-" + encodeURIComponent(p.vivienda || ""))}" class="hoy-aviso-mail" title="Abrir el correo de recordatorio ya escrito (te toca enviarlo)" style="flex:0 0 auto;position:relative;display:inline-block;text-decoration:none;font-size:14px;line-height:1">${ICONO_MAIL}<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span></a>`
+          ? `<a href="${_esc(urlT(token, "/documentacion/expediente", { id: _ccpp, mailaviso: p.mailFase, piso: p.vivienda || "" }) + "#piso-" + encodeURIComponent(p.vivienda || ""))}" class="hoy-aviso-mail" title="Abrir el correo de recordatorio ya escrito (te toca enviarlo)" style="flex:0 0 auto;position:relative;display:inline-block;text-decoration:none;font-size:14px;line-height:1">${ICONO_MAIL}<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:var(--ptl-general-1);border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span></a>`
           : "";
         // v126 -- aviso M por el bot: el mismo robotito, en VERDE (criterio de Guille: el color dice si se le puede
         //   escribir por WhatsApp, y con un M pendiente si se puede: va con plantilla). Abre la ventana de envio con
         //   la conversacion. Siempre con circulito azul: te toca a ti (enviarle el M).
         const _mBotHtml = p.botM
-          ? `<button type="button" class="hoy-m-bot" data-tel="${_esc(p.telefono || "")}" data-clave="${_esc(p.botM.clave)}" data-etq="${_esc(p.botM.etiqueta)}" data-nom="${_esc(p.botM.nombre)}" data-com="${_esc(p.botM.comunidad)}" data-piso="${_esc(p.botM.piso)}" data-pend="${_esc(p.botM.pendiente)}" data-fecha="${_esc(p.botM.fecha)}" data-ok="${(() => { const _u = _ultVecinoBot[String(p.telefono || "").replace(/\D/g, "").slice(-9)] || ""; return _u && (Date.now() - new Date(_u).getTime()) < 24 * 3600 * 1000 ? "1" : "0"; })()}" title="${_esc("Enviar por el bot: " + p.botM.etiqueta + " (plantilla " + p.botM.clave + ")")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;position:relative;background:#1f9d55">\uD83E\uDD16\uD83D\uDCAC${true ? `<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-7px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#fff;font:700 9px/13px Arial,sans-serif;text-align:center"></span>` : ""}</button>`   /* v126: mismo robotito que en la ficha (WhatsApp por el bot) */
+          ? `<button type="button" class="hoy-m-bot" data-tel="${_esc(p.telefono || "")}" data-clave="${_esc(p.botM.clave)}" data-etq="${_esc(p.botM.etiqueta)}" data-nom="${_esc(p.botM.nombre)}" data-com="${_esc(p.botM.comunidad)}" data-piso="${_esc(p.botM.piso)}" data-pend="${_esc(p.botM.pendiente)}" data-fecha="${_esc(p.botM.fecha)}" data-ok="${(() => { const _u = _ultVecinoBot[String(p.telefono || "").replace(/\D/g, "").slice(-9)] || ""; return _u && (Date.now() - new Date(_u).getTime()) < 24 * 3600 * 1000 ? "1" : "0"; })()}" title="${_esc("Enviar por el bot: " + p.botM.etiqueta + " (plantilla " + p.botM.clave + ")")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;position:relative;background:var(--ptl-success)">\uD83E\uDD16\uD83D\uDCAC${true ? `<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-7px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:var(--ptl-general-1);border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#fff;font:700 9px/13px Arial,sans-serif;text-align:center"></span>` : ""}</button>`   /* v126: mismo robotito que en la ficha (WhatsApp por el bot) */
           : "";
         let _waHtml = _mailHtml ? _mailHtml : _mBotHtml ? _mBotHtml : (_wa && p.tipo !== "sin_wa" && (p.waMsg || (p.tipo !== "inicio" && p.tipo !== "m05" && p.tipo !== "cycp")))   // v19.99: sin WhatsApp, no hay chat que abrir; v19.102: en la cadena, solo si hay texto
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}"${p.registra ? ` class="hoy-wa-registra" data-reg="${_esc(p.registra)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}"` : ""} onclick="if(this.classList.contains('hoy-wa-registra')&&window.__hoyRegistraWa)window.__hoyRegistraWa(this);var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">${ICONO_WHATSAPP}</a>`
@@ -14778,7 +14812,7 @@ module.exports = function (app) {
         //   lleva el robotito de contestar.
         if (!_mailHtml && !_mBotHtml && _waHtml && p.waMsg && /^(inicio|m05|m08|cycp)$/.test(String(p.tipo || "")))
           _waHtml = _waHtml.replace('style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">', 'style="flex:0 0 auto;position:relative;display:inline-block;text-decoration:none;font-size:13px;line-height:1">')
-            .replace(/<\/a>$/, '<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span></a>');
+            .replace(/<\/a>$/, '<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-9px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:var(--ptl-general-1);border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span></a>');
         // v122 -- boton de contestar POR EL BOT (en "Pide ayuda" y "Completo · revisar"): verde < 24 h, rojo si no.
         let _botRespHtml = "";
         if ((p.tipo === "ayuda" || p.tipo === "completo" || p.tipo === "respondido") && p.telefono) {   // v126: + Ha respondido
@@ -14787,7 +14821,7 @@ module.exports = function (app) {
           const _ok24 = isFinite(_uMs) && _uMs < 24 * 3600 * 1000;
           const _horas = isFinite(_uMs) ? Math.floor(_uMs / 3600000) : null;
           const _pend = _pendTel.has(_uk);   // v126: circulito de "te espera una respuesta"
-          _botRespHtml = `<button type="button" class="hoy-bot-resp" data-ok="${_ok24 ? "1" : "0"}" data-pend="${_pend ? "1" : "0"}" data-tel="${_esc(p.telefono)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-nom="${_esc(p.nombre || "")}" data-ayuda="${(p.tipo === "ayuda" || p.tipo === "respondido") ? "1" : "0"}" title="${(_pend ? "TE ESPERA UNA RESPUESTA \u00b7 " : "") + (_ok24 ? "Contestar por el bot (escribi\u00f3 hace " + _horas + " h)" : "Han pasado m\u00e1s de 24 h" + (_horas !== null ? " (" + _horas + " h)" : "") + ": WhatsApp no deja contestar por el bot. Usa otra v\u00eda.")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;position:relative;background:${_ok24 ? "#1f9d55" : "#c0392b"}">\uD83E\uDD16\uD83D\uDCAC${_pend ? `<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-7px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:#2b7de9;border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#fff;font:700 9px/13px Arial,sans-serif;text-align:center">${_ok24 ? ((24 * 3600000 - _uMs) < 3600000 ? "&lt;1" : Math.floor((24 * 3600000 - _uMs) / 3600000)) : "!"}</span>` : ""}</button>`;
+          _botRespHtml = `<button type="button" class="hoy-bot-resp" data-ok="${_ok24 ? "1" : "0"}" data-pend="${_pend ? "1" : "0"}" data-tel="${_esc(p.telefono)}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-nom="${_esc(p.nombre || "")}" data-ayuda="${(p.tipo === "ayuda" || p.tipo === "respondido") ? "1" : "0"}" title="${(_pend ? "TE ESPERA UNA RESPUESTA \u00b7 " : "") + (_ok24 ? "Contestar por el bot (escribi\u00f3 hace " + _horas + " h)" : "Han pasado m\u00e1s de 24 h" + (_horas !== null ? " (" + _horas + " h)" : "") + ": WhatsApp no deja contestar por el bot. Usa otra v\u00eda.")}" style="flex:0 0 auto;border:0;border-radius:4px;padding:1px 4px;font-size:12px;line-height:1.2;cursor:pointer;color:#fff;position:relative;background:${_ok24 ? "var(--ptl-success)" : "var(--ptl-danger)"}">\uD83E\uDD16\uD83D\uDCAC${_pend ? `<span class="ptl-bot-pend" style="position:absolute;top:-7px;right:-7px;min-width:15px;height:15px;padding:0 2px;box-sizing:border-box;border-radius:8px;background:var(--ptl-general-1);border:1px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#fff;font:700 9px/13px Arial,sans-serif;text-align:center">${_ok24 ? ((24 * 3600000 - _uMs) < 3600000 ? "&lt;1" : Math.floor((24 * 3600000 - _uMs) / 3600000)) : "!"}</span>` : ""}</button>`;
         }
         // v19.103 -- plantilla que falta o esta desactivada: no se ofrece ningun texto alternativo
         if (p.falta) _badge += `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto;width:auto" title="Cr\u00e9ala o act\u00edvala (Plantillas mail o Flujo bot) y recarga">\u26A0 Falta la plantilla ${_esc(p.falta)} o est\u00e1 desactivada</span>`;
@@ -17547,7 +17581,7 @@ module.exports = function (app) {
   // GET /presupuestos/hoy/conversacion?tel=  (v125, 18/10/2026) -- TODOS los mensajes con ese vecino por el bot:
   //   lo que escribio (texto o documentos, con su nombre), lo que le contesto el bot (resumido) y lo que le
   //   contesto Guille desde HOY. Sale de bot_contactos (+ bot_documentos para saber que documento mando).
-  const _CLI_PLANT = /^(presentacion|job_presentacion|job_proactivo|ficha_reabierta|cambio_tipo|envio_contrato|aviso_m:.*)$/;   // v126: envios con plantilla
+  const _CLI_PLANT = /^(presentacion|job_presentacion|job_proactivo|ficha_reabierta|cambio_tipo|envio_contrato|contacto_pedido|aviso_m:.*)$/;   // v128: contacto_pedido   // v126: envios con plantilla
   app.get("/presupuestos/hoy/conversacion", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
@@ -17559,6 +17593,19 @@ module.exports = function (app) {
         sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:H" }),
         sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:J" }),
       ]);
+      // v128 (21/10/2026, criterio de Guille: "tiene que salir en verde y quedarse despues en verde... cuando haya
+      //   salido se borra [el aviso de programado] y sabemos que se ha enviado") -- lo programado se cruza con
+      //   bot_programados (mismo telefono, apuntado a la vez, < 2 min): pendiente = UNA burbuja con el texto y arriba
+      //   "⏰ Programado para ..." (verde si es una respuesta tuya); enviado o anulado = no sale (ya esta la del envio);
+      //   error = la misma burbuja con "⚠️ No se pudo enviar" y el motivo.
+      let _progs = [];
+      try { _progs = (((await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_programados!A:I" })).data.values || []).slice(1)).filter(r => r && t9(r[7]) === k).map(r => ({ r, t: new Date(r[1] || 0).getTime(), usado: false })); } catch (e) { _progs = []; }
+      const _progDe = (c) => {
+        const tc = new Date(c[0] || 0).getTime(); let mej = null;
+        for (const p of _progs) { if (p.usado || !p.t) continue; const dif = Math.abs(tc - p.t); if (dif < 2 * 60 * 1000 && (!mej || dif < Math.abs(tc - mej.t))) mej = p; }
+        if (mej) mej.usado = true; return mej ? mej.r : null;
+      };
+      const _hayErrorProg = _progs.some(p => String(p.r[5] || "") === "error");
       const docs = ((rd.data.values || []).slice(1)).filter(d => d && t9(d[0]) === k && String(d[7] || "").trim() !== "manual").map(d => ({ t: new Date(d[5] || 0).getTime(), tipo: String(d[3] || ""), usado: false }));
       const etq = (c) => { const x = String(c || "").replace(/_/g, " ").trim(); return x ? x.charAt(0).toUpperCase() + x.slice(1) : "documento"; };
       const fmt = (iso) => { const d = new Date(iso); if (isNaN(d.getTime())) return String(iso || ""); return d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
@@ -17574,6 +17621,27 @@ module.exports = function (app) {
       }
       for (const c of _filasC) {
         const f = fmt(c[0]), tipo = String(c[3] || "").trim(), cli = String(c[2] || "").trim(), bot = String(c[4] || "").trim();
+        if (tipo === "bot" && cli === "programado") {   // v128: ver arriba
+          const pr = _progDe(c);
+          if (pr) {
+            const est = String(pr[5] || "").trim();
+            if (est === "enviado" || est === "anulado") continue;
+            const fn = String(pr[3] || ""), esResp = fn === "responderVecino";
+            let cuerpo = "";
+            if (esResp) {
+              let a = []; try { a = JSON.parse(pr[4] || "[]"); } catch (e) {}
+              const adj = a[2], tx = String(a[1] || "").trim();
+              const nAdj = adj ? (adj.fijo ? (adj.fijo === "solicitud" ? "toma datos" : String(adj.fijo)) : String(adj.nombre || "adjunto")) : "";
+              cuerpo = (nAdj ? "\uD83D\uDCCE " + nAdj + (tx ? "\n\n" : "") : "") + tx;
+            } else cuerpo = String(pr[8] || fn);
+            const mC = bot.match(/^\u23F0 Programado para (.+?): /);
+            const cuandoTx = mC ? mC[1] : fmt(pr[2]);
+            const cab = est === "error" ? "\u26A0\uFE0F No se pudo enviar: " + String(pr[6] || "").replace(/^error: /, "") : "\u23F0 Programado para " + cuandoTx;
+            items.push({ quien: esResp ? "equipo" : "bot", fecha: f, cab, texto: cuerpo });
+            continue;
+          }
+        }
+        if (tipo === "bot" && cli === "programado_error" && _hayErrorProg) continue;   // v128: ya sale en la burbuja de lo programado
         if (tipo === "equipo") { items.push({ quien: "equipo", fecha: f, texto: bot }); continue; }
         if (tipo === "bot") {
           // v126 (criterio de Guille: "un espejo de lo que el vecino ha visto") -- los envios con PLANTILLA salen con
@@ -17674,7 +17742,7 @@ module.exports = function (app) {
       const _prog = String(req.body.programar || "") === "1" || req.body.programar === true;   // v127
       if (_prog && _adj && !_adj.fijo) return res.status(400).json({ ok: false, error: "no se puede programar con un archivo del PC: env\u00edalo ahora o usa uno de los botones" });
       const r = await bot.enviarOProgramar(_prog, "responderVecino", [String(req.body.tel || ""), String(req.body.texto || ""), _adj],
-        { tel: String(req.body.tel || ""), desc: "respuesta: " + String(req.body.texto || "").replace(/\s+/g, " ").slice(0, 80) + (_adj ? " (+ adjunto)" : "") });
+        { tel: String(req.body.tel || ""), desc: "respuesta" + (_adj ? " con \uD83D\uDCCE " + (_adj.fijo ? (_adj.fijo === "solicitud" ? "toma datos" : String(_adj.fijo)) : String(_adj.nombre || "adjunto")) : "") + ":\n\n" + String(req.body.texto || "").trim() });   // v128: el texto entero (Guille quiere ver que lo escribio bien)
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
       // v126 (criterio de Guille) -- contestado = ya no esta pendiente: se marca su "Pide ayuda" (bot_expedientes
       //   col AE = 1) y su "Ha respondido" (pisos col AZ R=ahora), conteste desde HOY o desde la ficha.
@@ -17682,6 +17750,35 @@ module.exports = function (app) {
       res.json({ ok: true, programado: !!r.programado, cuandoTxt: r.cuandoTxt || "" });
     } catch (e) {
       console.error("[presupuestos] POST /hoy/responder-bot:", e.message);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // POST /presupuestos/hoy/pedir-contacto (v128, criterio de Guille) -- plantilla plan5_contacto: {{1}} nombre (Nota
+  //   simple o el de arriba), {{2}} vivienda "C Malvaloca 1 (1D)". Fuera del horario se puede programar.
+  app.post("/presupuestos/hoy/pedir-contacto", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const bot = app.locals.botWhatsapp;
+      if (!bot || typeof bot.pedirContacto !== "function") return res.status(500).json({ ok: false, error: "bot no disponible" });
+      const b = req.body || {};
+      const tel = String(b.tel || "");
+      if (tel.replace(/\D/g, "").length < 9) return res.status(400).json({ ok: false, error: "el vecino no tiene tel\u00e9fono" });
+      const nn = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+      const pis = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AW" })).data.values || []).slice(1);
+      const k9 = tel.replace(/\D/g, "").slice(-9);
+      const fp = pis.find(r => r && nn(r[1]) === nn(b.comunidad) && nn(r[2]) === nn(b.vivienda)) || pis.find(r => r && String(r[0] || "").replace(/\D/g, "").slice(-9) === k9) || [];
+      const comu = (await leerComunidades()).find(c => nn(c.direccion) === nn(fp[1] || b.comunidad) || nn(c.comunidad) === nn(fp[1] || b.comunidad));
+      const via = comu && comu.tipo_via ? String(comu.tipo_via).trim() + " " : "";
+      const vivienda = (via + String(fp[1] || b.comunidad || "").trim() + " (" + String(fp[2] || b.vivienda || "").trim() + ")").trim();
+      let _tipoB = String(fp[48] || "").trim();
+      if (!_tipoB) { try { const eb = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:E" })).data.values || []).slice(1).find(e => e && String(e[0] || "").replace(/\D/g, "").slice(-9) === k9); _tipoB = eb ? eb[4] : ""; } catch (eT) {} }
+      const nombre = _p5NombreDirigido(fp[3], fp[4], _tipoB);
+      const r = await bot.enviarOProgramar(String(b.programar || "") === "1", "pedirContacto", [tel, { nombre, vivienda }], { tel, desc: "pedir contacto" });
+      if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
+      res.json({ ok: true, programado: !!r.programado, cuandoTxt: r.cuandoTxt || "" });
+    } catch (e) {
+      console.error("[presupuestos] POST /hoy/pedir-contacto:", e.message);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
@@ -17918,10 +18015,19 @@ module.exports = function (app) {
   // =================================================================
 
   // 1) GET /presupuestos/docs/menu?id=<ccpp_id>
+  // v128 -- desde HOY el robotito solo sabe el nombre de la comunidad: se busca su expediente
+  async function _ccppIdDocs(id, comunidad) {
+    id = String(id || "").trim(); if (id) return id;
+    const n = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    const c = n(comunidad); if (!c) return "";
+    const todas = await leerComunidades();
+    const f = todas.find(x => x.ccpp_id && (n(x.direccion) === c || n(x.comunidad) === c));
+    return f ? f.ccpp_id : "";
+  }
   app.get("/presupuestos/docs/menu", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
-      const ccppId = String(req.query.id || "").trim();
+      const ccppId = await _ccppIdDocs(req.query.id, req.query.comunidad);
       if (!ccppId) return res.status(400).json({ error: "Falta id" });
       const plantillas = await leerPlantillasDoc();
       // documentos = todas las plantillas que NO son encabezado/pie
@@ -17954,7 +18060,7 @@ module.exports = function (app) {
   app.post("/presupuestos/docs/huecos", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
-      const ccppId = String(req.body.id || "").trim();
+      const ccppId = await _ccppIdDocs(req.body.id, req.body.comunidad);
       let claves = [];
       try { claves = JSON.parse(req.body.claves || "[]"); } catch (_) { claves = []; }
       if (!Array.isArray(claves)) claves = [];
@@ -18004,7 +18110,7 @@ module.exports = function (app) {
   app.post("/presupuestos/docs/generar", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
-      const ccppId = String(req.body.id || "").trim();
+      const ccppId = await _ccppIdDocs(req.body.id, req.body.comunidad);
       let claves = [];
       try { claves = JSON.parse(req.body.claves || "[]"); } catch (_) { claves = []; }
       if (!Array.isArray(claves)) claves = [];
@@ -18067,8 +18173,15 @@ module.exports = function (app) {
       // Nombre de archivo a partir de la comunidad
       const base = (comu ? (comu.direccion || "documentos") : "documentos")
         .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      // v128 (criterio de Guille) -- el archivo se llama como el documento: "Autorización de usufructo - Tharsis 5 3IZ.pdf";
+      //   general: "Mantenimiento del grupo de presión - Tharsis 5.pdf"; varios: los titulos unidos con " + ".
+      const _tit = claves.map(k => (porClave[k] && String(porClave[k].titulo || "").trim()) || k).join(" + ");
+      const _gen = claves.every(k => DOCS_GENERALES.includes(k) || (DOC_HUECOS[k] && DOC_HUECOS[k].tipo === "general"));
+      const _dondeD = (String((comu && comu.direccion) || "").trim() + (!_gen && pisoTxt ? " " + pisoTxt : "")).trim();
+      const nombreArchivo = ((_tit || "Documento") + (_dondeD ? " - " + _dondeD : "")).replace(/[\\/:*?"<>|]+/g, "-") + ".pdf";
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="documentos_${base || "ccpp"}.pdf"`);
+      res.setHeader("Content-Disposition", `attachment; filename="documentos_${base || "ccpp"}.pdf"; filename*=UTF-8''${encodeURIComponent(nombreArchivo)}`);
+      res.setHeader("X-Nombre-Archivo", encodeURIComponent(nombreArchivo));
       res.send(pdf);
     } catch (e) {
       console.error("[presupuestos] POST /docs/generar:", e.message);

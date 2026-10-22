@@ -55,12 +55,15 @@ function getThemeCss() {
       --ptl-brand:var(--ptl-general-1);
       --ptl-brand-light:var(--ptl-general-2);
       --ptl-brand-dark:var(--ptl-general-1);
+      /* v128 (21/10/2026, criterio de Guille: "unificar el verde y rojo corporativo con los del robotito, que me
+         gustan mas") -- verde #10B981 -> #1f9d55 y rojo #EF4444 -> #c0392b; los robotitos ya usan estas variables.
+         Los tonos light/dark no cambian. */
       /* v1.25 — UNIFICACIÓN de las 3 familias de color a un TRÍO cada una:
          fuerte (fondo/borde) + light (fondo suave) + dark (texto sobre el suave).
          Todos los tonos sueltos a pelo del programa pasan a usar estas. */
-      --ptl-success:#10B981;--ptl-success-light:#D1FAE5;--ptl-success-dark:#065F46;
+      --ptl-success:#1f9d55;--ptl-success-light:#D1FAE5;--ptl-success-dark:#065F46;
       --ptl-warning:#F59E0B;--ptl-warning-light:#FEF3C7;--ptl-warning-dark:#92400E;
-      --ptl-danger:#EF4444;--ptl-danger-light:#FEE2E2;--ptl-danger-dark:#991B1B;
+      --ptl-danger:#c0392b;--ptl-danger-light:#FEE2E2;--ptl-danger-dark:#991B1B;
       --ptl-orange:#F97316;--ptl-orange-light:#ffcdaaff;--ptl-orange-dark:#9A3412;
       --ptl-gray-50:#F9FAFB;--ptl-gray-100:#F3F4F6;--ptl-gray-200:#E5E7EB;--ptl-gray-300:#D1D5DB;
       --ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-600:#4B5563;--ptl-gray-700:#374151;--ptl-gray-800:#1F2937;--ptl-gray-900:#111827;

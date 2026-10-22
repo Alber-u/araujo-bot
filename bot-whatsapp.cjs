@@ -1204,7 +1204,9 @@ function mapTipoExpediente(texto) {
 function mapFinanciacion(texto) {
   const t = (texto || "").trim().toLowerCase();
   if (t === "2" || t === "2\uFE0F\u20E3" || t === "3" || t === "3\uFE0F\u20E3" || t === "4" || t === "4\uFE0F\u20E3" || t === "si" || t === "s\u00ed" || t.includes("plazos") || t.includes("interesa") || t.includes("mes")) return "si";
-  if (t === "1" || t === "1\uFE0F\u20E3" || t === "5" || t === "5\uFE0F\u20E3" || t === "no" || t.includes("una vez") || t.includes("contado") || t.includes("comunitari")) return "no";
+  // v128 (21/10/2026, criterio de Guille: "un vecino no elige FFCC de por si, sino la comunidad") -- sin opcion 5:
+  //   el FFCC lo pone Guille en la ficha. Un "5" o "comunitaria" ya no vale y se repite la pregunta.
+  if (t === "1" || t === "1\uFE0F\u20E3" || t === "no" || t.includes("una vez") || t.includes("contado")) return "no";
   return null;
 }
 // Traduce la respuesta cruda (1-4) de la pregunta de pago al plazo elegido (para pisos!AM).
@@ -1214,8 +1216,6 @@ function plazoFinanciacion(texto) {
   if (t === "2" || t === "2\uFE0F\u20E3") return "6";
   if (t === "3" || t === "3\uFE0F\u20E3") return "12";
   if (t === "4" || t === "4\uFE0F\u20E3") return "18";
-  if (t === "5" || t === "5\uFE0F\u20E3") return "FFCC";
-  if (t.includes("comunitari") || t.includes("ffcc")) return "FFCC";
   if (t.includes("18")) return "18";
   if (t.includes("12")) return "12";
   if (t.includes("6")) return "6";
@@ -1250,8 +1250,91 @@ function buildPreguntaTipo(nombre) {
   return txtPlant("flujo_pregunta_tipo", "",
     { nombre: nombre ? " " + nombre : "" });
 }
-function buildPreguntaFinanciacion() {
-  return txtPlant("flujo_pregunta_financiacion", "");
+// v128 (21/10/2026, criterio de Guille) -- la pregunta de la forma de pago con lo que le toca pagar, sacado de la foto
+//   del presupuesto Plan 5 cerrado de su comunidad (plan5_toma_datos, datos_json.snapshot.cuadro: comunero, fin6,
+//   fin12, fin18). Marcas de la plantilla (las pone Guille donde quiera): {pago_1} " (unos 1.168 €)", {pago_6},
+//   {pago_12}, {pago_18} " (unos 199 €/mes)"; sin presupuesto cerrado con importes, las marcas quedan vacias.
+let _importesP5 = null, _importesP5Ts = 0;
+async function _cargarImportesP5() {
+  if (_importesP5 && Date.now() - _importesP5Ts < 10 * 60 * 1000) return _importesP5;
+  const m = {};
+  try {
+    const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "plan5_toma_datos!A:G" })).data.values || [];
+    for (const r of rows.slice(1)) {
+      let c = null; try { c = ((JSON.parse(r[6] || "{}").snapshot) || {}).cuadro || null; } catch (e) {}
+      if (!c || !(+c.comunero > 0)) continue;
+      const dir = _nnP5(r[0]); if (!dir) continue;
+      m[dir] = { comunero: +c.comunero, fin6: +c.fin6 || 0, fin12: +c.fin12 || 0, fin18: +c.fin18 || 0 };
+    }
+    _importesP5 = m; _importesP5Ts = Date.now();
+  } catch (e) { console.error("[bot] importes Plan 5:", e.message); }
+  return _importesP5 || {};
+}
+function _nnP5(x) { return String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase(); }
+async function importesComunidad(comunidad) {
+  const m = await _cargarImportesP5(), c = _nnP5(comunidad);
+  if (!c) return null;
+  for (const dir of Object.keys(m)) { if (dir.replace(/^\S+\s+/, "") === c) return m[dir]; }   // "c malvaloca 1" -> "malvaloca 1"
+  for (const dir of Object.keys(m)) { if (dir === c || dir.endsWith(" " + c)) return m[dir]; }
+  return null;
+}
+function _eurosP5(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }   // 1.168
+async function buildPreguntaFinanciacion(expediente) {
+  const im = expediente ? await importesComunidad(expediente.comunidad) : null;
+  const u = (n) => (im && n > 0) ? " (unos " + _eurosP5(n) + " \u20AC/mes)" : "";
+  // v128 (criterio de Guille: "la cantidad al contado es la que es: no pongas unos, solo en las financiadas")
+  const c = (im && im.comunero > 0) ? " (" + _eurosP5(im.comunero) + " \u20AC)" : "";   // sin centimos (Guille)
+  return txtPlant("flujo_pregunta_financiacion", "", im
+    ? { pago_1: c, pago_6: u(im.fin6), pago_12: u(im.fin12), pago_18: u(im.fin18) }
+    : { pago_1: "", pago_6: "", pago_12: "", pago_18: "" });
+}
+// Forma de pago ya puesta en la ficha del piso (pisos col AM): 6, 12, 18, FFCC, IPREM; "" = contado (como siempre).
+async function formaPagoDelPiso(telefono) {
+  try {
+    const telNorm = normalizarTelefono(telefono);
+    const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AM" })).data.values || [];
+    for (let i = 1; i < rows.length; i++) {
+      if (normalizarTelefono((rows[i] || [])[0] || "") !== telNorm) continue;
+      const v = String((rows[i] || [])[38] || "").trim().toUpperCase();
+      return ["6", "12", "18", "FFCC", "IPREM"].includes(v) ? v : "";
+    }
+  } catch (e) { console.error("[bot] forma de pago del piso:", e.message); }
+  return "";
+}
+// v128 (criterio de Guille: "si ya sabemos la forma de pago no hay que preguntar ni pedir nada") -- donde el bot iba
+//   a hacer la pregunta de la forma de pago: si la ficha ya la tiene (FFCC o IPREM puestos por Guille, o 6/12/18), no
+//   pregunta: FFCC / IPREM -> cierra; 6/12/18 -> pide los papeles de la financiacion que falten. Vacio es contado
+//   (como siempre, criterio de Guille 21/10/2026): la primera vez se pregunta; con la ficha REABIERTA (ya contesto
+//   antes) se da por contado y cierra sin volver a preguntar. Devuelve el texto y guarda el paso.
+async function _fichaReabierta(telefono) {
+  try {
+    const telNorm = normalizarTelefono(telefono);
+    const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:AB" })).data.values || [];
+    return rows.some((r, i) => i > 0 && r && normalizarTelefono(r[0] || "") === telNorm && /^REABIERTA/i.test(String(r[27] || "").trim()));
+  } catch (e) { return false; }
+}
+async function preguntaOFinFinanciacion(expediente, telefono) {
+  const fp = await formaPagoDelPiso(telefono || expediente.telefono);
+  if (!fp && !(await _fichaReabierta(telefono || expediente.telefono))) return buildPreguntaFinanciacion(expediente);
+  if (fp === "6" || fp === "12" || fp === "18") {
+    expediente.paso_actual = "recogida_financiacion";
+    expediente = await resolverEstadoConversacional(expediente);
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    await recalcularYActualizarTodo(expediente);
+    if (expediente.paso_actual === "recogida_financiacion" && expediente.documento_actual)
+      return txtPlant("flujo_estudiar_financiacion", "", { siguiente: getPromptPasoActual(expediente), persona: "pagador" });
+  } else {
+    expediente.paso_actual = "finalizado";
+    expediente.documento_actual = "";
+    expediente.estado_expediente = "documentacion_base_completa";
+    expediente.documentos_completos = "SI";
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    await recalcularYActualizarTodo(expediente);
+  }
+  notificarEquipo("expediente_completo", { nombre: expediente.nombre, comunidad: expediente.comunidad,
+    vivienda: expediente.vivienda, telefono: telefono || expediente.telefono, tipo: expediente.tipo_expediente }).catch(() => {});
+  console.log("[bot] forma de pago ya en la ficha (" + (fp || "contado") + "): sin preguntar", expediente.comunidad, expediente.vivienda, "->", expediente.paso_actual);
+  return txtPlant("flujo_base_completo", "");
 }
 
 // ================= IA TEXTO =================
@@ -1701,7 +1784,8 @@ app.get("/media-tmp/:id/:nombre", (req, res) => {
   const m = _mediaTmp.get(String(req.params.id || ""));
   if (!m || m.exp < Date.now()) return res.status(404).send("No encontrado");
   res.setHeader("Content-Type", m.mime);
-  res.setHeader("Content-Disposition", "inline; filename=\"" + String(m.nombre).replace(/[^\w.\-]+/g, "_") + "\"");
+  // v128: el nombre real (con espacios y acentos), que es el que ensena WhatsApp
+  res.setHeader("Content-Disposition", "inline; filename=\"" + String(m.nombre).replace(/[^\w.\-]+/g, "_") + "\"; filename*=UTF-8''" + encodeURIComponent(String(m.nombre)));
   res.send(m.buf);
 });
 // Fecha (ISO) del ultimo mensaje que el vecino escribio al bot ("" si nunca). v127: lo usa tambien programarEnvio.
@@ -1729,7 +1813,7 @@ async function responderVecino(telefono, texto, archivo) {
       if (!buf.length) return { ok: false, error: "el archivo est\u00e1 vac\u00edo" };
       if (buf.length > 10 * 1024 * 1024) return { ok: false, error: "el archivo pasa de 10 MB" };
       _mNom = String(archivo.nombre || ("archivo." + _MIME_OK[mime])).trim();
-      const nomUrl = _mNom.replace(/[^\w.\-]+/g, "_") || ("archivo." + _MIME_OK[mime]);
+      const nomUrl = _mNom.replace(/[\\/?#%]+/g, "-").trim() || ("archivo." + _MIME_OK[mime]);   // v128: con espacios y acentos (lo ensena WhatsApp)
       _mUrl = base + "/media-tmp/" + _guardarMediaTmp(_mNom, mime, buf) + "/" + encodeURIComponent(nomUrl);
     }
   }
@@ -1761,6 +1845,37 @@ async function enviarAvisoM(telefono, clave, v) {
   try { await guardarContacto(tel, "aviso_m:" + clave, "bot", resumen); } catch (e) {}
   try { await guardarAviso(tel, clave, "enviado"); } catch (e) {}
   return { ok: true };
+}
+// v128 (21/10/2026, criterio de Guille: "un mensaje para cuando queremos ponernos en contacto con un vecino") --
+//   plantilla Twilio "plan5_contacto" (Utility; {{1}} nombre, {{2}} vivienda "C Malvaloca 1 (1D)"): pasadas las 24 h,
+//   Guille le pide que responda HOLA. El codigo HX vive SOLO en bot_plantillas (se pega en Flujo bot).
+//   Lo siguiente que ESCRIBA el vecino no lo contesta el bot: va a Guille (Pide ayuda) -- ver _contactoPendiente.
+async function pedirContacto(telefono, v) {
+  v = v || {};
+  await cargarPlantillas(true);
+  const sid = sidPlant("plan5_contacto", null);
+  if (!sid) return { ok: false, error: "falta el c\u00f3digo Twilio de la plantilla plan5_contacto (Flujo bot) o est\u00e1 desactivada" };
+  const tel = _telE164(telefono);
+  if (!tel) return { ok: false, error: "falta el telefono" };
+  const r = (x, def) => { x = String(x == null ? "" : x).replace(/\s+/g, " ").trim(); return x || def; };
+  const _esp = await enviarWhatsAppPlantilla(tel, sid, { 1: r(v.nombre, "vecino/a"), 2: r(v.vivienda, "-") });
+  try { await guardarContacto(tel, "contacto_pedido", "bot", _conEspejo("Pedir contacto (plantilla plan5_contacto)", _esp, "Pedir contacto (plantilla plan5_contacto)")); } catch (e) {}
+  return { ok: true };
+}
+// true si al vecino se le pidio contacto y aun no ha escrito nada despues (7 dias como mucho)
+async function _contactoPendiente(telefono) {
+  try {
+    const k = String(telefono || "").replace(/\D/g, "").slice(-9);
+    const rows = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:D" })).data.values || []).slice(1);
+    let tPed = "", tVec = "";
+    for (const f of rows) {
+      if (!f || String(f[1] || "").replace(/\D/g, "").slice(-9) !== k) continue;
+      const ts = String(f[0] || "");
+      if (String(f[2] || "").trim() === "contacto_pedido") { if (ts > tPed) tPed = ts; }
+      else if (/^(texto|archivo)(_fase08|_fuera)?$/.test(String(f[3] || "").trim()) && ts > tVec) tVec = ts;
+    }
+    return !!tPed && tPed > tVec && (Date.now() - new Date(tPed).getTime()) < 7 * 24 * 3600 * 1000;
+  } catch (e) { return false; }
 }
 // v126 (18/10/2026, criterio de Guille: "quiero poder cambiar yo el tipo y que se actualice lo que necesita") --
 //   Guille cambia el tipo del piso en la ficha (desplegable del acordeon) y, si el vecino tiene ficha del bot, el
@@ -2805,6 +2920,7 @@ async function manejarMensajeWhatsApp(req, res) {
     return (
       await handlePreguntaTipo(ctx) ||
       await handleListoDocumentoLargo(ctx) ||
+      await handleTextoLibreVecino(ctx) ||   // v128: preguntas -> Pide ayuda y el bot espera
       await handleTextoRecogidaDocumentacion(ctx) ||
       await handlePreguntaFinanciacion(ctx) ||
       await handleTextoFinanciacion(ctx) ||
@@ -2911,6 +3027,9 @@ async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, d
 //   y, si no contesta, el bot lo da por terminado solo a los 15 minutos de la ultima pagina
 //   (temporizador en memoria + repaso en el job de cada hora, por si el servidor se reinicia).
 const _RESP_FIN_PAGINAS = ["listo", "1", "1\ufe0f\u20e3", "si", "s\u00ed", "ya", "ok", "vale", "ya esta", "ya est\u00e1", "estan todas", "est\u00e1n todas", "todas", "terminado", "fin"];
+function _txtLargoSinPaginas(doc) {   // v128
+  return txtPlant("flujo_largo_sin_paginas", "Todav\u00eda no nos ha llegado ninguna p\u00e1gina de: *{documento}*.\n\nEnv\u00edela primero por aqu\u00ed (foto o PDF) y, cuando haya mandado todas, responda *1*.\nSi no lo tiene, escr\u00edbanoslo y lo vemos.", { documento: labelDocumento(doc) });
+}
 function esFinDePaginas(msg, documentoActual) {
   const t = String(msg || "").trim().toLowerCase().replace(/[.!]+$/, "");
   if (t === "listo") return true;
@@ -2972,9 +3091,99 @@ async function cerrarDocumentoLargo(telefono, expediente) {
         return { texto: txtPlant("flujo_documento_completo", "") + "\n\n" + (promptSigListo || "") };
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
-        return { texto: txtPlant("flujo_documento_completo", "") + "\n\n" + buildPreguntaFinanciacion() };
+        return { texto: txtPlant("flujo_documento_completo", "") + "\n\n" + (await preguntaOFinFinanciacion(expediente, telefono)) };
       }
       return { texto: txtPlant("flujo_documento_completo", "") };
+}
+
+// v128 (22/10/2026, criterio de Guille: "si alguien pregunta algo, que el bot pida ayuda y se pare... la gente
+//   quiere respuestas antes de seguir") -- con la IA dormida, TODO texto con contenido llega a "Pide ayuda" (antes se
+//   perdian los escritos durante un documento de varias paginas, en la forma de pago, tras un tiempo callado, al
+//   decir "ya lo mande" o con la ficha cerrada: el bot repetia su mensaje y nadie se enteraba). Tres clases:
+//   - corto ("ok", "1", "gracias", saludos): como siempre (o silencio si el bot esta esperando a Guille);
+//   - pregunta o queja: "Gracias por su mensaje. Lo vemos..." (flujo_pregunta_espera) y el bot SE PARA: no le
+//     repite nada ni le manda recordatorios hasta que Guille conteste (Pide ayuda revisado) o el vecino siga solo
+//     (manda un archivo o contesta lo que se le pregunta). Marca en bot_expedientes col AD: "PREGUNTA <fecha>";
+//   - aviso ("mañana lo mando"): "De acuerdo, gracias..." (flujo_aviso_vecino), sin pararse.
+//   Lo que si es la respuesta del paso (forma de pago, saltar un opcional, "1" de las paginas) sigue su camino.
+const _RE_PREGUNTA_VECINO = new RegExp("(?:^|[^\\p{L}])(qué|cómo|cuándo|cuánt[oa]s?|cuál(es)?|dónde|quién(es)?|por ?qu[eé]|puedo|pueden|puede|podr[ií]a[ns]?|necesit\\p{L}*|hace falta|tengo que|hay que|no entiendo|no s[eé]|duda\\p{L}*|ayuda|hablar|persona|llam\\p{L}*|tel[eé]fono|ya (te |os |se |lo |la |los |las )*(he |hemos )?(mand|envi|entreg|adjunt|aport|pas)\\p{L}*|otra vez|de nuevo|funciona|error|equivoc\\p{L}*|reiniciar|empezar|cancelar|no tengo|no puedo|revis\\p{L}*|correcto|correo|email|mail|pregunta\\p{L}*|respond\\p{L}*|tendr[i\u00ed]a(mos)? que|deb[eo]|deber[i\u00ed]a\\p{L}*|no (he|hemos) recibido|no soy)(?![\\p{L}])", "iu");
+// sin tilde ("que", "como", "cuando"...) solo cuenta como pregunta al principio del mensaje: en medio suele ser otra cosa ("asi que", "cuando lo tenga")
+const _RE_PREGUNTA_INICIO = /^\s*(y\s+)?(que|como|cuando|cuant[oa]s?|cual(es)?|donde|quien(es)?)(?![\p{L}])/iu;
+function clasificarTextoVecino(texto) {
+  const t = String(texto || "").replace(/\s+/g, " ").trim();
+  if (/[?\u00bf]/.test(t)) return "pregunta";   // tambien "??" (caso Ardilla 9 1-19)
+  const letras = t.replace(/[^\p{L}\p{N}]/gu, "");
+  if (letras.length < 3 || esMensajeAmbiguo(t)) return "corto";
+  if (/^(ok|okey|okay|vale|si|sí|no|perfecto|bien|claro|entendido|recibido|de acuerdo|hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|gracias|muchas gracias|mil gracias|ok gracias|vale gracias|listo|hecho|enviado|genial|estupendo)[\s.!,\p{Extended_Pictographic}️]*$/iu.test(t)) return "corto";
+  if (_RE_PREGUNTA_VECINO.test(t) || _RE_PREGUNTA_INICIO.test(t)) return "pregunta";
+  return "aviso";
+}
+function _esRespuestaDelPaso(msgOriginal, msg, expediente) {
+  const p = expediente.paso_actual, d = expediente.documento_actual;
+  if (p === "pregunta_financiacion") return !!mapFinanciacion(msg) && !/[?¿]/.test(String(msgOriginal || ""));
+  if (p === "recogida_documentacion" && d && esDocumentoOpcional(expediente.tipo_expediente, d) && esIntencionSaltarOpcional(String(msgOriginal || "").trim().toLowerCase())) return true;
+  if ((p === "recogida_documentacion" || p === "recogida_financiacion") && d && esFinDePaginas(msg, d)) return true;
+  return false;
+}
+// Marca de "el bot espera a Guille" (col AD) y su "Pide ayuda" (AC texto, AE revisado)
+async function _leerPausaBot(rowIndex) {
+  try {
+    const v = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AC" + rowIndex + ":AE" + rowIndex })).data.values || [[]])[0] || [];
+    const marca = String(v[1] || "").trim();
+    const m = marca.match(/^PREGUNTA\s+(\S+)/);
+    return { marca, pausado: !!m && String(v[2] || "").trim() !== "1", desde: m ? m[1] : "" };
+  } catch (e) { return { marca: "", pausado: false, desde: "" }; }
+}
+async function _ponerPausaBot(rowIndex, valor) {
+  try { await getSheetsClient().spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AD" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[valor]] } }); }
+  catch (e) { console.error("[bot] pausa por pregunta:", e.message); }
+}
+async function responderSinMensaje(res, telefono, mensajeCliente) {
+  try { await guardarContacto(telefono, mensajeCliente, "texto", ""); } catch (e) {}
+  if (!res) return "";
+  return res.type("text/xml").send(new twilio.twiml.MessagingResponse().toString());
+}
+async function handleTextoLibreVecino({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
+  if (iaActiva()) return;   // con la IA despierta manda ella (como antes)
+  if (!expediente || !expediente.rowIndex) return;
+  const _PASOS = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion", "finalizado"];
+  if (!_PASOS.includes(expediente.paso_actual)) return;
+  if (numMedia > 0) {   // sigue por su cuenta: el bot deja de esperar
+    const pz = await _leerPausaBot(expediente.rowIndex);
+    if (pz.marca) await _ponerPausaBot(expediente.rowIndex, "");
+    return;
+  }
+  const t = String(msgOriginal || "").trim();
+  if (!t) return;
+  const pz = await _leerPausaBot(expediente.rowIndex);
+  if (pz.marca && !pz.pausado) { await _ponerPausaBot(expediente.rowIndex, ""); pz.marca = ""; }   // ya contestada por Guille
+  if (_esRespuestaDelPaso(msgOriginal, msg, expediente)) { if (pz.marca) await _ponerPausaBot(expediente.rowIndex, ""); return; }
+  const clase = clasificarTextoVecino(t);
+  if (clase === "corto") {
+    if (!pz.pausado && esMensajeAmbiguo(t)) return;   // como siempre ("ok", "1", saludos)
+    if (!pz.pausado) return responderSinMensaje(res, telefono, t);   // "muchas gracias", "ok gracias"...: no hace falta contestar
+    return responderSinMensaje(res, telefono, t);   // espera a Guille: no le insiste
+  }
+  // pregunta o aviso: lo lee Guille
+  try {
+    marcarAtencionHumana(telefono, t).catch(() => {});
+    notificarEquipo("atencion_humana", { nombre: expediente.nombre, comunidad: expediente.comunidad, vivienda: expediente.vivienda,
+      telefono, mensaje: t.slice(0, 100), motivo: clase === "pregunta" ? "pregunta del vecino (el bot espera)" : "aviso del vecino" }).catch(() => {});
+  } catch (e) {}
+  // el vecino ha vuelto: se limpia el "dormido" por inactividad, como hacia el aviso de vuelta
+  try {
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    if (expediente.alerta_plazo === "recordatorio_24h" || expediente.alerta_plazo === "recordatorio_72h") expediente.alerta_plazo = "";
+    await actualizarExpediente(expediente.rowIndex, expediente);
+  } catch (e) {}
+  if (clase === "pregunta" || pz.pausado) {
+    // ya contestado hace poco con lo mismo (varios mensajes seguidos): silencio
+    const reciente = pz.pausado && pz.desde && (Date.now() - new Date(pz.desde).getTime()) < 30 * 60 * 1000;
+    await _ponerPausaBot(expediente.rowIndex, "PREGUNTA " + (reciente ? pz.desde : ahoraISO()));
+    if (reciente) return responderSinMensaje(res, telefono, t);
+    if (clase === "pregunta") return responderYLog(res, telefono, t, "texto", txtPlant("flujo_pregunta_espera", "Gracias por su mensaje. Lo vemos y le contestamos lo antes posible."));
+  }
+  return responderYLog(res, telefono, t, "texto", txtPlant("flujo_aviso_vecino", "De acuerdo, gracias por avisarnos. Cuando lo tenga, envíenoslo por aquí."));
 }
 
 async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
@@ -2983,9 +3192,7 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
       const hayArchivo = await existeArchivoParaDocumento(telefono, expediente.documento_actual);
       if (!hayArchivo) {
         if (String(msg || "").trim().toLowerCase() !== "listo") return undefined;   // v19.118: "1", "si"... sin paginas -> sigue el flujo normal
-        return responderYLog(res, telefono, msgOriginal, "texto",
-          "Todavia no hemos recibido ningun archivo para este documento.\n\n" +
-          "Primero envialo por aqui y cuando hayas mandado todas las paginas, responde 1.");
+        return responderYLog(res, telefono, msgOriginal, "texto", _txtLargoSinPaginas(expediente.documento_actual));
       }
       const _k = normalizarTelefono(telefono); if (_timersPaginas[_k]) { clearTimeout(_timersPaginas[_k]); delete _timersPaginas[_k]; }
       const r = await cerrarDocumentoLargo(telefono, expediente);
@@ -3239,7 +3446,7 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente, com
     const reglas = REQUIRED_DOCS[tipoExpediente] || { obligatorios: [], opcionales: [] };
     const docsDelFlujo = new Set([...(reglas.obligatorios || []), ...(reglas.opcionales || [])]);
 
-    // Politica: ultimo estado manda, manual gana sobre automatico
+    // Politica (v128): manda lo mas reciente; una marca manual OK/vacio no la cambia lo que llegue despues por el bot
     const ORIGENES_MANUALES_REC = ["validacion_manual", "rechazo_manual", "manual"];   // v19.114: "manual" = marca de la ficha (v19.112)
     const estadoPorTipoRec = {};
     for (let i = 1; i < rows.length; i++) {
@@ -3261,19 +3468,24 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente, com
         : (docsDelFlujo.has(tipoDoc) ? [tipoDoc] : []);
       if (!objetivos.length) continue;
       const esManual = ORIGENES_MANUALES_REC.includes(origen);
+      // v128 (21/10/2026, criterio de Guille: "lo marque como F para que se lo volviese a pedir, pero no eternamente")
+      //   -- manda lo MAS RECIENTE (fecha, col F), como en la pastilla de la ficha: si Guille lo puso en F y despues el
+      //   vecino lo manda, vale lo nuevo (REVISAR) y no se le vuelve a pedir. Lo que Guille da por bueno a mano (OK o
+      //   vacio) no lo cambia nada que llegue despues por el bot.
+      const ts = String(row[5] || "");
       for (const tipoObjetivo of objetivos) {
         const previo = estadoPorTipoRec[tipoObjetivo];
-        const actualizar = !previo
-          || (esManual && !previo.esManual)
-          || (esManual && previo.esManual && i > previo.fila)
-          || (!esManual && !previo.esManual && i > previo.fila);
-        if (actualizar) estadoPorTipoRec[tipoObjetivo] = { estado, esManual, fila: i };
+        const previoFinal = previo && previo.esManual && /^(OK|VACIO)$/i.test(String(previo.estado || "").trim());
+        const masNuevo = previo && (ts > previo.ts || (ts === previo.ts && i > previo.fila));
+        const actualizar = !previo || (masNuevo && !(previoFinal && !esManual));
+        if (actualizar) estadoPorTipoRec[tipoObjetivo] = { estado, esManual, fila: i, ts };
       }
     }
     // Solo cuentan como recibidos los que tienen estado OK o REVISAR vigente
     const recibidos = new Set();
-    for (const [tipo, { estado }] of Object.entries(estadoPorTipoRec)) {
+    for (const [tipo, { estado, esManual }] of Object.entries(estadoPorTipoRec)) {
       if (estado === "OK" || estado === "REVISAR") recibidos.add(tipo);
+      else if (esManual && String(estado).toUpperCase() === "VACIO") recibidos.add(tipo);   // v128: vacio puesto por Guille = no se le pide
     }
     return Array.from(recibidos);
   } catch (e) {
@@ -3327,6 +3539,12 @@ function esIntencionSaltarOpcional(texto) {
     /^continua\s+sin\s+eso$/i,
     /^seguir\s+sin\s+eso$/i,
     /^mejor\s+sin\s+eso$/i,
+    // v128 (casos Ardilla 9 1-17 y 0-7): el padron, dicho de otras formas
+    /empadronamiento\s*:?\s*no\b/i,
+    /no\s+(estoy|estamos|est[aá]|est[aá]n)\s+empadronad/i,
+    /no\s+(vivo|vivimos|vive|viven|resido|residimos|reside)\s+(all[ií]|ah[ií]|aqu[ií]|en\s+(el|la|ese|esa|este|esta)\s+(piso|vivienda|casa))/i,
+    /(apartamento|vivienda|piso)\s+(vacacional|tur[ií]stic)/i,
+    /no\s+tengo\s+(el\s+)?(padr[oó]n|empadronamiento|certificado\s+de\s+empadronamiento)/i,
   ];
   return patrones.some((p) => p.test(t));
 }
@@ -3334,6 +3552,23 @@ function esIntencionSaltarOpcional(texto) {
 async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
     // ================= TEXTO DURANTE RECOGIDA DOCUMENTACION =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion") {
+      // v128 (21/10/2026, criterio de Guille: "se lo pidio eternamente") -- antes de contestar, recalcula lo que le
+      //   falta con lo que hay ahora (marcas de Guille en la ficha y lo que ya mando): asi no se le pide un documento
+      //   que ya entrego o que Guille dio por bueno. (Un documento de varias paginas a medias no se toca.)
+      try {
+        const _largoAMedias = DOCS_LARGOS.includes(expediente.documento_actual) && await existeArchivoParaDocumento(telefono, expediente.documento_actual);
+        if (!_largoAMedias) {
+          const _rowIx = expediente.rowIndex, _docAntes = expediente.documento_actual;
+          const _re = await resolverEstadoConversacional(Object.assign({}, expediente));
+          if (_re.paso_actual === "recogida_documentacion" && _re.documento_actual && _re.documento_actual !== _docAntes) {
+            _re.rowIndex = _rowIx; expediente = _re; await recalcularYActualizarTodo(expediente);
+            console.log("[bot] documento actual recalculado:", telefono, _docAntes, "->", expediente.documento_actual);
+          } else if (_re.paso_actual === "pregunta_financiacion") {
+            _re.rowIndex = _rowIx; expediente = _re; await recalcularYActualizarTodo(expediente);
+            return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", await preguntaOFinFinanciacion(expediente, telefono));
+          }
+        }
+      } catch (eRe) { console.error("[bot] recalcular antes de contestar:", eRe.message); }
       const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
       if (mensajePlazo) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", mensajePlazo);
 
@@ -3354,13 +3589,17 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
         }
         if (expediente.paso_actual === "pregunta_financiacion") {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_sin_opcional", "") + "\n\n" + buildPreguntaFinanciacion());
+            txtPlant("flujo_sin_opcional", "") + "\n\n" + (await preguntaOFinFinanciacion(expediente, telefono)));
         }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
           txtPlant("flujo_sin_opcional", ""));
       }
 
       if (DOCS_LARGOS.includes(expediente.documento_actual)) {
+        // v128 (caso Malvaloca 1 1D): "1" sin haber mandado ninguna pagina -> se le dice claro (antes, el mismo
+        //   "Envia ..." en bucle)
+        if (esFinDePaginas(msg, expediente.documento_actual) && !(await existeArchivoParaDocumento(telefono, expediente.documento_actual)))
+          return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", _txtLargoSinPaginas(expediente.documento_actual));
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
           txtPlant("flujo_seguimos_largo", "", { documento: labelDocumento(expediente.documento_actual) }));
       }
@@ -3382,7 +3621,7 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
     // ================= PREGUNTA FINANCIACION =================
     if (numMedia === 0 && expediente.paso_actual === "pregunta_financiacion") {
       const respuestaFin = mapFinanciacion(msg);
-      if (!respuestaFin) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaFinanciacion());
+      if (!respuestaFin) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", await preguntaOFinFinanciacion(expediente, telefono));
 
       await guardarFinanciacionEnPiso(telefono, plazoFinanciacion(msg));
 
@@ -3565,7 +3804,7 @@ async function handleArchivos(ctx) {
           }
           if (expediente.paso_actual === "pregunta_financiacion") {
             return responderYLog(res, telefono, "archivo", "archivo",
-              msgReintentoBase + "\n\n" + buildPreguntaFinanciacion());
+              msgReintentoBase + "\n\n" + (await preguntaOFinFinanciacion(expediente, telefono)));
           }
           // Detectar si el vecino necesita atencion humana
       if (msgOriginal && msgOriginal.trim().length > 3) {
@@ -3730,7 +3969,7 @@ async function handleArchivos(ctx) {
         expediente.estado_expediente = "documentacion_base_completa";
         await recalcularYActualizarTodo(expediente);
         return responderYLog(res, telefono, "archivo", "archivo",
-          mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, buildPreguntaFinanciacion(), fallosDocActual || 0, documentoAValidar));
+          mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, await preguntaOFinFinanciacion(expediente, telefono), fallosDocActual || 0, documentoAValidar));
       }
 
       // DOCUMENTO LARGO EN FOTOS — recibe foto, no avanza hasta LISTO
@@ -3849,7 +4088,7 @@ async function handleArchivos(ctx) {
           // no es el cierre real. Se avisa en los dos finales verdaderos: al decir
           // NO a financiar, o al completar los documentos de financiacion.
           return responderYLog(res, telefono, "archivo", "archivo",
-            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, buildPreguntaFinanciacion(), fallosDocActual || 0, tipoDocAceptado));
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, await preguntaOFinFinanciacion(expediente, telefono), fallosDocActual || 0, tipoDocAceptado));
         }
         return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
       }
@@ -3952,7 +4191,7 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
           txtPlant("flujo_falta_enviar", "", { documento: docActualLabel }));
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
-        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaFinanciacion());
+        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", await preguntaOFinFinanciacion(expediente, telefono));
       }
       if (expediente.paso_actual === "finalizado") {
         const textoFinal = (msgOriginal || "").trim().toLowerCase();
@@ -4031,6 +4270,7 @@ async function manejarMensajeWhatsAppBackground(req) {
   if (!expediente) { await crearExpedienteInicial(telefono, datosVecino); expediente = await buscarExpedientePorTelefono(telefono); }
   // ctx sin res — los handlers usan responderYLog(null,...) en modo background
   const ctx = { req, res: null, telefono, msgOriginal, msg, numMedia, datosVecino, expediente };
+  try { await handleTextoLibreVecino(ctx); } catch (e) {}   // v128: manda un archivo = sigue por su cuenta, el bot deja de esperar
   const respuesta = await handleArchivos(ctx);
   return respuesta || "Hemos recibido tu documento y lo estamos revisando.";
 }
@@ -4109,7 +4349,7 @@ app.get("/enviar-presentacion", async (req, res) => {
     const sheets = getSheetsClient();
     // 1) pisos (A=tel, B=comunidad, C=vivienda, E=nombre, AV idx47=bot_piso_activo)
     const resPisos = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AV",
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AW",
     });
     const pisos = resPisos.data.values || [];
     // 2) fase por comunidad (comunidades B idx1=direccion, P idx15=fase_presupuesto)
@@ -4148,7 +4388,7 @@ app.get("/enviar-presentacion", async (req, res) => {
 
       try {
         const _espP = await enviarWhatsAppPlantilla(telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
-          "1": limpiarNombreVecino(nombreDeNota(row[3]) || nombre),   // v19.98: nombre sin anotaciones; v127: el de la Nota simple
+          "1": limpiarNombreVecino(nombreParaPiso(row[3], nombre, row[48])),   // v128: familiar -> el de arriba   // v19.98: nombre sin anotaciones; v127: el de la Nota simple
         });
         // Crear la ficha del vecino en bot_whatsapp: marca implícita de "presentado"
         // y arranque del expediente. Evita reenvíos en próximas tandas.
@@ -4236,6 +4476,20 @@ app.post("/whatsapp", async (req, res) => {
     return res.type("text/xml").send(twimlErr.toString());
   }
 
+  // v128 -- respuesta a "Pedir contacto" (plan5_contacto): el bot NO la contesta ni la interpreta (un "si" en la
+  //   forma de pago seria "quiero financiar"); se guarda (abre las 24 h) y va a Guille como Pide ayuda en HOY.
+  if (numMedia === 0) {
+    try {
+      if (await _contactoPendiente(telefonoKey)) {
+        marcarProcesado(messageSid);
+        const _bc = String(req.body.Body || "").trim();
+        await guardarContacto(telefonoKey, _bc, "texto", "");
+        try { await marcarAtencionHumana(telefonoKey, _bc || "(respuesta a Pedir contacto)"); } catch (eA) {}
+        console.log("Respuesta a Pedir contacto (a Guille, sin contestar):", telefonoKey);
+        return res.type("text/xml").send(new twilio.twiml.MessagingResponse().toString());
+      }
+    } catch (eC) { console.error("Pedir contacto: comprobando respuesta:", eC.message); }
+  }
   // TEXTOS: procesar sincrono.
   // Suelen ser mas ligeros que archivos, aunque algunos pasan por IA de texto.
   if (numMedia === 0) {
@@ -4365,14 +4619,24 @@ function nombreDeNota(nota) {
   if (n.length < 3 || /^(mismo|misma|piso|pte|pendiente|sin|ver|no )/i.test(n)) return "";
   return n;
 }
+// v128 (criterio de Guille) -- tipo FAMILIAR (usufructo): el nombre de arriba; los demas (inquilino incluido), el de la
+//   Nota simple; sin Nota simple, el de arriba.
+function nombreParaPiso(nota, nombre, tipo) {
+  const nb = String(nombre || "").trim();
+  if (String(tipo || "").trim().toLowerCase() === "familiar" && nb) return nb;
+  return nombreDeNota(nota) || nb;
+}
 let _cacheNombreDirigido = { t: 0, m: {} };
 async function nombreDirigido(comunidad, vivienda, fallback) {
   const k = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
   try {
     if (Date.now() - _cacheNombreDirigido.t > 5 * 60 * 1000) {
-      const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:E" })).data.values || [];
+      const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AW" })).data.values || [];
+      // tipo del piso: el de la ficha (pisos col AW) y, si esta vacio, el de la ficha del bot (bot_expedientes col E)
+      const tb = {};
+      try { for (const e of ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:E" })).data.values || []).slice(1)) { if (e && e[1] && e[2]) tb[k(e[1]) + "|" + k(e[2])] = e[4]; } } catch (eT) {}
       const m = {};
-      for (const r of rows.slice(1)) { if (r && r[1] && r[2]) m[k(r[1]) + "|" + k(r[2])] = nombreDeNota(r[3]) || String(r[4] || "").trim(); }
+      for (const r of rows.slice(1)) { if (r && r[1] && r[2]) { const kk = k(r[1]) + "|" + k(r[2]); m[kk] = nombreParaPiso(r[3], r[4], String(r[48] || "").trim() || tb[kk]); } }
       _cacheNombreDirigido = { t: Date.now(), m };
     }
     return _cacheNombreDirigido.m[k(comunidad) + "|" + k(vivienda)] || String(fallback || "");
@@ -4876,6 +5140,12 @@ async function ejecutarJobSeguimiento() {
     // callado por el horario = repaso bien hecho (si no, HOY avisaba "el repaso automatico no ha terminado")
     if (!_hJob.dentro) { console.log("Job seguimiento: fuera del horario de comunicaciones (" + _horarioMod.textoHorario(horarioBot()) + "); proxima apertura " + (_hJob.texto || "?")); _saludBot.jobOk = Date.now(); _saludBot.jobErr = ""; return; }
     const expedientes = await leerTodosExpedientes();
+    // v128 -- vecinos con una pregunta sin contestar (bot_expedientes AD = "PREGUNTA ..." y AE sin revisar): sin recordatorios
+    const _esperan = new Set();
+    try {
+      const _ax = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:AE" })).data.values || [];
+      for (let i = 1; i < _ax.length; i++) { const x = _ax[i]; if (x && x[0] && /^PREGUNTA\s/.test(String(x[29] || "").trim()) && String(x[30] || "").trim() !== "1") _esperan.add(normalizarTelefono(x[0])); }
+    } catch (e) { console.error("Job: leer pausas:", e.message); }
 
     for (let expediente of expedientes) {
       // (#1) RECORDATORIO DE PRESENTACION: el vecino recibio la presentacion y no respondio (sigue en pregunta_tipo).
@@ -4909,6 +5179,7 @@ async function ejecutarJobSeguimiento() {
       // Solo expedientes activos con documentos pendientes
       const pasosActivos = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion"];
       if (!pasosActivos.includes(expediente.paso_actual)) { omitidos++; continue; }
+      if (_esperan.has(normalizarTelefono(expediente.telefono))) { omitidos++; continue; }   // v128: espera a Guille
       if (!splitList(expediente.documentos_pendientes).length) { omitidos++; continue; }
       if (!expediente.telefono) { omitidos++; continue; }
 
@@ -4974,7 +5245,7 @@ function horarioBot() {
   const v = (k) => (_plantillasCache && _plantillasCache[k]) ? _plantillasCache[k].texto : "";
   return _horarioMod.normalizarHorario(v("horario_dias"), v("horario_inicio"), v("horario_fin"));
 }
-const _FN_PROGRAMABLES = ["enviarAvisoM", "responderVecino", "enviarPresentacionPiso", "enviarContratoPiso", "avisarCambioTipo"];
+const _FN_PROGRAMABLES = ["enviarAvisoM", "responderVecino", "enviarPresentacionPiso", "enviarContratoPiso", "avisarCambioTipo", "pedirContacto"];
 async function _asegurarHojaProgramados() {
   const sheets = getSheetsClient();
   let existe = false;
@@ -5056,6 +5327,7 @@ setTimeout(() => {
     reabrirSiFinalizado,   // v19.114
     responderVecino,       // v122
     enviarAvisoM,          // v126
+    pedirContacto,         // v128
     programarEnvio,        // v127: envios de Guille fuera del horario, programados
     enviarOProgramar,      // v127
     horarioBot,            // v127
