@@ -11389,6 +11389,29 @@ module.exports = function (app) {
     }
   });
 
+  // v137 (23/10/2026, repaso de integridad) -- LIMPIEZA DEL ULTIMATUM DE 05 AL PASAR A 08, en un solo sitio.
+  //   Antes solo la hacia /avanzar, pero desde 07 el boton de avance abre la ventana del correo
+  //   08-INICIO CYCP y /enviar-mail pasaba a 08 (enviando o con "Saltar envio") SIN limpiar: las marcas
+  //   de la 05 (BL/BM/BN, sus __SKIP y __HASTA) seguian en la 08 y el cron no mandaba el 08-SEGUIMIENTO.
+  //   _limpiarUltimatum05EnMemoria toca el objeto (mails_enviados va dentro de actualizarComunidad);
+  //   _escribirLimpiezaUltimatum05 escribe BL/BM/BN celda a celda, porque actualizarComunidad no llega ahi.
+  function _limpiarUltimatum05EnMemoria(comu) {
+    comu.fecha_ultimatum_ampliado = "";
+    comu.fecha_disidentes_solicitados = "";
+    comu.fecha_contrato_resuelto = "";
+    try {
+      const _je8 = JSON.parse(comu.mails_enviados || "{}");
+      let _t8 = false;
+      ["fecha_ultimatum_ampliado__SKIP", "fecha_disidentes_solicitados__SKIP", "fecha_contrato_resuelto__SKIP", _P5_HASTA_KEY].forEach(k => { if (k in _je8) { delete _je8[k]; _t8 = true; } });
+      if (_t8) comu.mails_enviados = JSON.stringify(_je8);
+    } catch (_) {}
+  }
+  async function _escribirLimpiezaUltimatum05(comu) {
+    for (const _cU of ["fecha_ultimatum_ampliado", "fecha_disidentes_solicitados", "fecha_contrato_resuelto"]) {
+      try { await actualizarCampoComunidad(comu._rowIndex, _cU, ""); } catch (eU) { console.warn("[presupuestos] limpiar " + _cU + ":", eU.message); }
+    }
+  }
+
   // POST /presupuestos/expediente/avanzar
   app.post("/presupuestos/expediente/avanzar", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -11416,18 +11439,10 @@ module.exports = function (app) {
         // Al entrar en 08_CYCP limpiamos las fechas selladas del ultimátum (BL/BM/BN)
         // para reutilizarlas en el ultimátum de fase 08. Las de fase 05 ya no valen.
         if (fase === "07_PTE_CYCP") {
-          comu.fecha_ultimatum_ampliado = "";
-          comu.fecha_disidentes_solicitados = "";
-          comu.fecha_contrato_resuelto = "";
           // v19.33 -- ...y sus marcas de "omitido": son las mismas columnas en 05 y en
           //   08, y una prorroga no concedida en 05 no puede contar como no concedida
           //   en 08 (se puede no conceder en 05 y si conceder en 08).
-          try {
-            const _je8 = JSON.parse(comu.mails_enviados || "{}");
-            let _t8 = false;
-            ["fecha_ultimatum_ampliado__SKIP", "fecha_disidentes_solicitados__SKIP", "fecha_contrato_resuelto__SKIP", _P5_HASTA_KEY].forEach(k => { if (k in _je8) { delete _je8[k]; _t8 = true; } });
-            if (_t8) comu.mails_enviados = JSON.stringify(_je8);
-          } catch (_) {}
+          _limpiarUltimatum05EnMemoria(comu);   // v137: misma funcion que /enviar-mail
         }
         // fecha_envio_pto YA NO se rellena al entrar en 03_ENVIO_PTO: se rellena al confirmar el envío del mail
         if (def.siguiente === "04_ACEPTACION_PTO" && !comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
@@ -11435,11 +11450,7 @@ module.exports = function (app) {
         // v19.33 -- actualizarComunidad solo escribe hasta la columna BJ, y las fechas
         //   del ultimatum (BL, BM, BN) estan despues: la limpieza de arriba NUNCA llegaba
         //   al Sheet. Se escriben aqui celda a celda.
-        if (fase === "07_PTE_CYCP") {
-          for (const _cU of ["fecha_ultimatum_ampliado", "fecha_disidentes_solicitados", "fecha_contrato_resuelto"]) {
-            try { await actualizarCampoComunidad(comu._rowIndex, _cU, ""); } catch (eU) { console.warn("[presupuestos] limpiar " + _cU + ":", eU.message); }
-          }
-        }
+        if (fase === "07_PTE_CYCP") await _escribirLimpiezaUltimatum05(comu);   // v137
         // Inicializar estados manuales al ENTRAR en fase 05 o al entrar en 08_CYCP
         // (en 08 es cuando aparecen ccpp_contrato/pago y piso_contrato/pago como
         // activos en la cajita). 07_PTE_CYCP es solo una fase de espera, sin docs.
@@ -12519,6 +12530,7 @@ module.exports = function (app) {
         if (fase === "08_INICIO_CYCP" && faseActual === "07_PTE_CYCP") {
           comu.fase_presupuesto = "08_CYCP";
           if (!comu.fecha_envio_contratos_pagos) comu.fecha_envio_contratos_pagos = hoy;
+          _limpiarUltimatum05EnMemoria(comu);   // v137: antes no se limpiaba por aqui
           const enviados08 = parsearMailJson(comu.mails_enviados);
           const manuales08 = parsearMailJson(comu.mails_manuales);
           const ultimo08 = parsearMailJson(comu.mails_ultimo_envio);
@@ -12529,6 +12541,7 @@ module.exports = function (app) {
           comu.mails_manuales = JSON.stringify(manuales08);
           comu.mails_ultimo_envio = JSON.stringify(ultimo08);
           await actualizarComunidad(comu._rowIndex, comu);
+          await _escribirLimpiezaUltimatum05(comu);   // v137
           return res.json({ ok: true, skipped: true, avanzado: true });
         }
         // Cierre de fase 08 (skip): mismo cierre que el envio normal
@@ -12891,6 +12904,7 @@ module.exports = function (app) {
         const hoy = new Date().toISOString().slice(0, 10);
         comu.fase_presupuesto = "08_CYCP";
         if (!comu.fecha_envio_contratos_pagos) comu.fecha_envio_contratos_pagos = hoy;
+        _limpiarUltimatum05EnMemoria(comu);   // v137: antes no se limpiaba por aqui
         const enviados08 = parsearMailJson(comu.mails_enviados);
         const manuales08 = parsearMailJson(comu.mails_manuales);
         const ultimo08 = parsearMailJson(comu.mails_ultimo_envio);
@@ -12921,6 +12935,8 @@ module.exports = function (app) {
       if (avanzadoA05) {
         await _dispararInicializacionDocumentacion(comu, "05_DOCUMENTACION", "desde mail");
       }
+
+      if (avanzadoA08) await _escribirLimpiezaUltimatum05(comu);   // v137
 
       // Si avanzó a 08, inicializar estados manuales: marca como "F" los
       // documentos contrato y pago (CCPP y piso) que es lo que se solicita
