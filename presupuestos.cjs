@@ -7402,7 +7402,7 @@ module.exports = function (app) {
         <div id="ptlComSendModal" class="ptl-floating-wrapper">
           <div id="ptlComSendBox" class="ptl-floating-window" style="width:680px">
             <div id="ptlComSendTitle" class="ptl-floating-title">
-              <span class="ptl-floating-title-text">${ICONO_MAIL} Enviar mail manual</span>
+              <span id="ptlComStitulo" class="ptl-floating-title-text">${ICONO_MAIL} Enviar mail manual</span>
               <button type="button" id="ptlComSxclose" class="ptl-floating-close" title="Cerrar">✕</button>
             </div>
             <div class="ptl-floating-body">
@@ -7425,7 +7425,7 @@ module.exports = function (app) {
               </div>
               ${_respTipo.length ? `<div>
                 <label class="ptl-form-label">Insertar respuesta tipo</label>
-                <select id="ptlComSresp" class="ptl-input-modal"><option value="">— elegir —</option>${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
+                <select id="ptlComSresp" class="ptl-input-modal" style="height:28px;padding:2px 8px;font-size:12px;line-height:1.3"><option value="">— elegir —</option>${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
               </div>` : ""}
               <div>
                 <label class="ptl-form-label">Cuerpo del mensaje</label>
@@ -7709,7 +7709,7 @@ module.exports = function (app) {
                 // Destinatario: si era entrante, contestamos al remitente
                 // (lo guardamos en col "destinatario" tras clasificar); si era
                 // saliente, contestamos al destinatario original.
-                sAbrir();
+                sAbrir('Responder mail');
                 sDest.value = dest;
                 sAs.value = _prefijar('Re: ', asunto);
                 const cita = _fmtFechaCita(fecha) + ', escribió:\\n' + _citar(cuerpo);
@@ -7727,7 +7727,7 @@ module.exports = function (app) {
                 const asunto = _b64dec(btn.dataset.asunto || '');
                 const cuerpo = _b64dec(btn.dataset.cuerpo || '');
                 const adjuntos = btn.dataset.adjuntos || '';
-                sAbrir();
+                sAbrir('Reenviar mail');
                 sDest.value = '';   // destinatario vacío
                 sAs.value = _prefijar('Fwd: ', asunto);
                 const cabecera = '---------- Mensaje reenviado ----------\\n'
@@ -7873,7 +7873,11 @@ module.exports = function (app) {
               ['ptlComSadj1lbl','ptlComSadj1url','ptlComSadj2lbl','ptlComSadj2url','ptlComSadj3lbl','ptlComSadj3url']
                 .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
             }
-            function sAbrir() {
+            // v129 (22/10/2026, criterio de Guille): el titulo dice que se esta haciendo
+            const sTitTxt = document.getElementById('ptlComStitulo');
+            const ICO_MAIL_T = ${JSON.stringify(ICONO_MAIL)};
+            function sAbrir(titulo) {
+              if (sTitTxt) sTitTxt.textContent = ICO_MAIL_T + ' ' + (titulo || 'Enviar mail manual');
               sLimpiar();
               sModal.style.display = 'block';
               // v17.71: usa helper global window.ptlCentrarVentana.
