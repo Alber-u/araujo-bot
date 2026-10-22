@@ -883,6 +883,14 @@ module.exports = function setupAraOSFase14Certificados(app) {
     }
   }
 
+  // Casillas del bloque «TOMA DE BATERÍA (cumplimentar para el alta de una toma de una batería)» del CO 080
+  const CAMPOS_TOMA_BATERIA_CO080 = ["Llave General", "V retención", "Llave", "Montante", "Q simultáneo 9", "N batería", "toma Fila", "toma Columna"];
+  // Alta de una batería nueva: tipo de actuación «nueva» (o sin decir, que es lo que se hace en Plan 5)
+  const altaBateriaNueva = (t) => !String(t?.tipo_actuacion || "").trim() || String(t.tipo_actuacion).trim().toLowerCase() === "nueva";
+  // (23/10/2026) Nombre para la firma: sin la vivienda entre paréntesis («Mª ANGELES MARQUEZ VACARO (4A)» salía cortado
+  // en «(4A»); también un paréntesis sin cerrar al final
+  const nombreFirma = (n) => String(n || "").replace(/\s*\([^()]*\)?\s*$/, "").trim().toUpperCase();
+
   // Dirección de la empresa para la casilla del CO 080 (181×17 pt)
   const DIRECCION_EMPRESA_CO080 = "AVDA. SAN FRANCISCO JAVIER, EDIF. SEVILLA 2,\nPL. 6, MÓD. 9, 41018 SEVILLA";
 
@@ -960,9 +968,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
       "Diámetro":           tecnicos.tubo_diametro || "",
       "Trazado":            tecnicos.tubo_trazado || "",
       "Localización de conexión general": tecnicos.conexion_general_loc || "",
+      // (23/10/2026) «Llave general», «V. retención», «Llave», «Q simultáneo», «Nº batería», «Toma fila/columna» y
+      // «Montante» son del bloque TOMA DE BATERÍA (alta de una toma en una batería ya existente): en el alta de una
+      // batería nueva ese bloque va vacío (la «Situación llave general» salía ahí, cortada: «ERADO LATER»). Ver abajo.
       "V retención":        tecnicos.tubo_valvula_retencion || "",
       "Llave":              tecnicos.tubo_llave_general || "",
-      "Llave General":      tecnicos.tubo_llave_general_situacion || "",
+      "Llave General":      tecnicos.llave_toma || "",   // la de la toma («Situación llave general» del tubo no va aquí)
       // Batería
       "num Baterias":       tecnicos.num_baterias || "",
       "Marca":              tecnicos.bateria_marca || "",
@@ -993,6 +1004,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
       // Observaciones
       "Observaciones":      tecnicos.observaciones || "",
     };
+
+    if (altaBateriaNueva(tecnicos)) for (const k of CAMPOS_TOMA_BATERIA_CO080) delete VALORES[k];
 
     // Aplicar valores con manejo defensivo (campos pueden no existir)
     for (const [campo, valor] of Object.entries(VALORES)) {
@@ -1032,11 +1045,11 @@ module.exports = function setupAraOSFase14Certificados(app) {
     } catch {}
 
     try {
-      const forma = (tecnicos.forma_abastecimiento || "").toLowerCase();
+      // (23/10/2026) sólo lo que se ve en el desplegable del modal («directa» / «deposito»): vacía —o un valor que el
+      // modal enseña como «—»— no marca nada (salía «Depósito/Aljibe» con la casilla en blanco)
+      const forma = String(tecnicos.forma_abastecimiento || "").trim().toLowerCase();
       if (forma === "directa") form.getCheckBox("Directa").check();
-      else if (forma === "deposito" || forma === "depósito" || forma === "aljibe") {
-        form.getCheckBox("Aljibe").check();
-      }
+      else if (forma === "deposito") form.getCheckBox("Aljibe").check();
     } catch {}
 
     // v0.31.0 — Mismo tamaño de letra en todo el CO 080. La plantilla trae
@@ -1127,7 +1140,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     }
 
     // ─── Pie ───
-    s("presidente_nombre", (com.presidente || "").toUpperCase());
+    s("presidente_nombre", nombreFirma(com.presidente));
     // v0.22.2 — fix: instalador_nif y instalador_nombre llamaban a propiedades
     // inexistentes en EMPRESA_INSTALADORA (.nif_instalador, .nombre_instalador).
     // El instalador autorizado vive en variables de entorno ARA_INSTALADOR_*.
@@ -1207,7 +1220,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
     }
     const caudalTotal = parseFloat(String(cuadricula.caudal_total || "0").replace(",", ".")) || 0;
     const ctRT = emasesaRT?.caudal_total !== undefined && emasesaRT?.caudal_total !== "" ? redondearCaudal(emasesaRT.caudal_total) : 0;
-    const ctNum = ctRT || caudalTotal;
+    // (23/10/2026) con rótulo, la suma de los caudales de su cuadrícula (22,8 y 33,6 en Doña Francisquita 20; el PDF de
+    // EMASESA, genérico, daba 19,6 y 39,2), igual que el «Q instalado» del CO 080; sin rótulo, el del PDF
+    const ctNum = !cuadricula.sin_rotulo && caudalTotal > 0 ? caudalTotal : ctRT || caudalTotal;
     const ctFinal = ctNum > 0 ? String(redondearCaudal(ctNum)).replace(".", ",") : "";
     s("caudal_total", ctFinal);
     // Campos adicionales CO 080
@@ -1241,7 +1256,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("fecha_anyo",      String(hoy.getFullYear()).slice(-2));
 
     // ─── Firma propiedad ───
-    s("presidente_nombre",   (com.presidente || "").toUpperCase());
+    s("presidente_nombre",   nombreFirma(com.presidente));
     s("presidente_telefono", com.telefono_presidente || "");
 
     // ─── Sello + firma ───
@@ -1328,6 +1343,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
   // ============================================================
 
   // ── GET /api/ara-os/fase14/datos-certificado?ccpp_id=...
+  // para las pruebas (lib/certificados-pdf.test.cjs): los generadores, sin Drive ni hojas
+  if (app && app.locals) app.locals._fase14Cert = { generarCO080, generarCO073, generarRelacionTomas, nombreFirma, tecnicosCO080: (...a) => tecnicosCO080(...a) };
+
   app.options("/api/ara-os/fase14/datos-certificado", (req, res) => {
     responderCORS(res); res.status(204).end();
   });
@@ -1372,7 +1390,6 @@ module.exports = function setupAraOSFase14Certificados(app) {
       // siempre, en vez de quedarse con lo que se guardó la primera vez.
       const rtPorOrden = Object.fromEntries((bateriasEmasesa || []).map(e => [normOrden(e.bateria_orden), e]));
       const obraCu = cuadriculasDeObra(baterias, rtPorOrden);
-      const plantasRotulos = plantasDeRotulos(obraCu);
       const baterias_completas = baterias.map(b => {
         const orden = parseInt(b.bateria_orden, 10) || 1;
         const em = bateriasEmasesa.find(e => parseInt(e.bateria_orden, 10) === orden) || null;
@@ -1383,9 +1400,6 @@ module.exports = function setupAraOSFase14Certificados(app) {
           out.bateria_num_filas = String(cuadricula.num_filas);
           out.bateria_num_columnas = String(cuadricula.num_cols);
         }
-        // (22/10/2026) «Nº plantas» vacío: el presupuesto no lo trae; sugerencia con la planta más alta de los rótulos
-        // de la obra («B+10»). El modal la propone y JM la confirma (no se escribe sola en el certificado).
-        if (!String(b.num_plantas || "").trim() && plantasRotulos) out.num_plantas_rotulo = plantasRotulos;
         return out;
       });
 
@@ -1871,7 +1885,6 @@ module.exports = function setupAraOSFase14Certificados(app) {
     textoResumen,
     aplicarEdiciones,
     claveToma,
-    claveCelda,
     abasteceA,
     ampliacionToma,
     normalizarTomas,
@@ -1968,15 +1981,6 @@ module.exports = function setupAraOSFase14Certificados(app) {
       return { orden, numero_bateria: em?.numero_bateria_emasesa || em?.bateria_numero || "",
         celdas: em?.rotulo_celdas || [], numFilas: em?.rotulo_num_filas, numCols: em?.rotulo_num_cols, tomas: tomasDeBateria(b, em) };
     }));
-  }
-  // «B+10»: planta baja + la planta más alta con viviendas en los rótulos de la obra (null sin rótulos)
-  function plantasDeRotulos(obraCu) {
-    let max = -1;
-    for (const cu of Object.values(obraCu?.porOrden || {})) for (const c of cu.celdas || []) {
-      const k = claveCelda(c.senal_rotulo);
-      if (k.tipo === "vivienda" && /^\d+$/.test(k.planta)) max = Math.max(max, parseInt(k.planta, 10));
-    }
-    return max > 0 ? `B+${max}` : null;
   }
   async function cuadriculasDeComunidad(comunidad) {
     const rtTodas = await leerEmasesaRT_todas(comunidad);
