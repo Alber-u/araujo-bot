@@ -986,6 +986,8 @@ function _p5paginasLegales(meta, cuadro, condiciones){
 
   // ── APAÑO TEMPORAL v134 (22/10/2026, Guille): SOLO el presupuesto O25-ARA/00213
   // (Av. Sánchez Pizjuán 6) imprime la cláusula 8 antigua, tal como salió en la Rev-18.
+  // v136: en ese mismo presupuesto tampoco sale la línea inclinada (fhueco), para que el recuadro de
+  // importes y firmas quepa en la hoja de la cláusula 8, como en la Rev-18.
   // Todos los demás usan la cláusula 8 nueva (8.1–8.6). QUITAR en la próxima versión
   // en cuanto Guille confirme que ya está impreso.
   var _cl8antigua = (String((meta && meta.nPresupuesto) || "").trim() === "O25-ARA/00213");
@@ -1018,7 +1020,7 @@ function _p5paginasLegales(meta, cuadro, condiciones){
 
 ${ _cl8 }
   <div class="condpart">${ (condiciones && condiciones.trim()) ? _p5esc(condiciones) : '' }</div>
-  <div class="fhueco"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><line x1="0" y1="100" x2="100" y2="0"/></svg></div><table class="firma"><tbody>
+  ${ _cl8antigua ? "" : '<div class="fhueco"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><line x1="0" y1="100" x2="100" y2="0"/></svg></div>' }<table class="firma"><tbody>
     <tr>
       <td class="fleft">
         <div class="ftot">Conforme Presupuesto: ${eur(C.totP5Iva)}</div>
