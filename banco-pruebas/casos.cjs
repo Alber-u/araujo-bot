@@ -248,12 +248,13 @@ const CASOS = [
       p5.push(["C BANCO NUEVA 1", "", "", "", "", "", JSON.stringify({ estado: "cerrado" }), "", JSON.stringify({ dsg: {}, cuadro: { comunero: 1168.4, fin6: 199, fin12: 101, fin18: 70 } })]);
       p5.push(["C BANCO VIEJA 2", "", "", "", "", "", JSON.stringify({ snapshot: { cuadro: { comunero: 900, fin6: 150, fin12: 80, fin18: 55 } } })]);
       p5.push(["C BANCO ABIERTA 3", "", "", "", "", "", JSON.stringify({ estado: "abierto" })]);
+      p5.push(["C BANCO CERRADA SIN FOTO 4", "", "", "", "", "", JSON.stringify({ estado: "cerrado" })]);
       // importesComunidad no está exportada: se saca su código del fichero del bot y se corre
       // contra el Sheet simulado (mismo código, sin copiarlo aquí).
       const src = require("fs").readFileSync(require("path").join(S.RAIZ, "bot-whatsapp.cjs"), "utf8");
       const a0 = src.indexOf("let _importesP5 = null"), b0 = src.indexOf("function _eurosP5");
       if (a0 < 0 || b0 < 0) return [[false, "encuentro _cargarImportesP5 en bot-whatsapp.cjs", "no está"]];
-      const ctx = { getSheetsClient: () => require("googleapis").google.sheets(), process, console, Date, JSON, Object, String, Math };
+      const ctx = { getSheetsClient: () => require("googleapis").google.sheets(), process, console, Date, JSON, Object, String, Math, _saludBot: { p5SinImportes: null } };
       vm.createContext(ctx);
       vm.runInContext(src.slice(a0, b0) + "\n;this.importesComunidad = importesComunidad;", ctx);
       const a = await ctx.importesComunidad("Banco Nueva 1"), v = await ctx.importesComunidad("Banco Vieja 2"), x = await ctx.importesComunidad("Banco Abierta 3");
@@ -261,6 +262,39 @@ const CASOS = [
         [!!a && Math.round(a.comunero) === 1168 && a.fin6 === 199, "cerrado con foto en I: 1.168 € y 199 €/mes", JSON.stringify(a)],
         [!!v && v.comunero === 900, "cerrado con foto en G: 900 €", JSON.stringify(v)],
         [x === null, "abierto: sin importes", JSON.stringify(x)],
+        [JSON.stringify(ctx._saludBot.p5SinImportes || []).includes("C BANCO CERRADA SIN FOTO 4"), "v141: el cerrado sin foto queda apuntado para el aviso de HOY", JSON.stringify(ctx._saludBot.p5SinImportes)],
+        [!JSON.stringify(ctx._saludBot.p5SinImportes || []).includes("C BANCO NUEVA 1"), "v141: los cerrados con importes no se apuntan", ""],
+      ];
+    },
+  },
+
+  // ===== v141: avisos de sistema en HOY =====
+  {
+    nombre: "HOY avisa de una plantilla de correo que el programa necesita y no está",
+    desde: "v141",
+    prueba: async (S) => {
+      const mp = S.DATA.mail_plantillas, i = mp.findIndex((r) => r[0] === "05_REC_M1_VECINO");
+      if (i > 0) mp.splice(i, 1);
+      await S.call("GET", "/presupuestos/hoy", {});
+      const r = await S.call("GET", "/presupuestos/hoy", {});
+      const avisos = [...String(r.body).matchAll(/⚠ ([^<]{0,400})/g)].map((m) => m[1]).filter((x) => /Plantillas mail/.test(x)).join(" | ");
+      return [[/05_REC_M1_VECINO/.test(avisos), "el aviso nombra 05_REC_M1_VECINO", avisos || "(no sale el aviso)"]];
+    },
+  },
+  {
+    nombre: "HOY avisa cuando la IA del bot falla seguido (solo con la IA encendida)",
+    desde: "v141",
+    prueba: async (S) => {
+      const b = S.app.locals.botWhatsapp;
+      b.salud.ia.fallos = 4; b.salud.ia.desde = Date.now() - 3600000; b.salud.ia.err = "insufficient_quota";
+      const ia = (txt) => [...txt.matchAll(/⚠ ([^<]{0,400})/g)].map((m) => m[1]).filter((x) => /La IA del bot/.test(x)).join(" | ");
+      b.iaActiva = () => false;
+      const apagada = ia(String((await S.call("GET", "/presupuestos/hoy", {})).body));
+      b.iaActiva = () => true;
+      const encendida = ia(String((await S.call("GET", "/presupuestos/hoy", {})).body));
+      return [
+        [apagada === "", "con la IA dormida no avisa", apagada],
+        [/4 fallos/.test(encendida) && /saldo/.test(encendida), "con la IA encendida avisa (4 fallos, falta saldo)", encendida || "(no sale el aviso)"],
       ];
     },
   },

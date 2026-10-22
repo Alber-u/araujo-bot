@@ -14,6 +14,23 @@ const { validToken } = require("./lib/auth.cjs");
 const _horarioMod = require("./horario-bot.cjs");   // v127: horario de comunicaciones del bot
 
 module.exports = (app) => {
+// v19.96 (criterio de Guille) -- salud del bot, para los avisos de sistema de HOY (presupuestos.cjs la lee
+// en app.locals.botWhatsapp.salud). En memoria: al reiniciar se empieza de cero.
+// v141 -- arriba del todo (la usan funciones de todo el fichero) y con mas vigilancia:
+//   ia: llamadas a OpenAI fallidas seguidas (se pone a 0 con la primera que responde);
+//   p5SinImportes: presupuestos Plan 5 cerrados en los que el bot no encuentra importes (lo mira el job);
+//   plantillasFalta: claves de bot_plantillas que el bot ha necesitado y no estan o estan vacias (no las desactivadas).
+const _saludBot = { jobOk: null, jobErr: "", ia: { fallos: 0, desde: 0, ultOk: 0, err: "" }, p5SinImportes: null, plantillasFalta: {} };
+function _iaMarca(ok, err) {
+  if (ok) { _saludBot.ia.fallos = 0; _saludBot.ia.desde = 0; _saludBot.ia.ultOk = Date.now(); _saludBot.ia.err = ""; return; }
+  if (!_saludBot.ia.fallos) _saludBot.ia.desde = Date.now();
+  _saludBot.ia.fallos++;
+  _saludBot.ia.err = String(err || "sin detalle").slice(0, 120);
+}
+function _iaErrTxt(error) {   // insufficient_quota (saldo), invalid_api_key (clave)...
+  const d = error && error.response && error.response.data;
+  return (d && d.error && (d.error.code || d.error.type || d.error.message)) || (error && error.message) || "sin detalle";
+}
 
 
 
@@ -284,6 +301,10 @@ function txtPlant(clave, fallback, vars) {
     const p = _plantillasCache[clave];
     const inactivo = p.activo === "NO" || p.activo === "FALSE" || p.activo === "0";
     if (!inactivo && p.texto && p.texto.trim() !== "") texto = p.texto;
+    if (inactivo || (p.texto && p.texto.trim() !== "")) delete _saludBot.plantillasFalta[clave];
+    else if (!fallback) _saludBot.plantillasFalta[clave] = Date.now();   // v141: esta pero vacia
+  } else if (_plantillasCache && !fallback) {
+    _saludBot.plantillasFalta[clave] = Date.now();   // v141: no esta en bot_plantillas
   }
   if (vars) {
     for (const k of Object.keys(vars)) {
@@ -713,9 +734,11 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
     );
     const texto = response && response.data && response.data.choices && response.data.choices[0]
       ? response.data.choices[0].message.content : "";
+    _iaMarca(true);   // v141: OpenAI ha respondido
     const limpio = texto.replace(/```json/g, "").replace(/```/g, "").trim();
     try { return JSON.parse(limpio); } catch (e) { console.error("JSON IA invalido:", texto); return null; }
   } catch (error) {
+    _iaMarca(false, _iaErrTxt(error));   // v141
     console.error("Error IA", { error: error && error.response ? JSON.stringify(error.response.data) : error.message });
     return null;
   }
@@ -745,8 +768,9 @@ async function llamarGPT4oConImagen(systemPrompt, base64) {
       { timeout: IA_TIMEOUT_IMAGEN_MS, headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" } }
     );
     const texto = resp?.data?.choices?.[0]?.message?.content || "";
+    _iaMarca(true);   // v141: OpenAI ha respondido
     return JSON.parse(texto.replace(/```json|```/g, "").trim());
-  } catch(e) { console.error("Error gpt-4o imagen:", e.message); return null; }
+  } catch(e) { if (e && e.response) _iaMarca(false, _iaErrTxt(e)); else if (!(e instanceof SyntaxError)) _iaMarca(false, _iaErrTxt(e)); console.error("Error gpt-4o imagen:", e.message); return null; }
 }
 
 async function analizarDNIconIA(buffer, documentoActual) {
@@ -1262,15 +1286,17 @@ async function _cargarImportesP5() {
     // v140: la foto del presupuesto cerrado vive en la columna I desde el 23/09/2026 (como _p5MergeSnap de Plan 5);
     //   si I esta vacia (cerrados antes), se mira dentro de G (datos_json.snapshot).
     const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "plan5_toma_datos!A:I" })).data.values || [];
+    const sinImp = [];   // v141: cerrados sin importes, para el aviso de sistema de HOY
     for (const r of rows.slice(1)) {
-      let c = null;
+      let c = null, g = {};
+      try { g = JSON.parse(r[6] || "{}") || {}; } catch (e) {}
       if (r[8]) { try { c = (JSON.parse(r[8]) || {}).cuadro || null; } catch (e) {} }
-      if (!c) { try { c = ((JSON.parse(r[6] || "{}").snapshot) || {}).cuadro || null; } catch (e) {} }
-      if (!c || !(+c.comunero > 0)) continue;
+      if (!c) c = ((g.snapshot) || {}).cuadro || null;
+      if (!c || !(+c.comunero > 0)) { if (g.estado === "cerrado" && r[0]) sinImp.push(String(r[0]).trim()); continue; }
       const dir = _nnP5(r[0]); if (!dir) continue;
       m[dir] = { comunero: +c.comunero, fin6: +c.fin6 || 0, fin12: +c.fin12 || 0, fin18: +c.fin18 || 0 };
     }
-    _importesP5 = m; _importesP5Ts = Date.now();
+    _importesP5 = m; _importesP5Ts = Date.now(); _saludBot.p5SinImportes = sinImp;
   } catch (e) { console.error("[bot] importes Plan 5:", e.message); }
   return _importesP5 || {};
 }
@@ -1409,8 +1435,10 @@ async function responderConIA(mensaje, expediente) {
       { timeout: IA_TIMEOUT_MS, headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" } }
     );
     const texto = response && response.data && response.data.choices && response.data.choices[0] ? response.data.choices[0].message.content.trim() : null;
+    _iaMarca(true);   // v141
     return texto || fallback;
   } catch (error) {
+    _iaMarca(false, _iaErrTxt(error));   // v141
     console.error("Error IA texto", { error: error && error.response ? JSON.stringify(error.response.data) : error.message });
     return fallback;
   }
@@ -4184,6 +4212,8 @@ async function detectarNecesidadHumano(mensaje, expediente) {
       })
     });
     const data = await response.json();
+    if (data && data.error) _iaMarca(false, data.error.code || data.error.type || data.error.message);   // v141
+    else _iaMarca(true);
     return JSON.parse(data.choices[0].message.content);
   } catch(e) {
     console.error("Error detectando necesidad humana:", e.message);
@@ -5135,11 +5165,9 @@ async function leerTodosExpedientes() {
   }
 }
 
-// v19.96 (criterio de Guille) -- salud del job, para el aviso de sistema de HOY (presupuestos.cjs la lee
-// en app.locals.botWhatsapp.salud). En memoria: al reiniciar se empieza de cero.
-const _saludBot = { jobOk: null, jobErr: "" };
 async function ejecutarJobSeguimiento() {
   console.log("Job seguimiento: inicio", new Date().toISOString());
+  _cargarImportesP5().catch(() => {});   // v141: refresca los importes de Plan 5 (y los cerrados sin importes, aviso de HOY)
   let enviados = 0;
   let omitidos = 0;
   let _errGeneral = null;
@@ -5349,6 +5377,7 @@ setTimeout(() => {
     cambiarTipoVecino,     // v126
     avisarCambioTipo,      // v126
     salud: _saludBot,   // v19.96: para el aviso de sistema de HOY
+    iaActiva,              // v141: el aviso de la IA en HOY solo sale con la IA encendida
     // v19.98 -- contratos por el bot en fase 08 (los usa documentacion.cjs, boton W)
     enviarContratoPiso,
     contratosBotComunidad,

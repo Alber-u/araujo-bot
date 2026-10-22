@@ -135,7 +135,7 @@ module.exports = function (app) {
   const _lecturaCorta = {};
   // v19.96 (criterio de Guille) -- SALUD de los automatismos, para avisar en HOY si algo deja de funcionar
   // (hasta ahora el error solo quedaba en el registro de Render). En memoria: al reiniciar se empieza de cero.
-  const _salud = { arranque: Date.now(), imapOk: null, imapErr: "", imapFallos: 0, cronOk: null, cronErr: "" };
+  const _salud = { arranque: Date.now(), imapOk: null, imapErr: "", imapFallos: 0, cronOk: null, cronErr: "", plantillasFalta: {} };   // v141: + plantillas de correo pedidas que no estan en el Sheet
   if (app && typeof app.use === "function") {
     app.use((req, res, next) => { if (req.method === "POST") { for (const k in _lecturaCorta) delete _lecturaCorta[k]; } next(); });
   }
@@ -2497,6 +2497,7 @@ module.exports = function (app) {
       const r = rows[i];
       if (!r || !r[0]) continue;
       if (String(r[0]).trim() === fase) {
+        delete _salud.plantillasFalta[fase];   // v141
         return {
           fase,
           activo:           (r[1] || "SI").toUpperCase() === "SI",
@@ -2514,6 +2515,7 @@ module.exports = function (app) {
     }
     // Fase no encontrada → default si lo hay, null si no
     const def = MAIL_PLANTILLAS_DEFAULT[fase];
+    if (!def && fase) _salud.plantillasFalta[fase] = Date.now();   // v141: aviso de sistema en HOY
     return def ? Object.assign({ fase, activo: def.activo === "SI" }, def) : null;
   }
 
@@ -14833,6 +14835,20 @@ module.exports = function (app) {
         if (_bs && _up > 15 * 60 * 1000 && (!_bs.jobOk || (_ah - _bs.jobOk) > 3 * _H)) {
           _avSis.push("El repaso automático del bot (recordatorios por WhatsApp) no ha terminado " + (_bs.jobOk ? "desde el " + _hm(_bs.jobOk) : "desde que arrancó el servidor") + (_bs.jobErr ? " · error: " + _bs.jobErr : "") + ".");
         }
+        // v141 (criterio de Guille, 23/10/2026: que los fallos silenciosos se vean el primer dia) --
+        //   IA del bot, presupuestos cerrados sin importes y plantillas que el programa ha pedido y no estan.
+        const _botIaOn = !!(app.locals.botWhatsapp && typeof app.locals.botWhatsapp.iaActiva === "function" && app.locals.botWhatsapp.iaActiva());
+        if (_bs && _bs.ia && _botIaOn && _bs.ia.fallos >= 3) {
+          const _q = /quota/i.test(_bs.ia.err) ? " (falta saldo en OpenAI)" : (/api_key/i.test(_bs.ia.err) ? " (la clave de OpenAI no vale)" : "");
+          _avSis.push("La IA del bot no responde: " + _bs.ia.fallos + " fallos seguidos desde el " + _hm(_bs.ia.desde) + " · último error: " + _bs.ia.err + _q + ". Los documentos quedan en REVISAR para ti.");
+        }
+        if (_bs && Array.isArray(_bs.p5SinImportes) && _bs.p5SinImportes.length) {
+          _avSis.push("Presupuestos de Plan 5 cerrados en los que el bot no encuentra los importes (la pregunta de la forma de pago sale sin cantidades): " + _bs.p5SinImportes.join(", ") + ".");
+        }
+        const _faltaM = Object.keys(_salud.plantillasFalta || {}).sort();
+        if (_faltaM.length) _avSis.push("El programa ha necesitado estas plantillas de correo y no están en Plantillas mail: " + _faltaM.join(", ") + ".");
+        const _faltaB = Object.keys((_bs && _bs.plantillasFalta) || {}).sort();
+        if (_faltaB.length) _avSis.push("El bot ha necesitado estos textos y no están (o están vacíos) en Plantillas del bot: " + _faltaB.join(", ") + ".");
       } catch (e) {}
       const _avSisHtml = _avSis.map(m => `<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;margin-bottom:4px;border-radius:5px;background:var(--ptl-danger-light);color:var(--ptl-danger-dark);font-size:12px;font-weight:600">⚠ ${_esc(m)}</div>`).join("");
       const cajaSinRespuesta = `
