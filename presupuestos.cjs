@@ -10433,31 +10433,7 @@ module.exports = function (app) {
 
     // v18.121: tiempos + on/off de los avisos automaticos por plazo (ajustes en bot_plantillas)
     const _avVal = (clave, def) => { const f = plantillas.find(x => x.clave === clave); if (!f) return { val: def, on: true }; const n = parseFloat(String(f.texto || "").replace(",", ".").trim()); return { val: (isNaN(n) ? def : n), on: (f.activo !== false) }; };
-    const _AVDEF = {
-      msg_plazo_1: "Recordatorio - Tu expediente lleva varios dias esperando:\n\n• {documento}\n\nPuedes enviarlo directamente por aqui.{extra}",
-      msg_plazo_urgente: "Aviso importante - Queda poco tiempo.\n\n• {documento}\n\nEnvialo ahora por este WhatsApp para no perder el plazo.",
-      msg_plazo_fuera: "ULTIMO AVISO - El plazo para tu expediente ha finalizado.\n\n• {documento}\n\nEnvialo URGENTEMENTE por este WhatsApp o tu expediente puede quedar bloqueado.",
-    };
-    const _avMsg = (msgClave) => { const f = plantillas.find(x => x.clave === msgClave); return (f && String(f.texto || "").trim() !== "") ? f.texto : (_AVDEF[msgClave] || ""); };
-    const avcard = (tClave, msgClave, titulo, unidad, def) => { const a = _avVal(tClave, def); const id = "fbf-av-" + tClave + "-" + (_i++); return `
-        <div class="ptl-card ptl-acordeon${a.on ? "" : " ptl-acordeon-inactiva"}" data-clave="${esc(tClave)}">
-          <div class="ptl-acordeon-cab">
-            <div class="ptl-flex-1"><div class="ptl-card-title ptl-flex-c-g6">
-              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${esc(titulo)}">${esc(titulo)}</span></div></div>
-            <div class="ptl-acordeon-acciones ptl-acc-acciones-hidden">
-              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap"><input type="checkbox" name="on" value="1" form="${id}" ${a.on ? "checked" : ""}/><span>Activa</span></label>
-              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar ptl-shrink0">💾</button>
-            </div>
-          </div>
-          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/avisos-tiempos")}" id="${id}" class="ptl-acordeon-cuerpo ptl-acc-body8">
-            <input type="hidden" name="clave" value="${esc(tClave)}"/>
-            <input type="hidden" name="vista" value="flujo"/>
-            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:8px"><span class="ptl-fw600">Cada</span><input type="number" name="val" value="${a.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-family:inherit;font-size:12px;text-align:right"/><span class="ptl-c-gray500">${unidad}</span></label>
-            <label style="font-size:12px;display:block"><div class="ptl-fw600-lh">Texto del aviso</div>
-              <textarea name="msg" rows="4" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(_avMsg(msgClave))}</textarea></label>
-            <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Usa {documento} (lo que falta) y {extra} (coletilla automatica).</div>
-          </form>
-        </div>`; };
+    // v138 (23/10/2026): quitados _AVDEF, _avMsg y avcard (formulario de avisos-tiempos que no se pintaba en ningun sitio; los avisos por plazo los pinta plazocard).
     const presentcard = () => { const p = P["presentacion"] || { twilio_sid:"", textoTwilio:"", destinatario:"" }; const a1 = _avVal("t_presentacion_1", 2); const a2 = _avVal("t_presentacion_2", 4); const id = "fbf-present-" + (_i++); const inactiva = (!a1.on && !a2.on) ? " ptl-acordeon-inactiva" : ""; return `
         <div class="ptl-card ptl-acordeon${inactiva}" data-clave="presentacion">
           <div class="ptl-acordeon-cab">
@@ -12270,10 +12246,16 @@ module.exports = function (app) {
       const _nomViejo = ((viejaVia ? viejaVia + " " : "") + viejaDir).trim();
       const _nomNuevo = ((nuevaVia ? nuevaVia + " " : "") + nuevaDir).trim();
 
+      // v138 (23/10/2026, repaso de integridad) -- si SOLO cambia el tipo de via, plan5_toma_datos
+      //   tambien hay que cambiarla: guarda "TIPO_VIA DIRECCION" y Plan 5 busca la obra por ese nombre;
+      //   antes no se tocaba y al abrir Plan 5 desde la ficha no encontraba la obra.
+      const _soloVia = !cambiaDir && cambiaVia;
+      const _hojasConVia = _RENOM_AUTO.filter(h => h.conVia);
+
       // ---- ANÁLISIS (siempre) ----
       const detalle = [];
-      if (cambiaDir) {
-        for (const h of _RENOM_AUTO) {
+      if (cambiaDir || _soloVia) {
+        for (const h of (cambiaDir ? _RENOM_AUTO : _hojasConVia)) {
           const r = await _renomHoja(sheets, h.hoja, h.rango, h, viejaDir, viejoId, nuevaDir, nuevoId, "contar", _nomViejo, _nomNuevo);
           if (r.filas) detalle.push({ hoja: h.hoja, filas: r.filas });
         }
@@ -12295,8 +12277,8 @@ module.exports = function (app) {
       //   y la fila del expediente al final. Si algo se corta por el camino, en
       //   pantalla sigues viendo el nombre viejo y se puede reintentar.
       let cambiadas = 0;
-      if (cambiaDir) {
-        for (const h of _RENOM_AUTO) {
+      if (cambiaDir || _soloVia) {
+        for (const h of (cambiaDir ? _RENOM_AUTO : _hojasConVia)) {
           if (h.hoja === "comunidades") continue;   // esa va la última
           const r = await _renomHoja(sheets, h.hoja, h.rango, h, viejaDir, viejoId, nuevaDir, nuevoId, "cambiar", _nomViejo, _nomNuevo);
           cambiadas += r.filas || 0;
@@ -13232,37 +13214,10 @@ module.exports = function (app) {
           numManualesAct = numEnvios >= 1 ? 1 : 0;
         }
 
-        // ===================================================================
-        // ESQUEMA DE LA FASE 05 (documentación) — secuencia, mensajes y días
-        // ===================================================================
-        //  Día | Nº | Mensaje / Acción                         | Badge en HOY
-        //  ----+----+------------------------------------------+---------------------------
-        //   0  | 1  | INICIO DOC (05_ACEPTACION_PTO)           | 👍 Inicio doc
-        //   5  | 2  | SEGUIMIENTO LISTADO (05_SEG_ESPERA)      | 👍 Listado solicitado · hace 5 d
-        //  10  | 3  | SEGUIMIENTO LISTADO (05_SEG_ESPERA)      | 👍 Listado solicitado · hace 10 d
-        //  15  | 4  | SEGUIMIENTO LISTADO (05_SEG_ESPERA)      | 👍 Listado solicitado · hace 15 d
-        //  20  | -- | (sin listado, sin envío)                 | (aviso) Listado solicitado · hace 20 d
-        //  ----  1er bot-whatsapp: anula LISTADO y arranca DOC reanclado al contacto  ----
-        //  +5  | 5  | SEGUIMIENTO DOC (05_SEG_FECHA)           | 👍 Doc solicitada · hace X d
-        //  +10 | 6  | SEGUIMIENTO DOC (05_SEG_FECHA)           | 👍 Doc solicitada · hace X d
-        //  +15 | 7  | SEGUIMIENTO DOC (05_SEG_FECHA)           | 👍 Doc solicitada · hace X d
-        //  +20 | 8  | BOTON -> 05_ULT_AVISO (sella BL, para)   | Ampliar plazo -> Plazo ampliado · hace X d
-        //  +30 | 9  | 05_ULT_AVISO recordatorio (AUTOMATICO 1x)| Plazo ampliado · hace X d
-        //  +40 | 10 | BOTON -> 05_ULT_RESOLUCION (sella BM)    | Nombrar disidentes -> Disidentes solicitados hace X d
-        //  +45 | 11 | BOTON -> 05_ULT_RESOLVER (sella BN)      | Resolver contrato -> Contrato resuelto hace X d
-        //  cualq| -- | FIN DOC (si entregan todo)               | Doc completa
-        //  -------------------------------------------------------------------
-        //  TIEMPOS MÁXIMOS (sin ninguna respuesta) hasta RESOLVER el contrato:
-        //    LISTADO (desde aceptación):   5+5+5 .................. = 15 d (+aviso a 20)
-        //    DOC+ULTIMÁTUM (desde bot-wa): 5+5+5+5+10+10+5 ........ = 45 d
-        //    TOTAL si el listado llega al día 20: 20 + 45 ......... = 65 días
-        //    (si el listado tarda más, se suma esa espera extra)
-        //
-        //  Notas: los "+N" del tramo DOC cuentan desde el 1er bot-whatsapp (no desde
-        //  la aceptacion). Tope 3 en LISTADO y 3 en DOC. Si se piden disidentes antes
-        //  del +30, el recordatorio automatico se suprime. Fechas selladas: BL/BM/BN.
-        //  Botones = endpoints /presupuestos/ultimatum/{ampliar,disidentes,resolver}.
-        // ===================================================================
+        // v138 (23/10/2026) -- aqui habia una tabla con el "esquema de la fase 05" (recordatorio automatico
+        //   a +30, disidentes a +40, resolucion a +45) que ya no correspondia a nada: el recordatorio
+        //   automatico se retiro en v18.137 y los dias salen de las casillas de Plantillas mail.
+        //   El calendario vigente esta en el manual, §3.9.
         // ===== TANDA 4 — MANEJADOR DEDICADO FASE 05 (comunidades BOT) =====
         // Reanclaje fino + split 3+3. Solo comunidades bot; las manuales (05 no
         // bot, congeladas) caen al tronco compartido de abajo SIN cambios.
@@ -17535,28 +17490,7 @@ module.exports = function (app) {
     }
   });
 
-  // POST /presupuestos/plantillas-bot/avisos-tiempos - guarda tiempos + on/off de los avisos por plazo (v18.121)
-  app.post("/presupuestos/plantillas-bot/avisos-tiempos", async (req, res) => {
-    if (!checkToken(req, res)) return;
-    const token = req.query.token || "";
-    try {
-      const MAP = { t_plazo_1: ["msg_plazo_1", 10], t_plazo_urgente: ["msg_plazo_urgente", 18], t_plazo_fuera: ["msg_plazo_fuera", 20] };
-      const clave = String(req.body.clave || "").trim();
-      if (MAP[clave]) {
-        const [msgClave, def] = MAP[clave];
-        let v = parseFloat(String(req.body.val || "").replace(",", ".").trim());
-        if (isNaN(v) || v < 0) v = def;
-        const on = req.body.on ? true : false;
-        await guardarAjusteBot(clave, v, on);
-        const msg = String(req.body.msg || "").replace(/\r\n/g, "\n").trim();
-        if (msg !== "") await guardarAjusteBot(msgClave, msg);
-      }
-      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
-    } catch (e) {
-      console.error("[presupuestos] POST /plantillas-bot/avisos-tiempos:", e.message);
-      sendError(res, "Error guardando: " + e.message);
-    }
-  });
+  // v138 (23/10/2026): quitada la ruta POST /presupuestos/plantillas-bot/avisos-tiempos (ningun formulario la llamaba; los avisos por plazo se guardan en /plantillas-bot/plazo).
 
   // POST /presupuestos/plantillas-bot/sleep - guarda los DOS plazos del Sleep (t_inactividad_1/2) + SID Twilio (v18.146)
   app.post("/presupuestos/plantillas-bot/sleep", async (req, res) => {
