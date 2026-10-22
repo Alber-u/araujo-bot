@@ -1570,9 +1570,9 @@ async function buscarVecinoPorTelefono(telefono) {
   // FUENTE: pestaña 'pisos' (la viva). Columnas: A=telefono, B=comunidad,
   // C=vivienda, D=nota_simple, E=nombre. (Antes leía vecinos_base, con otro
   // orden de columnas; aquí ya está remapeado.) 'bloque' no existe en pisos.
-  const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:E" });
-  const rows = res.data.values || [];
+  // v139 (23/10/2026, repaso de integridad) -- usa la lectura compartida, la misma que pisoActivoParaBot
+  //   (pisos!A:AV): en el webhook la pestaña pisos se lee una vez por mensaje, no dos.
+  const rows = await _leerBotCompartido("pisos!A:AV");
   const telNormalizado = normalizarTelefono(telefono);
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
@@ -1738,6 +1738,13 @@ async function crearCarpetaNotaSimple(datosVecino) {
   }
 }
 
+// v139 (23/10/2026, repaso de integridad) -- el plazo inicial de documentacion (20 dias) vive en un solo
+//   sitio, PLAZO_DOC_INICIAL de presupuestos.cjs; el bot lo coge de ahi (antes lo llevaba escrito aparte).
+function _plazoDocInicial() {
+  const P = app.locals && app.locals.presupuestos;
+  const n = P && parseInt(P.PLAZO_DOC_INICIAL, 10);
+  return (Number.isFinite(n) && n > 0) ? n : 20;
+}
 async function crearExpedienteInicial(telefono, datosVecino) {
   const sheets = getSheetsClient();
   const ahora = ahoraISO();
@@ -1748,7 +1755,7 @@ async function crearExpedienteInicial(telefono, datosVecino) {
     requestBody: { values: [[
       telefono, (datosVecino && datosVecino.comunidad) || "", (datosVecino && datosVecino.vivienda) || "",
       (datosVecino && datosVecino.nombre) || "", "", "pregunta_tipo", "", "pendiente_clasificacion",
-      ahora, ahora, ahora, sumarDias(_ancla || ahora, 20), "", "NO", "ok", "", "", "",
+      ahora, ahora, ahora, sumarDias(_ancla || ahora, _plazoDocInicial()), "", "NO", "ok", "", "", "",
       "", "", "",
       "", "", "no",
       "", "",
@@ -4386,6 +4393,8 @@ app.get("/enviar-presentacion", async (req, res) => {
         detalle.push({ fila: i+1, telefono, estado: "fase_no_activa", fase }); continue; }
       if (yaConFicha.has(telefono)) { omitidos++; detalle.push({ fila: i+1, telefono, estado: "ya_presentado" }); continue; }
 
+      // v139 -- sin plantilla presentacion no se manda nada ni se crea la ficha (antes quedaba como presentado)
+      if (!sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27")) { omitidos++; detalle.push({ fila: i+1, telefono, estado: "sin_plantilla" }); continue; }
       try {
         const _espP = await enviarWhatsAppPlantilla(telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
           "1": limpiarNombreVecino(nombreParaPiso(row[3], nombre, row[48])),   // v128: familiar -> el de arriba   // v19.98: nombre sin anotaciones; v127: el de la Nota simple
@@ -5164,6 +5173,8 @@ async function ejecutarJobSeguimiento() {
         if (!_nivelP) { omitidos++; continue; }
         if (expediente.alerta_plazo === _nivelP) { omitidos++; continue; }
         if (_nivelP === "presentacion_1" && expediente.alerta_plazo === "presentacion_2") { omitidos++; continue; }
+        // v139 -- sin plantilla presentacion no se reenvia ni se marca como reenviada
+        if (!sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27")) { omitidos++; continue; }
         try {
           const _espJ = await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), { "1": limpiarNombreVecino(await nombreDirigido(expediente.comunidad, expediente.vivienda, expediente.nombre)) });   // v19.98: nombre sin anotaciones
           expediente.alerta_plazo = _nivelP;
@@ -5344,7 +5355,13 @@ setTimeout(() => {
       try {
         const ficha = await buscarExpedientePorTelefono(tel);
         if (ficha) return { ok: true, estado: "ya_presentado" };
-        const _espW = await enviarWhatsAppPlantilla(tel, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
+        // v139 (23/10/2026, repaso de integridad) -- con la plantilla presentacion desactivada no se
+        //   mandaba nada, pero se creaba la ficha y se contestaba "enviado": el vecino quedaba como
+        //   presentado sin haber recibido nada. Ahora no se crea la ficha y se dice por que.
+        await cargarPlantillas().catch(() => {});
+        const _sidPres = sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27");
+        if (!_sidPres) return { ok: false, estado: "sin_plantilla", error: "la plantilla presentacion de Flujo bot está desactivada o sin código" };
+        const _espW = await enviarWhatsAppPlantilla(tel, _sidPres, {
           "1": limpiarNombreVecino(await nombreDirigido(datos && datos.comunidad, datos && datos.vivienda, datos && datos.nombre)),   // v19.98; v127: Nota simple
         });
         await crearExpedienteInicial(tel, {

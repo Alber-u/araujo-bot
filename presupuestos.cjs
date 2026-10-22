@@ -480,6 +480,12 @@ module.exports = function (app) {
     if (lista.length > (max || 3)) return false;
     return lista.every(esEmailValido);
   }
+  // v139 (23/10/2026, repaso de integridad; mismo criterio que la regla 9 del manual con los textos) -- los
+  //   dias de prorroga y de resolucion que dicen los correos salen solo de sus casillas de Plantillas mail.
+  //   Si la casilla esta vacia (o a 0) no se inventa un numero: el correo no se prepara y se dice que falta.
+  function _FALTA_CASILLA(casilla, tarjeta) {
+    return "Falta el número de días de «" + casilla + "» en Plantillas mail (tarjeta " + tarjeta + "). Rellénalo y vuelve a intentarlo.";
+  }
   function ccppId(direccion) {
     const slug = String(direccion || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
     const crypto = require("crypto");
@@ -2433,7 +2439,10 @@ module.exports = function (app) {
     try {
       const pie = await leerPlantillaMail("_PIE_GLOBAL");
       const textoPie = pie && pie.mensaje ? String(pie.mensaje).trim() : "";
-      if (textoPie) cuerpo += "\n\n" + textoPie;
+      // v139 (23/10/2026, repaso de integridad) -- el compositor "Enviar mail manual" ya escribe el pie en el
+      //   cuerpo al abrirse (sAbrirNuevo); si ya va, no se añade otra vez (antes esos correos salian con el pie
+      //   dos veces: 406 en mail_historico a 23/10/2026).
+      if (textoPie && !String(cuerpo).replace(/\r\n/g, "\n").includes(textoPie.replace(/\r\n/g, "\n"))) cuerpo += "\n\n" + textoPie;
     } catch (e) { /* si falla, no se añade pie */ }
 
     // CC: aceptar string o array. Acepta separadores ||, comas, ;, saltos de línea.
@@ -4541,13 +4550,13 @@ module.exports = function (app) {
     //   Para el ULTIMÁTUM AVISO ("ampliar el plazo otros X días más").
     if (/\{\{plazo_ampliacion\}\}/.test(t)) {
       const _pa = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
-      const _na = (function(){ const n = parseInt(_pa && _pa.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
+      const _na = (function(){ const n = parseInt(_pa && _pa.dias_primer_envio, 10); if (Number.isFinite(n) && n > 0) return n; throw new Error(_FALTA_CASILLA("Ampliación de plazo", "05 · Ultimátum doc")); })();   // v139: sin respaldo
       t = t.replace(/\{\{plazo_ampliacion\}\}/g, String(_na));
     }
     // {{plazo_resolucion}} → nº de días para nombrar disidentes (casilla "Resolución" = 05_ULT_RESOLVER.dias_primer_envio).
     if (/\{\{plazo_resolucion\}\}/.test(t)) {
       const _pr = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
-      const _nr = (function(){ const n = parseInt(_pr && _pr.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 5; })();
+      const _nr = (function(){ const n = parseInt(_pr && _pr.dias_primer_envio, 10); if (Number.isFinite(n) && n > 0) return n; throw new Error(_FALTA_CASILLA("Resolución", "05 · Ultimátum doc")); })();   // v139: sin respaldo
       t = t.replace(/\{\{plazo_resolucion\}\}/g, String(_nr));
     }
     // ===== VARIABLES DE FASE 08 (contratos y cartas de pago) =====
@@ -4558,13 +4567,13 @@ module.exports = function (app) {
     // {{plazo_ampliacion_cycp}} → prórroga que decide el usuario (casilla Ampliación de fase 08 = 08_ULT_AVISO.dias_primer_envio).
     if (/\{\{plazo_ampliacion_cycp\}\}/.test(t)) {
       const _p = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
-      const _n = (function(){ const x = parseInt(_p && _p.dias_primer_envio, 10); return (Number.isFinite(x) && x > 0) ? x : 10; })();
+      const _n = (function(){ const x = parseInt(_p && _p.dias_primer_envio, 10); if (Number.isFinite(x) && x > 0) return x; throw new Error(_FALTA_CASILLA("Ampliación de plazo", "08 · Ultimátum CYCP")); })();   // v139: sin respaldo
       t = t.replace(/\{\{plazo_ampliacion_cycp\}\}/g, String(_n));
     }
     // {{plazo_resolucion_cycp}} → días para la resolución (casilla Resolución de contrato de fase 08 = 08_ULT_RESOLVER.dias_primer_envio).
     if (/\{\{plazo_resolucion_cycp\}\}/.test(t)) {
       const _p = await leerPlantillaMail("08_ULT_RESOLVER").catch(() => null);
-      const _n = (function(){ const x = parseInt(_p && _p.dias_primer_envio, 10); return (Number.isFinite(x) && x > 0) ? x : 5; })();
+      const _n = (function(){ const x = parseInt(_p && _p.dias_primer_envio, 10); if (Number.isFinite(x) && x > 0) return x; throw new Error(_FALTA_CASILLA("Resolución de contrato", "08 · Ultimátum CYCP")); })();   // v139: sin respaldo
       t = t.replace(/\{\{plazo_resolucion_cycp\}\}/g, String(_n));
     }
     // {{fecha_limite_cycp}} → fecha tope inicial de fase 08 (envío contratos + 10), FIJA. Para 08-INICIO/SEGUIMIENTO.
