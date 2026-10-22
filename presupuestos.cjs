@@ -2683,6 +2683,10 @@ module.exports = function (app) {
       flujo_progreso: ["flujo_progreso", "vecino", "texto", "", "", "{n} {total}", "SI", "v19.118: contador encima de cada peticion de documento"],
       flujo_sin_ia: ["flujo_sin_ia", "vecino", "texto", "", "", "{siguiente}", "SI", "v19.118: respuesta al texto libre del vecino con la IA dormida"],
       flujo_falta_antes_de_cerrar: ["flujo_falta_antes_de_cerrar", "vecino", "texto", "", "", "{falta}", "SI", "v127: al cerrar la ficha, si Guille tiene algo en F o INCORRECTO"],
+      // v128 -- texto libre del vecino: pregunta (el bot espera), aviso, y "1" sin paginas
+      flujo_pregunta_espera: ["flujo_pregunta_espera", "vecino", "texto", "", "", "", "SI", "v128: el vecino pregunta algo: va a Pide ayuda y el bot espera a que contestes"],
+      flujo_aviso_vecino: ["flujo_aviso_vecino", "vecino", "texto", "", "", "", "SI", "v128: el vecino avisa de algo (manana lo mando...): va a Pide ayuda y el bot sigue"],
+      flujo_largo_sin_paginas: ["flujo_largo_sin_paginas", "vecino", "texto", "", "", "{documento}", "SI", "v128: responde 1 sin haber mandado ninguna pagina"],
       // v126 -- avisos M por el bot (plantillas de Alberto): la fila se crea al guardar su HX
       ..._FILAS_AVISOS_M };
     if (rowIndex < 0 && _CLAVES_NUEVAS[clave]) {
@@ -2822,6 +2826,21 @@ module.exports = function (app) {
     console.log("[presupuestos] v127: creada la fila flujo_falta_antes_de_cerrar");
   }
   setTimeout(() => { _migFaltaCerrarV127().catch(e => console.error("[presupuestos] v127 falta antes de cerrar:", e.message)); }, 62000);
+  // v128 (22/10/2026, criterio de Guille: "si alguien pregunta algo, que el bot pida ayuda y se pare") -- textos nuevos
+  //   del bot: se crea su fila UNA vez, con el texto por defecto, para que se vean y se puedan cambiar en Flujo bot.
+  async function _migTextoLibreV128() {
+    const sheets = getSheetsClient();
+    const rows = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS })).data.values || [];
+    const NUEVOS = [
+      ["flujo_pregunta_espera", "vecino", "texto", "Gracias por su mensaje. Lo vemos y le contestamos lo antes posible.", "", "", "SI", "v128: el vecino pregunta algo: va a Pide ayuda y el bot espera a que contestes"],
+      ["flujo_aviso_vecino", "vecino", "texto", "De acuerdo, gracias por avisarnos. Cuando lo tenga, env\u00edenoslo por aqu\u00ed.", "", "", "SI", "v128: el vecino avisa de algo (manana lo mando...): va a Pide ayuda y el bot sigue"],
+      ["flujo_largo_sin_paginas", "vecino", "texto", "Todav\u00eda no nos ha llegado ninguna p\u00e1gina de: *{documento}*.\n\nEnv\u00edela primero por aqu\u00ed (foto o PDF) y, cuando haya mandado todas, responda *1*.\nSi no lo tiene, escr\u00edbanoslo y lo vemos.", "", "{documento}", "SI", "v128: responde 1 sin haber mandado ninguna pagina"],
+    ].filter(f => !rows.some(x => x && String(x[0] || "").trim() === f[0]));
+    if (!NUEVOS.length) return;
+    await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: NUEVOS } });
+    console.log("[presupuestos] v128: creadas las filas", NUEVOS.map(f => f[0]).join(", "));
+  }
+  setTimeout(() => { _migTextoLibreV128().catch(e => console.error("[presupuestos] v128 textos libres:", e.message)); }, 64000);
   async function _migBotV19118() {
     const sheets = getSheetsClient();
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
@@ -10319,7 +10338,10 @@ module.exports = function (app) {
       card("flujo_documento_completo","doc - validado",{}),
       card("flujo_sin_opcional","doc - seguir sin opcional",{}),
       card("flujo_progreso","doc - contador ({n} de {total})",{}),   // v19.118
-      card("flujo_sin_ia","texto del vecino con la IA dormida",{}),   // v19.118
+      card("flujo_pregunta_espera","texto del vecino - pregunta (el bot espera)",{}),   // v128
+      card("flujo_aviso_vecino","texto del vecino - aviso (el bot sigue)",{}),   // v128
+      card("flujo_largo_sin_paginas","doc - \"1\" sin ninguna página ({documento})",{}),   // v128
+      card("flujo_sin_ia","texto del vecino con la IA dormida (sustituida por las dos de arriba)",{}),   // v19.118; v128: lo sustituyen las dos de arriba
       card("flujo_falta_antes_de_cerrar","doc - falta algo al terminar ({falta})",{}),   // v127
     ].map(c => "<div>" + c + "</div>").join("");
     const erroresCards = stack([["error_mensaje","error - mensaje"],["error_documento","error - doc"]]);

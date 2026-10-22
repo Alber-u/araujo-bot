@@ -2920,6 +2920,7 @@ async function manejarMensajeWhatsApp(req, res) {
     return (
       await handlePreguntaTipo(ctx) ||
       await handleListoDocumentoLargo(ctx) ||
+      await handleTextoLibreVecino(ctx) ||   // v128: preguntas -> Pide ayuda y el bot espera
       await handleTextoRecogidaDocumentacion(ctx) ||
       await handlePreguntaFinanciacion(ctx) ||
       await handleTextoFinanciacion(ctx) ||
@@ -3026,6 +3027,9 @@ async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, d
 //   y, si no contesta, el bot lo da por terminado solo a los 15 minutos de la ultima pagina
 //   (temporizador en memoria + repaso en el job de cada hora, por si el servidor se reinicia).
 const _RESP_FIN_PAGINAS = ["listo", "1", "1\ufe0f\u20e3", "si", "s\u00ed", "ya", "ok", "vale", "ya esta", "ya est\u00e1", "estan todas", "est\u00e1n todas", "todas", "terminado", "fin"];
+function _txtLargoSinPaginas(doc) {   // v128
+  return txtPlant("flujo_largo_sin_paginas", "Todav\u00eda no nos ha llegado ninguna p\u00e1gina de: *{documento}*.\n\nEnv\u00edela primero por aqu\u00ed (foto o PDF) y, cuando haya mandado todas, responda *1*.\nSi no lo tiene, escr\u00edbanoslo y lo vemos.", { documento: labelDocumento(doc) });
+}
 function esFinDePaginas(msg, documentoActual) {
   const t = String(msg || "").trim().toLowerCase().replace(/[.!]+$/, "");
   if (t === "listo") return true;
@@ -3092,15 +3096,103 @@ async function cerrarDocumentoLargo(telefono, expediente) {
       return { texto: txtPlant("flujo_documento_completo", "") };
 }
 
+// v128 (22/10/2026, criterio de Guille: "si alguien pregunta algo, que el bot pida ayuda y se pare... la gente
+//   quiere respuestas antes de seguir") -- con la IA dormida, TODO texto con contenido llega a "Pide ayuda" (antes se
+//   perdian los escritos durante un documento de varias paginas, en la forma de pago, tras un tiempo callado, al
+//   decir "ya lo mande" o con la ficha cerrada: el bot repetia su mensaje y nadie se enteraba). Tres clases:
+//   - corto ("ok", "1", "gracias", saludos): como siempre (o silencio si el bot esta esperando a Guille);
+//   - pregunta o queja: "Gracias por su mensaje. Lo vemos..." (flujo_pregunta_espera) y el bot SE PARA: no le
+//     repite nada ni le manda recordatorios hasta que Guille conteste (Pide ayuda revisado) o el vecino siga solo
+//     (manda un archivo o contesta lo que se le pregunta). Marca en bot_expedientes col AD: "PREGUNTA <fecha>";
+//   - aviso ("mañana lo mando"): "De acuerdo, gracias..." (flujo_aviso_vecino), sin pararse.
+//   Lo que si es la respuesta del paso (forma de pago, saltar un opcional, "1" de las paginas) sigue su camino.
+const _RE_PREGUNTA_VECINO = new RegExp("(?:^|[^\\p{L}])(qué|cómo|cuándo|cuánt[oa]s?|cuál(es)?|dónde|quién(es)?|por ?qu[eé]|puedo|pueden|puede|podr[ií]a[ns]?|necesit\\p{L}*|hace falta|tengo que|hay que|no entiendo|no s[eé]|duda\\p{L}*|ayuda|hablar|persona|llam\\p{L}*|tel[eé]fono|ya (te |os |se |lo |la |los |las )*(he |hemos )?(mand|envi|entreg|adjunt|aport|pas)\\p{L}*|otra vez|de nuevo|funciona|error|equivoc\\p{L}*|reiniciar|empezar|cancelar|no tengo|no puedo|revis\\p{L}*|correcto|correo|email|mail|pregunta\\p{L}*|respond\\p{L}*|tendr[i\u00ed]a(mos)? que|deb[eo]|deber[i\u00ed]a\\p{L}*|no (he|hemos) recibido|no soy)(?![\\p{L}])", "iu");
+// sin tilde ("que", "como", "cuando"...) solo cuenta como pregunta al principio del mensaje: en medio suele ser otra cosa ("asi que", "cuando lo tenga")
+const _RE_PREGUNTA_INICIO = /^\s*(y\s+)?(que|como|cuando|cuant[oa]s?|cual(es)?|donde|quien(es)?)(?![\p{L}])/iu;
+function clasificarTextoVecino(texto) {
+  const t = String(texto || "").replace(/\s+/g, " ").trim();
+  if (/[?\u00bf]/.test(t)) return "pregunta";   // tambien "??" (caso Ardilla 9 1-19)
+  const letras = t.replace(/[^\p{L}\p{N}]/gu, "");
+  if (letras.length < 3 || esMensajeAmbiguo(t)) return "corto";
+  if (/^(ok|okey|okay|vale|si|sí|no|perfecto|bien|claro|entendido|recibido|de acuerdo|hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|gracias|muchas gracias|mil gracias|ok gracias|vale gracias|listo|hecho|enviado|genial|estupendo)[\s.!,\p{Extended_Pictographic}️]*$/iu.test(t)) return "corto";
+  if (_RE_PREGUNTA_VECINO.test(t) || _RE_PREGUNTA_INICIO.test(t)) return "pregunta";
+  return "aviso";
+}
+function _esRespuestaDelPaso(msgOriginal, msg, expediente) {
+  const p = expediente.paso_actual, d = expediente.documento_actual;
+  if (p === "pregunta_financiacion") return !!mapFinanciacion(msg) && !/[?¿]/.test(String(msgOriginal || ""));
+  if (p === "recogida_documentacion" && d && esDocumentoOpcional(expediente.tipo_expediente, d) && esIntencionSaltarOpcional(String(msgOriginal || "").trim().toLowerCase())) return true;
+  if ((p === "recogida_documentacion" || p === "recogida_financiacion") && d && esFinDePaginas(msg, d)) return true;
+  return false;
+}
+// Marca de "el bot espera a Guille" (col AD) y su "Pide ayuda" (AC texto, AE revisado)
+async function _leerPausaBot(rowIndex) {
+  try {
+    const v = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AC" + rowIndex + ":AE" + rowIndex })).data.values || [[]])[0] || [];
+    const marca = String(v[1] || "").trim();
+    const m = marca.match(/^PREGUNTA\s+(\S+)/);
+    return { marca, pausado: !!m && String(v[2] || "").trim() !== "1", desde: m ? m[1] : "" };
+  } catch (e) { return { marca: "", pausado: false, desde: "" }; }
+}
+async function _ponerPausaBot(rowIndex, valor) {
+  try { await getSheetsClient().spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AD" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[valor]] } }); }
+  catch (e) { console.error("[bot] pausa por pregunta:", e.message); }
+}
+async function responderSinMensaje(res, telefono, mensajeCliente) {
+  try { await guardarContacto(telefono, mensajeCliente, "texto", ""); } catch (e) {}
+  if (!res) return "";
+  return res.type("text/xml").send(new twilio.twiml.MessagingResponse().toString());
+}
+async function handleTextoLibreVecino({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
+  if (iaActiva()) return;   // con la IA despierta manda ella (como antes)
+  if (!expediente || !expediente.rowIndex) return;
+  const _PASOS = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion", "finalizado"];
+  if (!_PASOS.includes(expediente.paso_actual)) return;
+  if (numMedia > 0) {   // sigue por su cuenta: el bot deja de esperar
+    const pz = await _leerPausaBot(expediente.rowIndex);
+    if (pz.marca) await _ponerPausaBot(expediente.rowIndex, "");
+    return;
+  }
+  const t = String(msgOriginal || "").trim();
+  if (!t) return;
+  const pz = await _leerPausaBot(expediente.rowIndex);
+  if (pz.marca && !pz.pausado) { await _ponerPausaBot(expediente.rowIndex, ""); pz.marca = ""; }   // ya contestada por Guille
+  if (_esRespuestaDelPaso(msgOriginal, msg, expediente)) { if (pz.marca) await _ponerPausaBot(expediente.rowIndex, ""); return; }
+  const clase = clasificarTextoVecino(t);
+  if (clase === "corto") {
+    if (!pz.pausado && esMensajeAmbiguo(t)) return;   // como siempre ("ok", "1", saludos)
+    if (!pz.pausado) return responderSinMensaje(res, telefono, t);   // "muchas gracias", "ok gracias"...: no hace falta contestar
+    return responderSinMensaje(res, telefono, t);   // espera a Guille: no le insiste
+  }
+  // pregunta o aviso: lo lee Guille
+  try {
+    marcarAtencionHumana(telefono, t).catch(() => {});
+    notificarEquipo("atencion_humana", { nombre: expediente.nombre, comunidad: expediente.comunidad, vivienda: expediente.vivienda,
+      telefono, mensaje: t.slice(0, 100), motivo: clase === "pregunta" ? "pregunta del vecino (el bot espera)" : "aviso del vecino" }).catch(() => {});
+  } catch (e) {}
+  // el vecino ha vuelto: se limpia el "dormido" por inactividad, como hacia el aviso de vuelta
+  try {
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    if (expediente.alerta_plazo === "recordatorio_24h" || expediente.alerta_plazo === "recordatorio_72h") expediente.alerta_plazo = "";
+    await actualizarExpediente(expediente.rowIndex, expediente);
+  } catch (e) {}
+  if (clase === "pregunta" || pz.pausado) {
+    // ya contestado hace poco con lo mismo (varios mensajes seguidos): silencio
+    const reciente = pz.pausado && pz.desde && (Date.now() - new Date(pz.desde).getTime()) < 30 * 60 * 1000;
+    await _ponerPausaBot(expediente.rowIndex, "PREGUNTA " + (reciente ? pz.desde : ahoraISO()));
+    if (reciente) return responderSinMensaje(res, telefono, t);
+    if (clase === "pregunta") return responderYLog(res, telefono, t, "texto", txtPlant("flujo_pregunta_espera", "Gracias por su mensaje. Lo vemos y le contestamos lo antes posible."));
+  }
+  return responderYLog(res, telefono, t, "texto", txtPlant("flujo_aviso_vecino", "De acuerdo, gracias por avisarnos. Cuando lo tenga, envíenoslo por aquí."));
+}
+
 async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
     // ================= LISTO PARA DOCUMENTOS LARGOS =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion" && esFinDePaginas(msg, expediente.documento_actual)) {
       const hayArchivo = await existeArchivoParaDocumento(telefono, expediente.documento_actual);
       if (!hayArchivo) {
         if (String(msg || "").trim().toLowerCase() !== "listo") return undefined;   // v19.118: "1", "si"... sin paginas -> sigue el flujo normal
-        return responderYLog(res, telefono, msgOriginal, "texto",
-          "Todavia no hemos recibido ningun archivo para este documento.\n\n" +
-          "Primero envialo por aqui y cuando hayas mandado todas las paginas, responde 1.");
+        return responderYLog(res, telefono, msgOriginal, "texto", _txtLargoSinPaginas(expediente.documento_actual));
       }
       const _k = normalizarTelefono(telefono); if (_timersPaginas[_k]) { clearTimeout(_timersPaginas[_k]); delete _timersPaginas[_k]; }
       const r = await cerrarDocumentoLargo(telefono, expediente);
@@ -3447,6 +3539,12 @@ function esIntencionSaltarOpcional(texto) {
     /^continua\s+sin\s+eso$/i,
     /^seguir\s+sin\s+eso$/i,
     /^mejor\s+sin\s+eso$/i,
+    // v128 (casos Ardilla 9 1-17 y 0-7): el padron, dicho de otras formas
+    /empadronamiento\s*:?\s*no\b/i,
+    /no\s+(estoy|estamos|est[aá]|est[aá]n)\s+empadronad/i,
+    /no\s+(vivo|vivimos|vive|viven|resido|residimos|reside)\s+(all[ií]|ah[ií]|aqu[ií]|en\s+(el|la|ese|esa|este|esta)\s+(piso|vivienda|casa))/i,
+    /(apartamento|vivienda|piso)\s+(vacacional|tur[ií]stic)/i,
+    /no\s+tengo\s+(el\s+)?(padr[oó]n|empadronamiento|certificado\s+de\s+empadronamiento)/i,
   ];
   return patrones.some((p) => p.test(t));
 }
@@ -3498,6 +3596,10 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
       }
 
       if (DOCS_LARGOS.includes(expediente.documento_actual)) {
+        // v128 (caso Malvaloca 1 1D): "1" sin haber mandado ninguna pagina -> se le dice claro (antes, el mismo
+        //   "Envia ..." en bucle)
+        if (esFinDePaginas(msg, expediente.documento_actual) && !(await existeArchivoParaDocumento(telefono, expediente.documento_actual)))
+          return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", _txtLargoSinPaginas(expediente.documento_actual));
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
           txtPlant("flujo_seguimos_largo", "", { documento: labelDocumento(expediente.documento_actual) }));
       }
@@ -4168,6 +4270,7 @@ async function manejarMensajeWhatsAppBackground(req) {
   if (!expediente) { await crearExpedienteInicial(telefono, datosVecino); expediente = await buscarExpedientePorTelefono(telefono); }
   // ctx sin res — los handlers usan responderYLog(null,...) en modo background
   const ctx = { req, res: null, telefono, msgOriginal, msg, numMedia, datosVecino, expediente };
+  try { await handleTextoLibreVecino(ctx); } catch (e) {}   // v128: manda un archivo = sigue por su cuenta, el bot deja de esperar
   const respuesta = await handleArchivos(ctx);
   return respuesta || "Hemos recibido tu documento y lo estamos revisando.";
 }
@@ -5037,6 +5140,12 @@ async function ejecutarJobSeguimiento() {
     // callado por el horario = repaso bien hecho (si no, HOY avisaba "el repaso automatico no ha terminado")
     if (!_hJob.dentro) { console.log("Job seguimiento: fuera del horario de comunicaciones (" + _horarioMod.textoHorario(horarioBot()) + "); proxima apertura " + (_hJob.texto || "?")); _saludBot.jobOk = Date.now(); _saludBot.jobErr = ""; return; }
     const expedientes = await leerTodosExpedientes();
+    // v128 -- vecinos con una pregunta sin contestar (bot_expedientes AD = "PREGUNTA ..." y AE sin revisar): sin recordatorios
+    const _esperan = new Set();
+    try {
+      const _ax = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:AE" })).data.values || [];
+      for (let i = 1; i < _ax.length; i++) { const x = _ax[i]; if (x && x[0] && /^PREGUNTA\s/.test(String(x[29] || "").trim()) && String(x[30] || "").trim() !== "1") _esperan.add(normalizarTelefono(x[0])); }
+    } catch (e) { console.error("Job: leer pausas:", e.message); }
 
     for (let expediente of expedientes) {
       // (#1) RECORDATORIO DE PRESENTACION: el vecino recibio la presentacion y no respondio (sigue en pregunta_tipo).
@@ -5070,6 +5179,7 @@ async function ejecutarJobSeguimiento() {
       // Solo expedientes activos con documentos pendientes
       const pasosActivos = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion"];
       if (!pasosActivos.includes(expediente.paso_actual)) { omitidos++; continue; }
+      if (_esperan.has(normalizarTelefono(expediente.telefono))) { omitidos++; continue; }   // v128: espera a Guille
       if (!splitList(expediente.documentos_pendientes).length) { omitidos++; continue; }
       if (!expediente.telefono) { omitidos++; continue; }
 
