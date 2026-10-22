@@ -4440,6 +4440,23 @@ module.exports = function (app) {
     }
     let t = sustituirVariables(texto, comu);
     if (!t) return "";
+    // v130 (22/10/2026, criterio de Guille) -- {{si_financiacion}}: marca que se pone al principio de una
+    //   linea de la plantilla (el texto sigue en el Sheet, regla 9). Si algun piso de la comunidad tiene
+    //   Forma de pago 6, 12, 18 o IPREM (pisos col AM; FFCC NO cuenta), la linea se queda (sin la marca);
+    //   si no, la linea entera desaparece. La usa 08-FIN CYCP.
+    if (/\{\{si_financiacion\}\}/.test(t)) {
+      let _hayFin = false;
+      try {
+        const _rows = await _leerRangoCorto(RANGO_PISOS, 3000);
+        const _h = _rows[0] || [];
+        const _iC = _h.indexOf("comunidad"), _iF = _h.indexOf("est_piso_meses_financiar");
+        const _n = x => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+        const _obj = _n(comu && comu.direccion);
+        if (_iC >= 0 && _iF >= 0) _hayFin = _rows.slice(1).some(f => f && _n(f[_iC]) === _obj && /^(6|12|18|IPREM)$/i.test(String(f[_iF] || "").trim()));
+      } catch (e) { console.warn("[presupuestos] si_financiacion:", e && e.message); _hayFin = true; }
+      if (_hayFin) t = t.replace(/\{\{si_financiacion\}\}/g, "");
+      else t = t.replace(/^[^\n]*\{\{si_financiacion\}\}[^\n]*(\r?\n|$)/gm, "");
+    }
     const necesitaResumen = /\{\{(DOC_CCPP|DOC_PISOS|PCT_PISOS|DOC_PISOS_SIN_MOVIL)\}\}/.test(t);
     if (necesitaResumen) {
       const r = await calcularResumenDocumentacion(comu);
@@ -8916,7 +8933,9 @@ module.exports = function (app) {
             const enviados = data.estado.enviados || 0;
             const max = data.plantilla.max_envios || 0;
             const stEl = document.getElementById('ptl-mm-estado');
-            if (max > 0) {
+            stEl.textContent = '';
+            // v130 (22/10/2026): la nota del cron solo donde hay reenvios automaticos de verdad
+            if (max > 0 && (fase === '01_CONTACTO' || fase === '03_ENVIO_PTO')) {
               // 'enviados' aquí es el total (manuales + automáticos). Para el
               // primer envío manual de la fase será 0. max_envios es el tope
               // de reenvíos automáticos. Mostramos info útil sin mezclar.
