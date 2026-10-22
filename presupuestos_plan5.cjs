@@ -857,6 +857,12 @@ function _p5tablaPresupuesto(dsg, cuadro, matX){
       diam = _p5esc(_p5diam(l.variante));
       precio = _p5eur((l.precio||0)*fac(l.tipo));
       cant = _p5num(l.cantidad) + (l.ud?(" "+_p5esc(l.ud)):"");
+    } else if(r.fuentes.length===1 && r.num==="1.5.1"){
+      // v128 (22/10/2026, criterio de Guille: "tendra que salir 2 x 65 = 130"): la cerradura (coste ALB) con su
+      //   cantidad y su precio unitario de venta, no "1 ud" por el total (caso Doctor Jaime Marcos 3)
+      var l15=r.fuentes[0];
+      precio = _p5eur((l15.precio||0)*fac(l15.tipo));
+      cant = _p5num(l15.cantidad) + " ud";
     } else if(r.fuentes.length===1 && String(r.num).indexOf("3.")===0){
       var l3=r.fuentes[0];
       precio = _p5eur((l3.precio||0)*fac(l3.tipo));
