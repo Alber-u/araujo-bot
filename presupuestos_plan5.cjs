@@ -1377,6 +1377,8 @@ function _p5paginaImagenes(R, meta, cuadro, saved){
   var _padWuso = 20;  // <-- ancho columna USO (%)
   var _padWsup = 14;  // <-- ancho columna SUP. m2 (%)
   var _padWbat = 14;  // <-- ancho columna BAT (%)   (los cuatro deben sumar 100)
+  // v135 (22/10/2026): la caja del catastro lleva contain:size -> su alto lo marcan las 2 filas de fotos y no la tabla;
+  // si la tabla es mas larga, se recortan las filas en blanco del final; y si ni las de datos caben, un script baja la letra.
   var _padFilas = 62;  // <-- nº de filas que se dibuja SIEMPRE (si hay menos pisos, rellena en blanco)
   var sv = saved || {};
   var cat = Array.isArray(sv.catastro) ? sv.catastro : [];
@@ -1386,8 +1388,8 @@ function _p5paginaImagenes(R, meta, cuadro, saved){
   var num = _p5cap((f.numero != null && f.numero !== "") ? f.numero : sp.num);
   var tv = (f.tipo_via || "").toString().toUpperCase().trim();
   var cab = ((tv ? tv + " " : "") + via + (num ? " " + num : "")).trim();
-  var _filasArr = cat.map(function(r){
-    return "<tr><td class=\"pl\">Pl:" + _p5esc(r.planta||"") + " Pt:" + _p5esc(r.puerta||"") + "</td><td class=\"cc\">" + _p5esc(r.uso||"") + "</td><td class=\"cc\">" + _p5esc(r.sup||"") + "</td><td class=\"cc\">" + _p5esc(r.bat||"") + "</td></tr>";
+  var _filasArr = cat.map(function(r, i){
+    return "<tr" + (i === cat.length - 1 ? " class=\"p5last\"" : "") + "><td class=\"pl\">Pl:" + _p5esc(r.planta||"") + " Pt:" + _p5esc(r.puerta||"") + "</td><td class=\"cc\">" + _p5esc(r.uso||"") + "</td><td class=\"cc\">" + _p5esc(r.sup||"") + "</td><td class=\"cc\">" + _p5esc(r.bat||"") + "</td></tr>";
   });
   for (var _fi = _filasArr.length; _fi < _padFilas; _fi++){ _filasArr.push("<tr><td class=\"pl\">&nbsp;</td><td class=\"cc\"></td><td class=\"cc\"></td><td class=\"cc\"></td></tr>"); }
   var filas = _filasArr.join("");
@@ -1410,11 +1412,13 @@ function _p5paginaImagenes(R, meta, cuadro, saved){
       : ("<span style=\"color:#b6c2d2;font-size:10px\">" + nn + ".png</span>");
     celdas += "<div class=\"p5imgcell\"><div class=\"p5imgbox\">" + inner + "</div><div class=\"p5imglab\">" + _p5esc(ETIQ[k] || ("IMAGEN " + (k+1))) + "</div></div>";
   }
+  // v135: si las filas con datos no caben en el alto de las 2 filas de fotos, se reduce la letra del catastro hasta que quepan
+  celdas += "<script>(function(){try{var b=document.querySelector('.p5imgs .p5padbox');var t=b&&b.querySelector('table');var l=t&&t.querySelector('tr.p5last');if(!l)return;var fs=" + _padFS + ";for(var i=0;i<40&&l.getBoundingClientRect().bottom>b.getBoundingClientRect().bottom-2;i++){fs-=0.25;t.style.fontSize=fs+'px';}}catch(e){}})();</script>";
   if (_hasCroq) { celdas += "<script>window.__P5_DIST__=" + _distData + ";\n" + _P5_DIST_JS + "</script>"; }
   return "<div class=\"sheet p5imgs\">"
     + "<script>window.__P5_NOIMG__=" + JSON.stringify(_P5_NOIMG) + ";</script>"
     + "<style>"
-    + ".p5imgs .p5area{display:grid;grid-template-columns:repeat(5,1fr);grid-auto-flow:row;column-gap:6px;row-gap:50px;margin:6px 0 12px}.p5imgs .p5padbox{grid-column:1 / span 2;grid-row:1 / span 2;overflow:hidden}" + ".p5imgs .p5padron{width:100%;border-collapse:collapse;font-size:" + _padFS + "px;table-layout:fixed;transform-origin:top left}"
+    + ".p5imgs .p5area{display:grid;grid-template-columns:repeat(5,1fr);grid-auto-flow:row;column-gap:6px;row-gap:50px;margin:6px 0 12px}.p5imgs .p5padbox{grid-column:1 / span 2;grid-row:1 / span 2;overflow:hidden;contain:size}" + ".p5imgs .p5padron{width:100%;border-collapse:collapse;font-size:" + _padFS + "px;table-layout:fixed;transform-origin:top left}"
     + ".p5imgs .p5padron th{background:#1f3a8a;color:#fff;padding:1px 6px;text-align:center;word-break:break-word}"
     + ".p5imgs .p5padron td.cc{text-align:center}"
     + ".p5imgs .p5padron td{border:1px solid #cbd5e1;padding:0 4px;line-height:" + _padLH + "}"
