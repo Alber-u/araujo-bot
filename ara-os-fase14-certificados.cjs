@@ -1105,7 +1105,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
 
     // Orden = rótulo físico (foto). Las libres (X) no van en el CO 073.
     // La cuadrícula ya viene validada desde /generar-certificados.
-    const cuadriculaCO73 = cuadriculaDeBateria(tecnicos, emasesaRT);
+    const cuadriculaCO73 = cuadriculaDeBateria(tecnicos, emasesaRT, null, tecnicos._cuadricula);
     const tomas = cuadriculaCO73.celdas
       .filter(c => c.tipo !== "libre")
       .map(c => ({ ...c, toma: `${c.fila}-${c.col}`, _senal_rotulo: c.senal }));
@@ -1181,7 +1181,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("bateria_marca", tecnicos.bateria_marca || "");
     s("bateria_orden", String(tecnicos._indice_bateria || 1));   // 1ª, 2ª… batería de la obra
 
-    const cuadricula = cuadriculaDeBateria(tecnicos, emasesaRT, rotuloBateria);
+    const cuadricula = cuadriculaDeBateria(tecnicos, emasesaRT, rotuloBateria, tecnicos._cuadricula);
     const numTomas = String(cuadricula.celdas.filter(c => c.tipo !== "libre").length || "");
     s("bateria_num_tomas", numTomas);
     // (08/10/2026) el mismo campo que la «Localización» del CO 080 (la «Ubicación» del PDF de EMASESA, «OT», no lo es)
@@ -1370,16 +1370,22 @@ module.exports = function setupAraOSFase14Certificados(app) {
       // toma_F_C_* que pinta el modal se sobrescriben con la cuadrícula
       // recalculada: así una foto subida o corregida después se refleja
       // siempre, en vez de quedarse con lo que se guardó la primera vez.
+      const rtPorOrden = Object.fromEntries((bateriasEmasesa || []).map(e => [normOrden(e.bateria_orden), e]));
+      const obraCu = cuadriculasDeObra(baterias, rtPorOrden);
+      const plantasRotulos = plantasDeRotulos(obraCu);
       const baterias_completas = baterias.map(b => {
         const orden = parseInt(b.bateria_orden, 10) || 1;
         const em = bateriasEmasesa.find(e => parseInt(e.bateria_orden, 10) === orden) || null;
-        const cuadricula = cuadriculaDeBateria(b, em);
+        const cuadricula = obraCu.porOrden[normOrden(b.bateria_orden)] || cuadriculaDeBateria(b, em);
         const out = { ...b, emasesa: emasesaParaMostrar(em, b), cuadricula };
         if (!cuadricula.sin_rotulo) {
           Object.assign(out, camposCuadricula(cuadricula));
           out.bateria_num_filas = String(cuadricula.num_filas);
           out.bateria_num_columnas = String(cuadricula.num_cols);
         }
+        // (22/10/2026) «Nº plantas» vacío: el presupuesto no lo trae; sugerencia con la planta más alta de los rótulos
+        // de la obra («B+10»). El modal la propone y JM la confirma (no se escribe sola en el certificado).
+        if (!String(b.num_plantas || "").trim() && plantasRotulos) out.num_plantas_rotulo = plantasRotulos;
         return out;
       });
 
@@ -1395,6 +1401,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
         // Estado para avisar en el modal antes de generar
         puede_generar: errores_cuadricula.length === 0,
         errores_cuadricula,
+        // (22/10/2026) tomas de los PDF que no salen en ningún rótulo: aviso, no bloquea (que JM confirme si existen)
+        avisos_cuadricula: [
+          ...baterias_completas.map(b => avisoModeloBateria(b.bateria_marca, b.cuadricula, baterias_completas.length > 1 ? normOrden(b.bateria_orden) : null)).filter(Boolean),
+          ...obraCu.avisos,
+        ],
+        tomas_sin_rotulo: obraCu.tomas_sin_colocar,
         avisos_generar,
         certificados_desactualizados: desactualizados.desactualizados,
         certificados_desactualizados_motivo: desactualizados.motivo,
@@ -1689,8 +1701,15 @@ module.exports = function setupAraOSFase14Certificados(app) {
       for (const bat of baterias) {
         const orden = parseInt(bat.bateria_orden, 10) || 1;
         rtPorOrden[orden] = await leerEmasesaRT(com.comunidad, orden);
-        const cu = cuadriculaDeBateria(bat, rtPorOrden[orden]);
+      }
+      // (22/10/2026) el cruce, con los PDF de todas las baterías juntos; las tomas sin rótulo sólo avisan
+      const obraCu = cuadriculasDeObra(baterias, rtPorOrden);
+      for (const bat of baterias) {
+        const orden = parseInt(bat.bateria_orden, 10) || 1;
+        const cu = obraCu.porOrden[normOrden(bat.bateria_orden)];
         if (!cu.ok) erroresCuadricula.push({ bateria_orden: orden, errores: cu.errores, resumen: textoResumen(cu, orden) });
+        // nº de filas y columnas del CO 080 = los de la foto (nunca los que salían del nº de toma del PDF)
+        if (!cu.sin_rotulo) Object.assign(bat, { bateria_num_filas: String(cu.num_filas), bateria_num_columnas: String(cu.num_cols) });
       }
       if (erroresCuadricula.length) {
         // (08/10/2026) el aviso, corto: un resumen por batería; el detalle va en errores_cuadricula (desplegable)
@@ -1737,7 +1756,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
       // 2. CO 073 + RT — uno por batería (con los datos de la obra que falten en la batería, como el CO 080, y su
       //    número de orden en la obra: 1ª, 2ª…)
       for (const [idx, bat0] of baterias.entries()) {
-        const bat = { ...tecnicosCO080(bat0, baterias), _indice_bateria: idx + 1 };
+        const bat = { ...tecnicosCO080(bat0, baterias), _indice_bateria: idx + 1, _cuadricula: obraCu.porOrden[normOrden(bat0.bateria_orden)] };
         const orden = parseInt(bat.bateria_orden, 10) || 1;
         const emasesaRT = rtPorOrden[orden];
 
@@ -1846,10 +1865,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
     parsearTextoEmasesa,
     parsearPdfRelacionTomas,
     montarCuadricula,
+    montarCuadriculasObra,
+    avisoModeloBateria,
     camposCuadricula,
     textoResumen,
     aplicarEdiciones,
     claveToma,
+    claveCelda,
     abasteceA,
     ampliacionToma,
     normalizarTomas,
@@ -1935,9 +1957,39 @@ module.exports = function setupAraOSFase14Certificados(app) {
     return faltan;
   }
 
+  // (22/10/2026) Cuadrículas de TODAS las baterías de la obra a la vez: el PDF de EMASESA es genérico y el cruce por
+  // piso+puerta va contra los PDF de todas las baterías juntos (el 4º de Doña Francisquita 20 viene en el PDF de la
+  // 32269 y está en la batería pequeña). baterias = datos técnicos; rtPorOrden = { orden: fila de EMASESA RT }.
+  // Devuelve { porOrden: { orden: cuadrícula }, avisos, tomas_sin_colocar } (lib/relacion-tomas.cjs).
+  function cuadriculasDeObra(baterias, rtPorOrden) {
+    return montarCuadriculasObra((baterias || []).map(b => {
+      const orden = normOrden(b.bateria_orden);
+      const em = rtPorOrden[orden] || null;
+      return { orden, numero_bateria: em?.numero_bateria_emasesa || em?.bateria_numero || "",
+        celdas: em?.rotulo_celdas || [], numFilas: em?.rotulo_num_filas, numCols: em?.rotulo_num_cols, tomas: tomasDeBateria(b, em) };
+    }));
+  }
+  // «B+10»: planta baja + la planta más alta con viviendas en los rótulos de la obra (null sin rótulos)
+  function plantasDeRotulos(obraCu) {
+    let max = -1;
+    for (const cu of Object.values(obraCu?.porOrden || {})) for (const c of cu.celdas || []) {
+      const k = claveCelda(c.senal_rotulo);
+      if (k.tipo === "vivienda" && /^\d+$/.test(k.planta)) max = Math.max(max, parseInt(k.planta, 10));
+    }
+    return max > 0 ? `B+${max}` : null;
+  }
+  async function cuadriculasDeComunidad(comunidad) {
+    const rtTodas = await leerEmasesaRT_todas(comunidad);
+    const baterias = await bateriasDeObra(comunidad, rtTodas);
+    const rtPorOrden = Object.fromEntries(rtTodas.map(e => [normOrden(e.bateria_orden), e]));
+    return { baterias, rtPorOrden, obra: cuadriculasDeObra(baterias, rtPorOrden) };
+  }
+
   // Cuadrícula "Relación de tomas" de una batería: posición = foto del
   // rótulo; destino/caudal/cliente = PDF EMASESA. Ver montarCuadricula.
-  function cuadriculaDeBateria(tecnicos, emasesaRT, rotuloBateria) {
+  // (22/10/2026) Con `cuadriculaObra` (la de cuadriculasDeObra) se usa ésa: el cruce con toda la obra.
+  function cuadriculaDeBateria(tecnicos, emasesaRT, rotuloBateria, cuadriculaObra) {
+    if (cuadriculaObra) return cuadriculaObra;
     return montarCuadricula({
       celdas:   rotuloBateria?.celdas?.length ? rotuloBateria.celdas : (emasesaRT?.rotulo_celdas || []),
       numFilas: rotuloBateria?.numFilas || emasesaRT?.rotulo_num_filas,
@@ -3297,12 +3349,14 @@ INSTRUCCIONES CRÍTICAS:
 
 Valores especiales:
 - "X" = toma libre o sin asignar
-- "C" o "COM" = toma de la comunidad/zonas comunes
+- "C" o "COM" SOLO, sin número delante = toma de la comunidad/zonas comunes
+- Un número con la letra C ("10ºC", "9ºC", "1ºC") es la VIVIENDA puerta C: copia el número y la letra, nunca lo dejes en "C"
 - "BAJO" = planta baja
 - Pisos: "1º", "2º", etc. con letra de puerta si la hay: "1ºA", "2ºB"
 - Si una celda está vacía usa ""
 - Copia cada celda TAL CUAL está escrita ("0ºB" se queda "0ºB", no lo cambies a "BAJO B"). No reordenes ni corrijas: la posición de cada celda es la posición física de la toma.
-- Fíjate bien en la letra de la puerta de cada celda (A/B): es lo que más se confunde.
+- Fíjate bien en la letra de la puerta de cada celda (A/B/C/D): es lo que más se confunde.
+- Fíjate bien en los números manuscritos: el 9 y el 4 se confunden (y el 1 y el 7). Cada piso+puerta aparece una sola vez en el rótulo.
 
 Devuelve SOLO JSON sin markdown:
 {
@@ -3469,11 +3523,9 @@ Devuelve SOLO JSON sin markdown:
         // alguna celda no casa, en vez de descubrirlo al generar.
         let cuadricula = null;
         try {
-          const [rtAct, tec] = await Promise.all([
-            leerEmasesaRT(com.comunidad, orden),
-            leerDatosTecnicos(com.comunidad, orden).catch(() => null),
-          ]);
-          cuadricula = cuadriculaDeBateria(tec, rtAct);
+          // (22/10/2026) con toda la obra: el piso puede venir en el PDF de otra batería
+          const { obra } = await cuadriculasDeComunidad(com.comunidad);
+          cuadricula = obra.porOrden[orden] || null;
         } catch (err) {
           console.warn("[fase14-cert/rotulo] no se pudo calcular la cuadrícula:", err.message);
         }

@@ -26,6 +26,9 @@
  *
  * Hoja `config_dinero` (clave | valor | nota):
  *   nomina_neta_mensual · pleo_saldo · poliza_dispuesta
+ *   (21/10/2026) modelos_aeat = «111 3T 2026 5261,06; 303 3T 2026 2162,56 [aplazado|pagado]»: importe de Eplus
+ *     del trimestre vencido (deuda en D9/D4 hasta ver su cargo en el banco importado)
+ *   (21/10/2026) cobros_anunciados = «2026-10-24:11555,17:Mandarinas 2:F260050; 2026-10-31:19415:Orad:posible»
  *
  * v0.1.0 · 29/09/2026
  */
@@ -51,7 +54,7 @@ const PREV_HEADERS = ["mes", "guardado", "escenario", "caja_fin_mes", "facturaci
 const { asegurarPestana, getSheetsClient } = require("./lib/sheets-tabla.cjs");
 const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.8.0";
+const VERSION = "0.9.0";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;

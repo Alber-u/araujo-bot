@@ -307,29 +307,38 @@ function trimestreDe(iso) {
 //   · saldo = haber − debe de TODO, reclasificaciones incluidas. Es lo que la
 //     contabilidad dice que se debe a Hacienda ahora mismo. Positivo =
 //     acreedor (se debe); negativo = deudor (se ha pagado de más).
+// (21/10/2026) También el trimestre ANTERIOR (el que se liquida el día 20): lo devengado según el libro. La
+// escalera lo cuenta como deuda hasta que su cargo de la AEAT esté en el banco (importado o conciliado), aunque
+// haya pasado el día 20 (el 111 del 3T se cargó el 20/10 y no estaba importado: D9 se quedaba en 13,55 €).
+// El libro se lee desde el 1 de enero: el 4T del año anterior no está (anterior = null).
 function calcularPeriodico(def, hacienda, hoy) {
   const tr = trimestreDe(hoy);
-  let devengado = 0, haberTotal = 0, debeTotal = 0;
+  const trAnt = trimestreDe(sumarDiasISO(tr.desde, -1));
+  const conAnterior = trAnt.desde.slice(0, 4) === tr.desde.slice(0, 4);
+  let devengado = 0, devAnt = 0, haberTotal = 0, debeTotal = 0;
   for (const [cta, movs] of Object.entries(hacienda)) {
     if (!def.cuentas.some(p => cta.startsWith(p))) continue;
     for (const mv of movs) {
       haberTotal += mv.haber; debeTotal += mv.debe;
       if (!mv.recl && mv.fecha >= tr.desde && mv.fecha <= tr.hasta) devengado += mv.haber;
+      if (!mv.recl && mv.fecha >= trAnt.desde && mv.fecha <= trAnt.hasta) devAnt += mv.haber;
     }
   }
   devengado = r2(devengado);
   const saldo = r2(haberTotal - debeTotal);
   const { cuentas, iva, ...limpio } = def;
+  const anterior = conAnterior ? { periodo: trAnt.etiqueta, desde: trAnt.desde, hasta: trAnt.hasta, vencimiento: trAnt.vencimiento, devengado: r2(devAnt) } : null;
   const base = {
     ...limpio,
     periodo: tr.etiqueta,
     vencimiento: tr.vencimiento,
     saldo_cuenta: saldo,
+    anterior,
   };
 
   // IVA: se calcula del devengo (477 − 472), no del saldo de la 4750.
   if (iva) {
-    let repTri = 0, sopTri = 0, repAno = 0, sopAno = 0;
+    let repTri = 0, sopTri = 0, repAno = 0, sopAno = 0, ivaAnt = 0;
     for (const [cta, movs] of Object.entries(hacienda)) {
       const esRep = cta.startsWith(iva.repercutido);
       const esSop = cta.startsWith(iva.soportado);
@@ -342,8 +351,10 @@ function calcularPeriodico(def, hacienda, hoy) {
         if (mv.fecha >= tr.desde && mv.fecha <= tr.hasta) {
           repTri += esRep ? v : 0; sopTri += esSop ? v : 0;
         }
+        if (mv.fecha >= trAnt.desde && mv.fecha <= trAnt.hasta) ivaAnt += esRep ? v : -v;
       }
     }
+    if (base.anterior) base.anterior.devengado = r2(ivaAnt);
     const trimestreIva = r2(repTri - sopTri);
     const anoIva = r2(repAno - sopAno);
     // Lo devengado en el año menos lo que ya se ha pagado (la 4750 recoge
@@ -693,3 +704,4 @@ module.exports = function (app) {
 module.exports.CALENDARIO = CALENDARIO;
 module.exports.construir = construir;
 module.exports.pagoEnBanco = pagoEnBanco;
+module.exports.calcularPeriodico = calcularPeriodico;

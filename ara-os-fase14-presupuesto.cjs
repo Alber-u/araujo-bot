@@ -156,6 +156,28 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
     return null;
   }
 
+  // (22/10/2026) Etiqueta en cualquier columna (la toma de datos no la pone siempre en la A): el valor es la primera
+  // celda con algo a su derecha (hasta 3) o, si no, la de debajo
+  function buscarEnCualquierColumna(matriz, re) {
+    for (let f = 0; f < matriz.length; f++) {
+      const row = matriz[f] || [];
+      for (let c = 0; c < row.length; c++) {
+        if (!row[c] || !re.test(norm(row[c]))) continue;
+        for (let d = 1; d <= 3; d++) if (String(row[c + d] ?? "").trim() !== "") return row[c + d];
+        const abajo = (matriz[f + 1] || [])[c];
+        return String(abajo ?? "").trim() !== "" ? abajo : null;
+      }
+    }
+    return null;
+  }
+  // «BAJO+10», «PB + 10», «Bajo y 10» → «B+10» (como se escribe en los certificados); otra cosa, tal cual
+  function numPlantas(v) {
+    const t = String(v ?? "").trim();
+    if (!t) return "";
+    const m = norm(t).match(/^(?:bajo|baja|pb|b|planta baja)\s*(?:\+|y|mas)\s*(\d+)$/);
+    return m ? `B+${parseInt(m[1], 10)}` : t.toUpperCase();
+  }
+
   // ----------------------------------------------------------------
   // Localizar inicio del DESGLOSE DE LA INSTALACION (cabecera "concepto")
   // ----------------------------------------------------------------
@@ -302,6 +324,9 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
     const grupo_ubicacion          = get("ubicacion", { filaInicio: 38, filaFin: 42 });
     const grupo_tubo_alim_long     = get("longitud tubo alimentacion");
     const aljibe                   = get("aljibe");
+    // (22/10/2026) «Nº PLANTAS» de la toma de datos (Doña Francisquita 20: «BAJO+10»): para el CO 080 / CO 073
+    const num_plantas              = numPlantas(buscarEnCualquierColumna(matriz, /^n[º°o.]?\s*(de\s*)?plantas:?$/));
+    if (num_plantas) encontrados.push("num_plantas"); else faltantes.push("num_plantas");
 
     // Totales (filas 33-50, columnas D/E/F).
     // Búsqueda con `exacto`: la etiqueta debe ser igual (no contener).
@@ -412,6 +437,7 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
       grupo_presion_ubicacion:     String(grupo_ubicacion || "").trim(),
       grupo_presion_tubo_long:     grupo_tubo_alim_long ? Number(grupo_tubo_alim_long) : null,
       aljibe:                      String(aljibe || "").trim(),
+      num_plantas:                 num_plantas,                   // «B+10» (en la toma de datos, «BAJO+10»)
     };
 
     return {
@@ -467,6 +493,9 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
   // ENDPOINT
   // ----------------------------------------------------------------
   const ENDPOINT = "/api/ara-os/panel-obras/fase14/datos-presupuesto";
+
+  // para las pruebas (lib/relacion-tomas-dfrancisquita.test.cjs)
+  if (app && app.locals) app.locals._fase14Presupuesto = { extraerDatos, numPlantas, buscarEnCualquierColumna };
 
   app.options(ENDPOINT, (req, res) => {
     responderCORS(res);
