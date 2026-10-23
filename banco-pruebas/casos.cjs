@@ -746,6 +746,23 @@ const CASOS = [
       ];
     },
   },
+  // ===== v159: todas las ventanas de envío por el bot dicen con quién se habla =====
+  {
+    nombre: "Ventanas de envío por el bot: debajo del título, «Comunidad Piso · Nombre» como en el ro-botón",
+    desde: "v159",
+    prueba: async (S) => {
+      const iA = S.col("pisos", "bot_piso_activo");
+      const f = S.DATA.pisos.find((x, i) => i > 0 && x[0] && x[1] && x[2] && x[4] && String(x[iA >= 0 ? iA : 47]) === "BOT_WHATSAPP");
+      if (!f) return [[false, "hay un piso en W con nombre", "ninguno"]];
+      const d = (await S.call("GET", "/presupuestos/hoy/conversacion", { tel: f[0] })).body || {};
+      const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      const v = d.vecino || {};
+      return [
+        [v.comunidad === String(f[1]).trim() && v.vivienda === String(f[2]).trim() && !!v.nombre, "la conversación dice comunidad, piso y nombre de la ficha", JSON.stringify(v)],
+        [/data-sub="1"[^>]*min-height/.test(hoy) && /d\.vecino\.comunidad \+ ' ' \+ d\.vecino\.vivienda/.test(hoy), "la ventana común de envío tiene la línea y la rellena", ""],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };

@@ -2363,7 +2363,7 @@ module.exports = function (app) {
               var _vPt = await _vistaBot(URL_VISTA_PRES, { ccpp_id: (_swW && _swW.dataset.ccppId) || CCPP_ID, vivienda: (_swW && _swW.dataset.vivienda) || '', telefono: (fila.querySelector('.ptl-vec-telefono') || {}).value || '' });   // v151
               if (_vPt && _vPt.estado === 'ya_presentado') alert('Ese teléfono ya tiene ficha en el bot: no se le manda la presentación otra vez.');
               else if (!_vPt || !_vPt.ok || !_vPt.vista) alert('No se ha podido preparar el mensaje de presentación para el teléfono nuevo (' + ((_vPt && (_vPt.error || _vPt.estado)) || 'sin texto de Twilio') + '), así que no se envía. Se guarda el piso igualmente.');
-              else _enviarPres = await window.ptlConfirmarEnvio('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?', 'Enviar por el bot', { preview: _vPt.vista, tel: _telN });
+              else _enviarPres = await window.ptlConfirmarEnvio('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?', 'Enviar por el bot', { preview: _vPt.vista, tel: _telN, sub: direccion + ' ' + ((fila.querySelector('.ptl-vec-vivienda') || {}).value || '') + (((fila.querySelector('.ptl-vec-nombre') || {}).value || '').trim() ? ' \u00b7 ' + (fila.querySelector('.ptl-vec-nombre') || {}).value.trim() : '') });   // v159: el telefono nuevo aun no esta en la ficha
               if (_enviarPres) fd.append('enviar_presentacion', '1');
               if (window.ptlEsProgramar && window.ptlEsProgramar(_enviarPres)) fd.append('programar', '1');   // v127
             }

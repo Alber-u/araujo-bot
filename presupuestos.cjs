@@ -567,7 +567,7 @@ module.exports = function (app) {
         var _pcPrev = '';
         try { var _pq = await fetch(U.ctexto + (U.ctexto.indexOf('?') < 0 ? '?' : '&') + new URLSearchParams({ tel: b.dataset.tel || '', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '' }).toString()); var _pd = await _pq.json(); if (_pd && _pd.ok) _pcPrev = _pd.texto || ''; } catch (e) {}
         if (!_pcPrev) { alert('No se ha podido leer el mensaje de la plantilla en Twilio, as\u00ed que no se env\u00eda nada. Prueba otra vez en un momento.'); return; }   // v151
-        var rc = await window.ptlConfirmarEnvio('\u00bfEnviar por el bot el mensaje de Pedir contacto a ' + (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + '?\n\nLe pide que responda HOLA. Lo que conteste te llega a ti (Pide ayuda en HOY) y el bot no le responde.', 'Pedir contacto', { tel: b.dataset.tel || '', preview: _pcPrev });
+        var rc = await window.ptlConfirmarEnvio('\u00bfEnviar por el bot el mensaje de Pedir contacto a ' + (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + '?\n\nLe pide que responda HOLA. Lo que conteste te llega a ti (Pide ayuda en HOY) y el bot no le responde.', 'Pedir contacto', { tel: b.dataset.tel || '', sub: fondo.querySelector('[data-sub]').textContent || '', preview: _pcPrev });   // v159
         if (!rc) return;
         bPc.disabled = true; bPc.textContent = 'Enviando...';
         try {
@@ -613,7 +613,7 @@ module.exports = function (app) {
         var _prog = '';
         if (window.ptlHorarioAhora && !window.ptlHorarioAhora().dentro) {
           var rh = await window.ptlConfirmarEnvio(txt + (adj ? (txt ? '\n\n' : '') + '\uD83D\uDCCE ' + (fondo.querySelector('[data-chipn]').textContent || '').replace(/^\uD83D\uDCCE\s*/, '') : ''), 'Contestar por el bot',
-            { tel: b.dataset.tel || '', libre: true, noProg: (adj && !adj.fijo) ? 'lleva un archivo de tu PC (no se puede guardar para m\u00e1s tarde)' : '' });
+            { tel: b.dataset.tel || '', sub: fondo.querySelector('[data-sub]').textContent || '', libre: true, noProg: (adj && !adj.fijo) ? 'lleva un archivo de tu PC (no se puede guardar para m\u00e1s tarde)' : '' });
           if (!rh) return;
           _prog = window.ptlEsProgramar(rh) ? '1' : '';
         }
@@ -6007,7 +6007,8 @@ module.exports = function (app) {
         var fondo = document.createElement('div');
         fondo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center';
         fondo.innerHTML = '<div style="background:#fff;color:#111;border-radius:10px;padding:14px 16px;width:min(620px,94vw);box-shadow:0 8px 30px rgba(0,0,0,.3);text-align:left">'
-          + '<div data-t="1" style="font-weight:700;font-size:14px;margin-bottom:8px"></div>'
+          + '<div data-t="1" style="font-weight:700;font-size:14px;margin-bottom:2px"></div>'
+          + '<div data-sub="1" style="font-size:12px;color:#555;margin-bottom:8px;min-height:15px"></div>'   // v159: con quien se habla (como el ro-boton)
           + '<div data-conv="1" style="display:none;max-height:300px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
           + '<div data-m="1" style="font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word"></div>'
           + '<div data-pv="1" style="display:none;margin-top:10px"><div data-pvt="1" style="font-size:11px;font-weight:700;color:#555;margin-bottom:3px"></div>'
@@ -6019,6 +6020,8 @@ module.exports = function (app) {
           + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-p="1" style="display:none"></button>'
           + '<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm" data-e="1">Enviar</button></div></div>';
         fondo.querySelector('[data-t]').textContent = titulo || 'Enviar por el bot';
+        // v159 -- "Comunidad Piso · Nombre": opc.sub si lo trae quien abre la ventana; si no, el de la ficha de ese telefono
+        var _subEl = fondo.querySelector('[data-sub]'); if (opc && opc.sub) _subEl.textContent = String(opc.sub);
         fondo.querySelector('[data-m]').textContent = String(texto || '');
         // v126 -- vista previa del mensaje: opc.preview (texto) y opc.editable (dentro de las 24 h se puede cambiar)
         var _pvE = null;
@@ -6060,6 +6063,7 @@ module.exports = function (app) {
             // v151 (criterio de Guille: "tengo que ver exactamente lo que voy a enviar") -- aviso M cambiado: ya no sale la
             //   plantilla sino un mensaje tuyo. v155: en cuanto lo cambias, la firma del equipo se escribe DENTRO del recuadro,
             //   arriba (una sola vez; si la borras, no vuelve). Se envia lo que hay en el recuadro.
+            if (d && d.ok && d.vecino && !(opc && opc.sub)) _subEl.textContent = d.vecino.comunidad + ' ' + d.vecino.vivienda + (d.vecino.nombre ? ' \u00b7 ' + d.vecino.nombre : '');   // v159
             if (d && d.ok && d.firma && _pvE && opc && opc.editable) {
               var _orig = String(opc.preview || '').trim(), _puesta = false;
               _pvE.addEventListener('input', function () {
@@ -17682,11 +17686,16 @@ module.exports = function (app) {
       const t9 = (x) => String(x || "").replace(/\D/g, "").slice(-9);
       const k = t9(req.query.tel); if (!k) return res.json({ ok: false, error: "falta el telefono" });
       const sheets = getSheetsClient();
-      const [rc, rd, rx] = await Promise.all([
+      const [rc, rd, rx, rpv] = await Promise.all([
         sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_contactos!A:E" }),
         sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:H" }),
         sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:J" }),
+        sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:E" }),   // v159: con quien se habla
       ]);
+      // v159 (23/10/2026, criterio de Guille: "cuanto mas unificado mejor") -- comunidad, piso y nombre de la ficha del
+      //   telefono, para la linea "Malvaloca 1 1B · David" de TODAS las ventanas de envio por el bot.
+      let vecino = null;
+      for (const r of ((rpv.data.values || []).slice(1))) { if (r && t9(r[0]) === k && r[1]) { vecino = { comunidad: String(r[1] || "").trim(), vivienda: String(r[2] || "").trim(), nombre: String(r[4] || "").replace(/^\s*\(\?\)\s*/, "").trim() }; break; } }
       // v128 (21/10/2026, criterio de Guille: "tiene que salir en verde y quedarse despues en verde... cuando haya
       //   salido se borra [el aviso de programado] y sabemos que se ha enviado") -- lo programado se cruza con
       //   bot_programados (mismo telefono, apuntado a la vez, < 2 min): pendiente = UNA burbuja con el texto y arriba
@@ -17803,7 +17812,7 @@ module.exports = function (app) {
       for (const c of _filasC) { if (/^(texto|archivo)(_fase08|_fuera)?$/.test(String(c[3] || "").trim()) && String(c[0] || "") > ultVecino) ultVecino = String(c[0]); }
       let firma = "";   // v150: firma_equipo (si esta activa), para ensenarla en la ventana de contestar
       try { const _pf = (await leerPlantillasBot()).find(x => x.clave === "firma_equipo"); if (_pf && _pf.activo) firma = String(_pf.texto || "").trim(); } catch (e) {}
-      res.json({ ok: true, items, ultVecino, firma });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
+      res.json({ ok: true, items, ultVecino, firma, vecino });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
     } catch (e) {
       console.error("[presupuestos] GET /hoy/conversacion:", e.message);
       res.json({ ok: false, error: e.message });
