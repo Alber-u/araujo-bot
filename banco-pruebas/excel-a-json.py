@@ -19,6 +19,10 @@ def f(v):
         return v.isoformat()
     if isinstance(v, float) and v.is_integer():
         return str(int(v))
+    if isinstance(v, float):
+        # 23/10/2026: el Sheet de produccion entrega los decimales con coma ("1,5"), y nuestros
+        # ficheros los leen asi; con punto ("1.5") Plan 5 lo tomaba por miles y salia 15.
+        return repr(v).replace(".", ",")
     return str(v)
 
 out = {}

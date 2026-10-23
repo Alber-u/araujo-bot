@@ -431,6 +431,24 @@ const CASOS = [
       ];
     },
   },
+  // ===== banco (23/10/2026): los decimales del Sheet llegan con coma, como en producción =====
+  {
+    nombre: "Mediciones lee bien los precios con decimales (tubo PERT 32 a 1,5 €/m, sujeción a 0,22 €)",
+    desde: "banco 23/10/2026",
+    prueba: async (S) => {
+      const p5 = S.DATA.plan5_toma_datos || [];
+      const r = p5.find((x, j) => j > 0 && /ALBERCHE 6C/i.test(String(x[0] || "")));
+      if (!r) return [[false, "está Alberche 6C en plan5_toma_datos", "no está"]];
+      const j = (await S.call("GET", "/plan5/desglose", { dir: r[0], format: "json" })).body;
+      const L = ((j && j.dsg && j.dsg.lineas) || []);
+      const pr = (c, v) => { const l = L.find((x) => x.concepto === c && String(x.variante) === v); return l ? l.precio : "(no está)"; };
+      const tubo = pr("Tubo distribución (PERT)", "32mm"), suj = pr("Sujección tuberías (PERT)", "32mm");
+      return [
+        [tubo === 1.5, "Tubo distribución (PERT) 32mm a 1,5", tubo],
+        [suj === 0.22, "Sujección tuberías (PERT) 32mm a 0,22", suj],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
