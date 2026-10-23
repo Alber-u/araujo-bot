@@ -529,6 +529,7 @@ module.exports = function (app) {
           g.appendChild(h); g.appendChild(t); w.appendChild(g); cont.appendChild(w);
         });
         cont.scrollTop = cont.scrollHeight;
+        return d;   // v150: la ventana de contestar lee de aqui la firma
       } catch (e) { cont.textContent = 'No se pudo leer la conversación: ' + e.message; }
     }
     function abrirVecino(b) {
@@ -540,7 +541,8 @@ module.exports = function (app) {
         + '<div style="font-weight:700;font-size:14px;margin-bottom:2px">' + (ok ? 'Contestar por el bot' : 'Conversación con el vecino') + '</div>'
         + '<div data-sub="1" style="font-size:12px;color:#555;margin-bottom:8px"></div>'
         + '<div data-conv="1" style="max-height:320px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
-        + (ok ? '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
+        + (ok ? '<div data-firma="1" style="display:none;font-size:12px;color:#555;margin-bottom:4px" title="Se a\u00f1ade sola encima de lo que escribes (se cambia en Flujo bot \u2192 Firma del equipo)"></div>'   // v150
+              + '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
               + '<div data-adj="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px">'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjpc="1" title="PDF, JPG o PNG (hasta 10 MB)">\uD83D\uDCCE Adjuntar</button>'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="solicitud">toma datos</button>'
@@ -558,7 +560,7 @@ module.exports = function (app) {
       var cerrar = function () { fondo.remove(); };
       fondo.querySelector('[data-x]').addEventListener('click', cerrar);
       fondo.addEventListener('click', function (e) { if (e.target === fondo) cerrar(); });
-      conversacion(b, fondo.querySelector('[data-conv]'));
+      var _convP = conversacion(b, fondo.querySelector('[data-conv]'));
       // v128 -- sin 24 h: "Pedir contacto" (plantilla plan5_contacto); su respuesta te llega a ti, el bot no la contesta
       var bPc = fondo.querySelector('[data-pc]');
       if (bPc) bPc.addEventListener('click', async function () {
@@ -578,6 +580,9 @@ module.exports = function (app) {
         } catch (e) { alert('No se ha enviado: ' + e.message); bPc.disabled = false; bPc.textContent = '\uD83D\uDCE8 Pedir contacto'; }
       });
       if (!ok) return;
+      // v150 (23/10/2026, criterio de Guille) -- la firma que se pone sola encima de lo que escribes (plantilla firma_equipo)
+      var _firma = '';
+      Promise.resolve(_convP).then(function (d) { if (d && d.firma) { _firma = d.firma; var fz = fondo.querySelector('[data-firma]'); fz.textContent = 'Se a\u00f1ade arriba: ' + d.firma; fz.style.display = 'block'; } });
       var ta = fondo.querySelector('textarea'); setTimeout(function () { ta.focus(); }, 30);
       // v127 -- adjunto: uno del PC (PDF/JPG/PNG, hasta 10 MB) o uno de los fijos del bot
       var adj = null, fin = fondo.querySelector('input[type=file]'), chip = fondo.querySelector('[data-chip]');
@@ -606,7 +611,7 @@ module.exports = function (app) {
         //   cuando abra el horario, y nunca con un archivo del PC)
         var _prog = '';
         if (window.ptlHorarioAhora && !window.ptlHorarioAhora().dentro) {
-          var rh = await window.ptlConfirmarEnvio(txt + (adj ? (txt ? '\n\n' : '') + '\uD83D\uDCCE ' + (fondo.querySelector('[data-chipn]').textContent || '').replace(/^\uD83D\uDCCE\s*/, '') : ''), 'Contestar por el bot',
+          var rh = await window.ptlConfirmarEnvio((_firma && txt ? _firma + '\n\n' : '') + txt + (adj ? (txt ? '\n\n' : '') + '\uD83D\uDCCE ' + (fondo.querySelector('[data-chipn]').textContent || '').replace(/^\uD83D\uDCCE\s*/, '') : ''), 'Contestar por el bot',
             { tel: b.dataset.tel || '', libre: true, noProg: (adj && !adj.fijo) ? 'lleva un archivo de tu PC (no se puede guardar para m\u00e1s tarde)' : '' });
           if (!rh) return;
           _prog = window.ptlEsProgramar(rh) ? '1' : '';
@@ -2701,6 +2706,7 @@ module.exports = function (app) {
       flujo_pregunta_espera: ["flujo_pregunta_espera", "vecino", "texto", "", "", "", "SI", "v128: el vecino pregunta algo: va a Pide ayuda y el bot espera a que contestes"],
       flujo_aviso_vecino: ["flujo_aviso_vecino", "vecino", "texto", "", "", "", "SI", "v128: el vecino avisa de algo (manana lo mando...): va a Pide ayuda y el bot sigue"],
       flujo_largo_sin_paginas: ["flujo_largo_sin_paginas", "vecino", "texto", "", "", "{documento}", "SI", "v128: responde 1 sin haber mandado ninguna pagina"],
+      firma_equipo: ["firma_equipo", "vecino", "texto", "", "", "", "SI", "v150: va encima de lo que escribe Guille por Contestar por el bot"],
       // v126 -- avisos M por el bot (plantillas de Alberto): la fila se crea al guardar su HX
       ..._FILAS_AVISOS_M };
     if (rowIndex < 0 && _CLAVES_NUEVAS[clave]) {
@@ -2855,6 +2861,16 @@ module.exports = function (app) {
     console.log("[presupuestos] v128: creadas las filas", NUEVOS.map(f => f[0]).join(", "));
   }
   setTimeout(() => { _migTextoLibreV128().catch(e => console.error("[presupuestos] v128 textos libres:", e.message)); }, 64000);
+  // v150 (23/10/2026, criterio de Guille: "que sepan que no es el robot") -- firma de lo que Guille escribe por el bot: se
+  //   crea su fila UNA vez con el texto que eligio Guille; luego se cambia o se apaga en Flujo bot (Firma del equipo).
+  async function _migFirmaV150() {
+    const sheets = getSheetsClient();
+    const rows = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS })).data.values || [];
+    if (rows.some(x => x && String(x[0] || "").trim() === "firma_equipo")) return;
+    await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: [["firma_equipo", "vecino", "texto", "\uD83D\uDC68\u200D\uD83D\uDD27 *Este mensaje es personalizado (no autom\u00e1tico)*", "", "", "SI", "v150: va encima de lo que escribe Guille por Contestar por el bot"]] } });
+    console.log("[presupuestos] v150: creada la fila firma_equipo");
+  }
+  setTimeout(() => { _migFirmaV150().catch(e => console.error("[presupuestos] v150 firma:", e.message)); }, 66000);
   async function _migBotV19118() {
     const sheets = getSheetsClient();
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
@@ -10378,6 +10394,7 @@ module.exports = function (app) {
       card("flujo_pregunta_espera","texto del vecino - pregunta (el bot espera)",{}),   // v128
       card("flujo_aviso_vecino","texto del vecino - aviso (el bot sigue)",{}),   // v128
       card("flujo_largo_sin_paginas","doc - \"1\" sin ninguna página ({documento})",{}),   // v128
+      card("firma_equipo","Firma del equipo (va encima de lo que escribes por el bot)",{}),   // v150
       card("flujo_sin_ia","texto del vecino con la IA dormida (sustituida por las dos de arriba)",{}),   // v19.118; v128: lo sustituyen las dos de arriba
       card("flujo_falta_antes_de_cerrar","doc - falta algo al terminar ({falta})",{}),   // v127
     ].map(c => "<div>" + c + "</div>").join("");
@@ -17721,7 +17738,9 @@ module.exports = function (app) {
       //   cuando abra el horario de comunicaciones (si no, un texto libre no se puede programar)
       let ultVecino = "";
       for (const c of _filasC) { if (/^(texto|archivo)(_fase08|_fuera)?$/.test(String(c[3] || "").trim()) && String(c[0] || "") > ultVecino) ultVecino = String(c[0]); }
-      res.json({ ok: true, items, ultVecino });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
+      let firma = "";   // v150: firma_equipo (si esta activa), para ensenarla en la ventana de contestar
+      try { const _pf = (await leerPlantillasBot()).find(x => x.clave === "firma_equipo"); if (_pf && _pf.activo) firma = String(_pf.texto || "").trim(); } catch (e) {}
+      res.json({ ok: true, items, ultVecino, firma });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
     } catch (e) {
       console.error("[presupuestos] GET /hoy/conversacion:", e.message);
       res.json({ ok: false, error: e.message });

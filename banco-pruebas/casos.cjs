@@ -527,6 +527,39 @@ const CASOS = [
       ];
     },
   },
+  // ===== v150: firma del equipo en lo que escribe Guille por el bot =====
+  {
+    nombre: "Contestar por el bot: lleva arriba la firma del equipo (y no la lleva si está apagada); la ventana la enseña",
+    desde: "v150",
+    prueba: async (S) => {
+      const FIRMA = "👨‍🔧 *Este mensaje es personalizado (no automático)*";
+      const bp = S.DATA.bot_plantillas;
+      bp.push(["firma_equipo", "vecino", "texto", FIRMA, "", "", "SI", "banco"]);
+      const fila = bp[bp.length - 1];
+      const tel = "+34600333444";
+      S.DATA.bot_contactos.push([new Date(Date.now() - 3600 * 1000).toISOString(), tel, "Hola", "texto", ""]);   // escribio hace 1 h
+      const bot = S.app.locals.botWhatsapp;
+      const ultimo = () => { const bc = S.DATA.bot_contactos; return bc[bc.length - 1] || []; };
+      S.SENT.length = 0;
+      const r1 = await bot.responderVecino(tel, "Lo tenemos todo, gracias");
+      const env1 = (S.SENT.find((m) => m.canal === "whatsapp") || {}).body || "";
+      const reg1 = String(ultimo()[4] || "");
+      const conv = (await S.call("GET", "/presupuestos/hoy/conversacion", { tel })).body || {};
+      fila[6] = "NO";
+      await bot.pedirContacto(tel, { nombre: "Banco", vivienda: "C Banco (1A)" });   // relee las plantillas del Sheet (cache de 60 s)
+      S.SENT.length = 0;
+      const r2 = await bot.responderVecino(tel, "Otra prueba");
+      const env2 = (S.SENT.find((m) => m.canal === "whatsapp") || {}).body || "";
+      const flujo = String((await S.call("GET", "/presupuestos/plantillas-bot-flujo", {})).body || "");
+      return [
+        [r1 && r1.ok && env1 === FIRMA + "\n\nLo tenemos todo, gracias", "sale con la firma encima", JSON.stringify(env1)],
+        [reg1 === env1, "en la conversación queda igual que le llegó", JSON.stringify(reg1)],
+        [conv.firma === FIRMA, "la ventana de contestar recibe la firma para enseñarla", JSON.stringify(conv.firma)],
+        [r2 && r2.ok && env2 === "Otra prueba", "con la firma apagada sale sin firma", JSON.stringify(env2)],
+        [/firma_equipo/.test(flujo) && /Firma del equipo/.test(flujo), "Flujo bot tiene la tarjeta «Firma del equipo»", ""],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
