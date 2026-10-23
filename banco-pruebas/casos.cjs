@@ -337,6 +337,36 @@ const CASOS = [
       ];
     },
   },
+  // ===== v144: menús de Toma de Datos (puntos de agua y ubicación del contador) =====
+  {
+    nombre: "Toma de Datos: puntos de agua y ubicación del contador con los nombres nuevos; lo viejo se abre e imprime con lo nuevo",
+    desde: "v144",
+    prueba: async (S) => {
+      const p5 = S.DATA.plan5_toma_datos || [];
+      const r = p5.find((x, j) => j > 0 && /ALBERCHE 6C/i.test(String(x[0] || "")));
+      const html = String((await S.call("GET", "/plan5", { dir: r ? r[0] : "C Alberche 6C" })).body);
+      const sel = (id) => ((html.match(new RegExp('<select id="' + id + '">([\\s\\S]*?)</select>')) || [])[1] || "");
+      const ops = (id) => [...sel(id).matchAll(/<option[^>]*>([^<]*)<\/option>/g)].map((m) => m[1]).filter(Boolean).join(" · ");
+      const pa = ops("comPunto1"), pb = ops("comPunto2"), ub = ops("ac_ubic"), cc = ops("cc_ubic");
+      const esperado = "PORTAL · ARMARIO DE CONTADORES · CUARTO DE MOTORES · CUARTO DE SERVICIO · PATIO · AZOTEA";
+      // la función que pasa lo guardado con el nombre viejo al nuevo, sacada de la propia página
+      const m = html.match(/function _p5Renombra\(id,v\)\{[^\n]*\}/);
+      let ren = null; try { ren = m ? new Function(m[0] + "; return _p5Renombra;")() : null; } catch (e) { ren = null; }
+      // un presupuesto guardado con C.CONTADORES se imprime con «armario de contadores»
+      const viejo = p5.find((x, j) => { if (!j) return false; try { const v = (JSON.parse(x[6] || "{}").v) || []; return v[8] === "C.CONTADORES" || v[9] === "C.CONTADORES"; } catch (e) { return false; } });
+      const imp = viejo ? String((await S.call("GET", "/plan5/presupuesto", { dir: viejo[0] })).body) : "";
+      const rotos = scriptsRotos(html);
+      return [
+        [rotos.length === 0, "los scripts de Toma de Datos se leen", rotos.join(" | ")],
+        [pa === esperado && pb === esperado, "las dos casillas de puntos de agua: " + esperado, pa + " / " + pb],
+        [/CUARTO DE SERVICIO/.test(ub) && !/EN CUARTO DE SERVICIO/.test(ub), "Ubicación del contador: «CUARTO DE SERVICIO» sin «EN»", ub],
+        [/EN CUARTO DE SERVICIO/.test(cc), "Ubicación del armario de contadores no cambia", cc],
+        [!!ren && ren("comPunto1", "C.CONTADORES") === "ARMARIO DE CONTADORES" && ren("comPunto2", "C.CONTADORES") === "ARMARIO DE CONTADORES" && ren("ac_ubic", "EN CUARTO DE SERVICIO") === "CUARTO DE SERVICIO" && ren("cc_ubic", "EN CUARTO DE SERVICIO") === "EN CUARTO DE SERVICIO" && ren("comPunto1", "PATIO") === "PATIO", "lo guardado con el nombre viejo se abre con el nuevo (y solo en esas casillas)", m ? m[0].slice(0, 80) : "(no está la función)"],
+        [!!viejo && /armario de contadores/.test(imp) && !/cuarto de contadores/.test(imp), "un presupuesto guardado con C.CONTADORES imprime «armario de contadores»", viejo ? viejo[0] : "(ninguno guardado con C.CONTADORES)"],
+        [/id="vatico"><\/div>\s*<div class="gv" style="margin-top:12px">/.test(html), "hueco entre Viviendas en ático y Puntos de agua", ""],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
