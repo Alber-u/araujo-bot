@@ -5821,7 +5821,7 @@ module.exports = function (app) {
     try {
       const pl = await leerPlantillasBot();
       const v = (k) => { const f = pl.find(x => x.clave === k); return f ? f.texto : ""; };
-      _horarioP = _horarioModP.normalizarHorario(v("horario_dias"), v("horario_inicio"), v("horario_fin"));
+      _horarioP = _horarioModP.normalizarHorario(v("horario_dias"), v("horario_inicio"), v("horario_fin"), v("horario_inicio2"), v("horario_fin2"));   // v156: 2.o tramo
     } catch (e) { console.error("[presupuestos] horario de comunicaciones:", e.message); }
     return _horarioP;
   }
@@ -10461,7 +10461,7 @@ module.exports = function (app) {
     // v127 (20/10/2026, criterio de Guille: "el bot deberia estar calladito a horas intempestivas") -- horario de
     //   comunicaciones del bot (filas horario_dias / horario_inicio / horario_fin de bot_plantillas).
     const _hv = (k) => { const f = plantillas.find(p => p.clave === k); return f ? f.texto : ""; };
-    const _hor = _horarioModP.normalizarHorario(_hv("horario_dias"), _hv("horario_inicio"), _hv("horario_fin"));
+    const _hor = _horarioModP.normalizarHorario(_hv("horario_dias"), _hv("horario_inicio"), _hv("horario_fin"), _hv("horario_inicio2"), _hv("horario_fin2"));   // v156
     const _DIAS_H = [[1, "L"], [2, "M"], [3, "X"], [4, "J"], [5, "V"], [6, "S"], [7, "D"]];
     const _bandaHorario = `
       <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-general-1,#1f3a5f);padding:12px 14px;max-width:760px;margin:0 auto;color:#fff">
@@ -10473,6 +10473,8 @@ module.exports = function (app) {
               <span>${_DIAS_H.map(([n, l]) => `<label style="margin-right:6px;cursor:pointer"><input type="checkbox" name="dias" value="${n}" ${_hor.dias.includes(n) ? "checked" : ""}/> ${l}</label>`).join("")}</span>
               <label>de <input type="time" name="inicio" value="${esc(_hor.ini)}" required style="font:inherit;padding:2px 4px;border-radius:4px;border:1px solid #ccc"/></label>
               <label>a <input type="time" name="fin" value="${esc(_hor.fin)}" required style="font:inherit;padding:2px 4px;border-radius:4px;border:1px solid #ccc"/></label>
+              <label title="Segundo tramo (opcional): déjalo vacío para un solo tramo">y de <input type="time" name="inicio2" value="${esc(_hor.ini2 || "")}" style="font:inherit;padding:2px 4px;border-radius:4px;border:1px solid #ccc"/></label>
+              <label>a <input type="time" name="fin2" value="${esc(_hor.fin2 || "")}" style="font:inherit;padding:2px 4px;border-radius:4px;border:1px solid #ccc"/></label>
             </div>
           </div>
           <button type="submit" class="ptl-btn ptl-btn-primary ptl-shrink0">💾 Guardar</button>
@@ -17579,12 +17581,17 @@ module.exports = function (app) {
     const token = req.query.token || "";
     try {
       const d = [].concat(req.body.dias || []).map(String).join(",");
-      const H = _horarioModP.normalizarHorario(d, req.body.inicio, req.body.fin);
+      const H = _horarioModP.normalizarHorario(d, req.body.inicio, req.body.fin, req.body.inicio2, req.body.fin2);
       if (!d) return sendError(res, "Marca al menos un d\u00eda.");
       if (H.ini >= H.fin) return sendError(res, "La hora de inicio tiene que ser anterior a la de fin.");
+      // v156 -- segundo tramo: los dos vacios = un solo tramo; si se rellena, tiene que empezar despues del primero
+      const _i2 = String(req.body.inicio2 || "").trim(), _f2 = String(req.body.fin2 || "").trim();
+      if ((_i2 || _f2) && !H.ini2) return sendError(res, "El segundo tramo necesita las dos horas, la primera anterior a la segunda, y tiene que empezar despu\u00e9s de que acabe el primero (o d\u00e9jalo vac\u00edo).");
       await guardarAjusteBot("horario_dias", H.dias.join(","));
       await guardarAjusteBot("horario_inicio", H.ini);
       await guardarAjusteBot("horario_fin", H.fin);
+      await guardarAjusteBot("horario_inicio2", H.ini2);
+      await guardarAjusteBot("horario_fin2", H.fin2);
       await _refrescarHorarioP();
       res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
     } catch (e) {

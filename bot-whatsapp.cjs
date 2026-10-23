@@ -5324,7 +5324,7 @@ async function ejecutarJobSeguimiento() {
 //   H telefono | I descripcion) y se envia en cuanto se abre el horario (se mira cada 5 minutos).
 function horarioBot() {
   const v = (k) => (_plantillasCache && _plantillasCache[k]) ? _plantillasCache[k].texto : "";
-  return _horarioMod.normalizarHorario(v("horario_dias"), v("horario_inicio"), v("horario_fin"));
+  return _horarioMod.normalizarHorario(v("horario_dias"), v("horario_inicio"), v("horario_fin"), v("horario_inicio2"), v("horario_fin2"));   // v156: 2.o tramo
 }
 const _FN_PROGRAMABLES = ["enviarAvisoM", "responderVecino", "enviarPresentacionPiso", "enviarContratoPiso", "avisarCambioTipo", "pedirContacto"];
 async function _asegurarHojaProgramados() {

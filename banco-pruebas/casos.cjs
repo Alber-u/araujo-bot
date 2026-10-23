@@ -682,6 +682,32 @@ const CASOS = [
       ];
     },
   },
+  // ===== v156: horario de comunicaciones en dos tramos =====
+  {
+    nombre: "Horario de comunicaciones en dos tramos (9-15 y 17-20): el bot calla en medio y se guarda desde Flujo bot",
+    desde: "v156",
+    prueba: async (S) => {
+      const M = require(require("path").join(S.RAIZ, "horario-bot.cjs"));
+      const H = M.normalizarHorario("1,2,3,4,5", "09:00", "15:00", "17:00", "20:00");
+      const en = (iso) => M.calcHorario(H, new Date(iso));   // 2026-10-23 es viernes; Madrid = UTC+2
+      const a = en("2026-10-23T12:30:00Z"), b = en("2026-10-23T13:30:00Z"), c = en("2026-10-23T15:10:00Z"), e = en("2026-10-23T18:30:00Z");   // 14:30, 15:30, 17:10 y 20:30 en Madrid
+      const uno = M.normalizarHorario("1,2,3,4,5", "09:00", "20:00", "", "");
+      // guardado desde Flujo bot
+      await S.call("POST", "/presupuestos/plantillas-bot/horario", { dias: ["1", "2", "3", "4", "5"], inicio: "09:00", fin: "15:00", inicio2: "17:00", fin2: "20:00" });
+      const v = (k) => { const f = S.DATA.bot_plantillas.find((x) => x && x[0] === k); return f ? String(f[3]) : "(no está)"; };
+      const flujo = String((await S.call("GET", "/presupuestos/plantillas-bot-flujo", {})).body || "");
+      return [
+        [a.dentro === true, "14:30 → dentro (primer tramo)", JSON.stringify(a)],
+        [b.dentro === false && /a las 17:00/.test(b.texto), "15:30 → fuera, abre a las 17:00", JSON.stringify(b)],
+        [c.dentro === true, "17:10 → dentro (segundo tramo)", JSON.stringify(c)],
+        [e.dentro === false && /lun 26\/10 a las 9:00/.test(e.texto), "20:30 del viernes → fuera, abre el lunes a las 9:00", JSON.stringify(e)],
+        [M.textoHorario(H) === "L-V 9:00-15:00 y 17:00-20:00", "el título dice los dos tramos", M.textoHorario(H)],
+        [!uno.ini2 && M.textoHorario(uno) === "L-V 9:00-20:00", "sin segundo tramo, como antes", M.textoHorario(uno)],
+        [v("horario_inicio2") === "17:00" && v("horario_fin2") === "20:00" && v("horario_fin") === "15:00", "Flujo bot guarda los dos tramos", v("horario_fin") + " / " + v("horario_inicio2") + "-" + v("horario_fin2")],
+        [/name="inicio2"/.test(flujo) && /9:00-15:00 y 17:00-20:00/.test(flujo), "la tarjeta enseña los dos tramos", ""],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
