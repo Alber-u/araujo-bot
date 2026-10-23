@@ -4542,7 +4542,8 @@ module.exports = function (app) {
     }
     // {{fecha_limite_doc_vecinos}} → depende de si el bot ya contactó a algún vecino.
     if (/\{\{fecha_limite_doc_vecinos\}\}/.test(t)) {
-      const limISO = await _fechaLimiteDocBot(comu);
+      // v157: en el seguimiento insertado a mano, la fecha VIGENTE (con prorroga concedida, la de la prorroga)
+      const limISO = (comu.__fechaVigente && _p5ProrrogaConcedida(comu)) ? (await _fechaProrrogaIso(comu, false).catch(() => "")) || await _fechaLimiteDocBot(comu) : await _fechaLimiteDocBot(comu);
       let val;
       if (!limISO) {
         val = "20 días naturales a contar desde que contactemos con los vecinos";
@@ -4605,7 +4606,7 @@ module.exports = function (app) {
     }
     // {{fecha_limite_cycp}} → fecha tope inicial de fase 08 (envío contratos + 10), FIJA. Para 08-INICIO/SEGUIMIENTO.
     if (/\{\{fecha_limite_cycp\}\}/.test(t)) {
-      const iso = _fechaTopeCycp(comu);
+      const iso = (comu.__fechaVigente && _p5ProrrogaConcedida(comu)) ? ((await _fechaProrrogaIso(comu, true).catch(() => "")) || _fechaTopeCycp(comu)) : _fechaTopeCycp(comu);   // v157: fecha vigente
       t = t.replace(/\{\{fecha_limite_cycp\}\}/g, _fmtFechaLimite(iso));
     }
     // {{fecha_limite_ultimatum_cycp}} / _limpia → igual que las de la 05, en la 08 (v19.106).
@@ -6617,6 +6618,10 @@ module.exports = function (app) {
     // v19.113 -- respuestas tipo para el compositor de correos manuales
     let _respTipo = [];
     try { _respTipo = await _leerRespuestasTipo(); } catch (_) { _respTipo = []; }
+    // v157 (criterio de Guille) -- el seguimiento de la fase (05 o 08) como respuesta tipo, con los datos del momento
+    const _faseSegM = normalizarFase(comu.fase_presupuesto);
+    const _segManual = _faseSegM === "05_DOCUMENTACION" ? { fase: "05_SEGUIMIENTO_DOC", nombre: "05-SEGUIMIENTO DOC" }
+      : _faseSegM === "08_CYCP" ? { fase: "08_SEGUIMIENTO_CYCP", nombre: "08-SEGUIMIENTO CYCP" } : null;
 
     // Plantilla de la fase actual (para el badge de estado de plazo en "Datos CCPP").
     // Solo se carga si la fase tiene reenvíos configurados. Si falla, badge no aparece.
@@ -7487,9 +7492,9 @@ module.exports = function (app) {
                 <label class="ptl-form-label">CCO (opcional)</label>
                 <input type="text" id="ptlComScco" placeholder="separar con coma" class="ptl-input-modal"/>
               </div>
-              ${_respTipo.length ? `<div>
+              ${(_respTipo.length || _segManual) ? `<div>
                 <label class="ptl-form-label">Insertar respuesta tipo</label>
-                <select id="ptlComSresp" class="ptl-input-modal" style="height:28px;padding:2px 8px;font-size:12px;line-height:1.3"><option value="">— elegir —</option>${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
+                <select id="ptlComSresp" class="ptl-input-modal" style="height:28px;padding:2px 8px;font-size:12px;line-height:1.3"><option value="">— elegir —</option>${_segManual ? `<option value="seg">${esc(_segManual.nombre)}</option>` : ""}${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
               </div>` : ""}
               <div>
                 <label class="ptl-form-label">Cuerpo del mensaje</label>
@@ -7976,7 +7981,24 @@ module.exports = function (app) {
             // v19.113 -- respuestas tipo: el texto se mete arriba del cuerpo (la firma y la cita quedan debajo)
             const RESP_TIPO = ${JSON.stringify(_respTipo).replace(/</g, "\\u003c")};
             const sResp = document.getElementById('ptlComSresp');
-            if (sResp) sResp.addEventListener('change', function () {
+            const SEG_M = ${JSON.stringify(_segManual)};   // v157: seguimiento de la fase con los datos del momento
+            const _metePlant = function (t) {
+              sCu.value = t + (sCu.value.replace(/^\\s+/, '') ? '\\n\\n' + sCu.value.replace(/^\\s+/, '') : '');
+              setTimeout(function () { sCu.focus(); sCu.setSelectionRange(t.length, t.length); sCu.scrollTop = 0; }, 30);
+            };
+            if (sResp) sResp.addEventListener('change', async function () {
+              if (sResp.value === 'seg' && SEG_M) {
+                sResp.value = ''; sResp.disabled = true;
+                try {
+                  const rs = await fetch('${urlT(token, "/presupuestos/plantilla-mail")}&manual=1&fase=' + encodeURIComponent(SEG_M.fase) + '&id=' + encodeURIComponent(${JSON.stringify(String(comu.ccpp_id || ""))}));
+                  const ds = await rs.json().catch(function () { return {}; });
+                  const tx = ds && ds.ok && ds.plantilla ? String(ds.plantilla.mensaje || '') : '';
+                  if (!tx.trim()) alert('No se ha podido preparar ' + SEG_M.nombre + ((ds && ds.error) ? ': ' + ds.error : '') + '.');
+                  else _metePlant(tx);
+                } catch (e) { alert('No se ha podido preparar ' + SEG_M.nombre + ': ' + e.message); }
+                sResp.disabled = false;
+                return;
+              }
               const r = RESP_TIPO[parseInt(sResp.value, 10)]; sResp.value = '';
               if (!r) return;
               const t = String(r.texto || '');
@@ -11990,9 +12012,17 @@ module.exports = function (app) {
           comuPreview.fecha_envio_contratos_pagos = new Date().toISOString().slice(0, 10);
         }
       }
+      // v157 (23/10/2026, criterio de Guille: "el mail del cron, pero manualmente, y actualizado siempre") -- con
+      //   manual=1 (desplegable "Insertar respuesta tipo" del compositor) los seguimientos 05/08 salen con la FECHA
+      //   VIGENTE: con la prorroga concedida, la de la prorroga en vez del plazo inicial. El correo automatico no cambia.
+      //   (el texto del seguimiento sale de {{bloque_seguimiento}}, asi que la fecha se decide al rellenar las variables)
+      const _msgPl = plantilla.mensaje;
+      if (String(req.query.manual || "") === "1" && (fase === "05_SEGUIMIENTO_DOC" || fase === "08_SEGUIMIENTO_CYCP")) {
+        Object.defineProperty(comuPreview, "__fechaVigente", { value: true, enumerable: false });
+      }
       // Sustituir variables (async porque puede incluir {{DOC_CCPP}}/{{DOC_PISOS}}/{{PCT_PISOS}})
       const asunto = await sustituirVariablesAsync(plantilla.asunto, comuPreview);
-      const mensaje = await sustituirVariablesAsync(plantilla.mensaje, comuPreview);
+      const mensaje = await sustituirVariablesAsync(_msgPl, comuPreview);
       // Estado actual de envíos
       const enviados = parsearMailJson(comu.mails_enviados);
       const ultimo = parsearMailJson(comu.mails_ultimo_envio);

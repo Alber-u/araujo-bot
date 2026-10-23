@@ -708,6 +708,36 @@ const CASOS = [
       ];
     },
   },
+  // ===== v157: seguimiento de la fase como respuesta tipo, con los datos del momento =====
+  {
+    nombre: "Responder mail: «05-SEGUIMIENTO DOC» en el desplegable, con los datos de ahora y la fecha de la prórroga si la hay",
+    desde: "v157",
+    prueba: async (S) => {
+      const P = S.P(), comus = await P.leerComunidades();
+      const c05 = comus.find((c) => P.normalizarFase(c.fase_presupuesto) === "05_DOCUMENTACION");
+      if (!c05) return [[false, "hay una comunidad en 05", "no"]];
+      const html = String((await S.call("GET", "/documentacion/expediente", { id: c05.ccpp_id })).body || "");
+      const sin = (await S.call("GET", "/presupuestos/plantilla-mail", { id: c05.ccpp_id, fase: "05_SEGUIMIENTO_DOC", manual: "1" })).body || {};
+      const tSin = String((sin.plantilla || {}).mensaje || "");
+      // prórroga concedida hasta el 20/11/2026
+      const iF = S.col("comunidades", "fecha_ultimatum_ampliado"), iM = S.col("comunidades", "mails_enviados");
+      const fila = S.DATA.comunidades.find((r, i) => i > 0 && r && String(r[1] || "").trim() === String(c05.direccion || "").trim());
+      const antesF = fila[iF], antesM = fila[iM];
+      let je = {}; try { je = JSON.parse(antesM || "{}") || {}; } catch (e) {}
+      je.fecha_ultimatum_ampliado__HASTA = "2026-11-20"; delete je.fecha_ultimatum_ampliado__SKIP;
+      fila[iF] = "2026-10-28"; fila[iM] = JSON.stringify(je);
+      const con = (await S.call("GET", "/presupuestos/plantilla-mail", { id: c05.ccpp_id, fase: "05_SEGUIMIENTO_DOC", manual: "1" })).body || {};
+      const auto = (await S.call("GET", "/presupuestos/plantilla-mail", { id: c05.ccpp_id, fase: "05_SEGUIMIENTO_DOC" })).body || {};
+      fila[iF] = antesF; fila[iM] = antesM;
+      const tCon = String((con.plantilla || {}).mensaje || ""), tAuto = String((auto.plantilla || {}).mensaje || "");
+      return [
+        [/<option value="seg">05-SEGUIMIENTO DOC<\/option>/.test(html), "la ficha en 05 tiene «05-SEGUIMIENTO DOC» en Insertar respuesta tipo", c05.direccion],
+        [/hemos recibido el \d+%/.test(tSin) && !/\{\{/.test(tSin), "sale el correo con los datos de ahora, sin variables sin rellenar", tSin.slice(0, 120)],
+        [/20\/11\/2026/.test(tCon), "con la prórroga, la fecha vigente (la de la prórroga)", (tCon.match(/Fecha l[ií]mite[^\n]*/) || [""])[0]],
+        [!/20\/11\/2026/.test(tAuto), "el automático no cambia (sigue con el plazo inicial)", (tAuto.match(/Fecha l[ií]mite[^\n]*/) || [""])[0]],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
