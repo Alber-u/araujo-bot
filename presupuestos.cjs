@@ -567,7 +567,7 @@ module.exports = function (app) {
         var _pcPrev = '';
         try { var _pq = await fetch(U.ctexto + (U.ctexto.indexOf('?') < 0 ? '?' : '&') + new URLSearchParams({ tel: b.dataset.tel || '', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '' }).toString()); var _pd = await _pq.json(); if (_pd && _pd.ok) _pcPrev = _pd.texto || ''; } catch (e) {}
         if (!_pcPrev) { alert('No se ha podido leer el mensaje de la plantilla en Twilio, as\u00ed que no se env\u00eda nada. Prueba otra vez en un momento.'); return; }   // v151
-        var rc = await window.ptlConfirmarEnvio('\u00bfEnviar por el bot el mensaje de Pedir contacto a ' + (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + '?\n\nLe pide que responda HOLA. Lo que conteste te llega a ti (Pide ayuda en HOY) y el bot no le responde.', 'Pedir contacto', { tel: b.dataset.tel || '', sub: fondo.querySelector('[data-sub]').textContent || '', preview: _pcPrev });   // v159
+        var rc = await window.ptlConfirmarEnvio('', 'Pedir contacto', {   /* v160: titulo, con quien y el mensaje; sin texto repetido */ tel: b.dataset.tel || '', sub: fondo.querySelector('[data-sub]').textContent || '', preview: _pcPrev });   // v159
         if (!rc) return;
         bPc.disabled = true; bPc.textContent = 'Enviando...';
         try {
@@ -636,8 +636,9 @@ module.exports = function (app) {
       });
     }
     async function avisoMBot(b) {
-      var q = '¿Enviar AHORA por el bot el ' + (b.dataset.etq || 'aviso') + ' del ' + (b.dataset.piso || '') + ' (' + (b.dataset.nom || '') + ')?'
-        + '\n\n' + (b.dataset.com || '') + '\nFalta: ' + (b.dataset.pend || '') + '\nFecha límite: ' + (b.dataset.fecha || '');
+      // v160 (23/10/2026, criterio de Guille: todas las ventanas iguales) -- titulo = el aviso, debajo con quien, y el mensaje:
+      //   la pregunta, la comunidad, lo que falta y la fecha ya estan en el mensaje, no se repiten.
+      var q = '';
       // texto de la plantilla con sus datos (v126); dentro de las 24 h se puede cambiar y sale como mensaje normal
       var prev = '', edit = b.dataset.ok === '1';
       try {
@@ -646,7 +647,7 @@ module.exports = function (app) {
       } catch (e) {}
       // v151 (criterio de Guille: "whatsapp no puede enviar nada que yo no vea en la pantalla"): sin el texto, no se envia
       if (!prev) { alert('No se ha podido leer el mensaje de la plantilla en Twilio, as\u00ed que no se env\u00eda nada. Prueba otra vez en un momento.'); return; }
-      var res = await window.ptlConfirmarEnvio(q, 'Enviar por el bot', { tel: b.dataset.tel || '', preview: prev, editable: !!(prev && edit) });
+      var res = await window.ptlConfirmarEnvio(q, b.dataset.etq || 'Enviar por el bot', { tel: b.dataset.tel || '', preview: prev, editable: !!(prev && edit) });
       if (!res) return;
       var _prog = window.ptlEsProgramar(res) ? '1' : '';   // v127: fuera del horario eligio "Programar"
       var libre = (res && typeof res === 'object' && String(res.texto || '').trim() && String(res.texto).trim() !== String(prev).trim()) ? String(res.texto).trim() : '';
@@ -6023,6 +6024,7 @@ module.exports = function (app) {
         // v159 -- "Comunidad Piso · Nombre": opc.sub si lo trae quien abre la ventana; si no, el de la ficha de ese telefono
         var _subEl = fondo.querySelector('[data-sub]'); if (opc && opc.sub) _subEl.textContent = String(opc.sub);
         fondo.querySelector('[data-m]').textContent = String(texto || '');
+        if (!String(texto || '').trim()) fondo.querySelector('[data-m]').style.display = 'none';   // v160: sin texto extra, no ocupa sitio
         // v126 -- vista previa del mensaje: opc.preview (texto) y opc.editable (dentro de las 24 h se puede cambiar)
         var _pvE = null;
         if (opc && opc.preview) {

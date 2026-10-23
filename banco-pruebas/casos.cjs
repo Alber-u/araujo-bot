@@ -763,6 +763,23 @@ const CASOS = [
       ];
     },
   },
+  // ===== v160: ventanas de envío iguales, sin texto que repita el mensaje =====
+  {
+    nombre: "Ventanas de envío: título, con quién, conversación y mensaje; sin la pregunta que repite lo que ya dice el mensaje",
+    desde: "v160",
+    prueba: async (S) => {
+      const P = S.P(), comus = await P.leerComunidades();
+      const c05 = comus.find((c) => P.normalizarFase(c.fase_presupuesto) === "05_DOCUMENTACION");
+      const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      const ficha = c05 ? String((await S.call("GET", "/documentacion/expediente", { id: c05.ccpp_id })).body || "") : "";
+      const repes = (hoy + ficha).match(/[¿\\u00bf]+Enviar (AHORA )?por el bot[^']{0,60}/g) || [];
+      return [
+        [repes.length === 0, "ninguna ventana de envío pregunta «¿Enviar AHORA por el bot…?»", repes.slice(0, 3).join(" | ")],
+        [/ptlConfirmarEnvio\('', 'Pedir contacto'/.test(hoy), "Pedir contacto: sin texto extra", ""],
+        [/'Aviso de cambio de tipo'/.test(ficha) && /'Presentación'/.test(ficha), "cada ventana de la ficha lleva su título", ""],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
