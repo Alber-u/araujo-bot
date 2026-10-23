@@ -846,13 +846,13 @@ async function analizarSolicitudFirmadaConIA(buffer) {
   console.log("IA solicitud resultado:", JSON.stringify(resultado));
 
   if (!resultado) {
-    return { estadoDocumento: "REVISAR", motivo: "no se pudo analizar la solicitud automaticamente" };
+    return { estadoDocumento: "REVISAR", motivo: "no se pudo analizar el Impreso toma datos automáticamente" };
   }
   if (resultado.tipo === "otro") {
-    return { estadoDocumento: "REPETIR", motivo: "no parece la solicitud de EMASESA" };
+    return { estadoDocumento: "REPETIR", motivo: "no parece el Impreso toma datos" };
   }
   if (resultado.completo === "no") {
-    return { estadoDocumento: "REPETIR", motivo: "la solicitud esta cortada o incompleta. Enviala completa" };
+    return { estadoDocumento: "REPETIR", motivo: "el Impreso toma datos está cortado o incompleto. Envíalo completo" };
   }
   // Comprobar relleno y firma por separado para mensajes precisos
   // Construir mensaje de motivo con campos incompletos si los hay
@@ -861,26 +861,26 @@ async function analizarSolicitudFirmadaConIA(buffer) {
     : "";
 
   if (resultado.rellenada === "no" && resultado.firma_detectada === "no") {
-    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta rellenada ni firmada." + camposInc };
+    return { estadoDocumento: "REPETIR", motivo: "el Impreso toma datos no está relleno ni firmado." + camposInc };
   }
   if (resultado.rellenada === "no") {
-    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta rellenada correctamente." + camposInc + " Completala y enviala de nuevo." };
+    return { estadoDocumento: "REPETIR", motivo: "el Impreso toma datos no está bien relleno." + camposInc + " Complétalo y envíalo de nuevo." };
   }
   if (resultado.firma_detectada === "no") {
     const sinFecha = resultado.fecha_detectada === "no" ? " Tampoco tiene fecha." : "";
-    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta firmada." + sinFecha + " Firmala y enviala de nuevo." };
+    return { estadoDocumento: "REPETIR", motivo: "el Impreso toma datos no está firmado." + sinFecha + " Fírmalo y envíalo de nuevo." };
   }
   if (resultado.rellenada === "dudoso") {
-    return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que la solicitud este rellenada correctamente." + camposInc + " Asegurate de que todos los campos esten cumplimentados." };
+    return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que el Impreso toma datos esté bien relleno." + camposInc + " Asegurate de que todos los campos esten cumplimentados." };
   }
   if (resultado.firma_detectada === "dudoso") {
-    return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que la solicitud este firmada. Asegurate de que la firma se vea bien." };
+    return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que el Impreso toma datos esté firmado. Asegúrate de que la firma se vea bien." };
   }
   // Dudoso en tipo o completo → REVISAR (el equipo decide)
   // Ignorar confianza < 70 cuando todos los campos son positivos —
   // el modelo devuelve confianza:0 como valor por defecto, no como señal de incertidumbre real
   if (resultado.tipo === "dudoso" || resultado.completo === "dudoso") {
-    return { estadoDocumento: "REVISAR", motivo: resultado.motivo || "no se pudo verificar bien la solicitud" };
+    return { estadoDocumento: "REVISAR", motivo: resultado.motivo || "no se pudo verificar bien el Impreso toma datos" };
   }
   return { estadoDocumento: "OK", motivo: "" };
 }
@@ -1401,7 +1401,8 @@ async function responderConIA(mensaje, expediente) {
     (expediente.ultimo_documento_fallido === "solicitud_firmada");
 
   const promptSolicitud = enSolicitud
-    ? "\n\n=== MODO EXPERTO: AYUDA CON LA SOLICITUD DE EMASESA ===\n" +
+    ? "\n\n=== MODO EXPERTO: AYUDA CON EL IMPRESO TOMA DATOS ===\n" +
+      "Ll\u00e1malo siempre \u00abImpreso toma datos\u00bb (no \u00absolicitud\u00bb), y a la autorizaci\u00f3n, \u00abImpreso autorizaci\u00f3n usufructo\u00bb: son los nombres de los archivos que tiene el vecino (v153, criterio de Guille).\n" +
       "El vecino est\u00e1 rellenando o tiene dudas sobre el impreso de toma de datos de EMASESA.\n\n" +
       "CAMPOS QUE DEBEN ESTAR CORRECTOS:\n" +
       "1. DATOS PERSONALES: Nombre y apellidos, DNI/NIF, direcci\u00f3n completa, piso, tel\u00e9fono, email, n\u00famero de habitantes\n" +
@@ -1434,7 +1435,7 @@ async function responderConIA(mensaje, expediente) {
     "- Nunca digas que un documento ya fue recibido, firmado, validado o completado salvo que aparezca expresamente en el contexto.\n" +
     "- Nunca digas que se ha pasado al siguiente paso salvo que el contexto lo indique.\n" +
     "- Si el usuario est\u00e1 confundido, recu\u00e9rdale \u00fanicamente el documento actual pendiente y c\u00f3mo enviarlo.\n" +
-    "- No des por hecho que la solicitud est\u00e1 firmada ni recibida si no consta.\n" +
+    "- No des por hecho que el Impreso toma datos est\u00e1 firmado ni recibido si no consta. Los documentos se llaman como sus archivos: \u00abImpreso toma datos\u00bb e \u00abImpreso autorizaci\u00f3n usufructo\u00bb.\n" +
     "- No reformules el estado del expediente m\u00e1s all\u00e1 de lo indicado aqu\u00ed.\n" +
     "- Responde breve, clara y \u00fatil. Sin rodeos.\n" +
     "- Tu objetivo es reconducir al usuario al documento actual pendiente.";
@@ -2809,7 +2810,7 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
       } else {
         // No se pudo renderizar: dejar en REVISAR sin avanzar
         estadoFinalPDF = "REVISAR";
-        motivoFinalPDF = "[revisar_pdf] no se pudo verificar el contenido de la solicitud — pendiente de revision manual";
+        motivoFinalPDF = "[revisar_pdf] no se pudo verificar el contenido del Impreso toma datos — pendiente de revision manual";
       }
     } else if (docsPDFAdmisibles.includes(documentoActual)) {
       // Documento admisible en PDF pero sin clasificacion visual

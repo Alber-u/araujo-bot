@@ -661,6 +661,19 @@ const CASOS = [
       ];
     },
   },
+  // ===== v154: tampoco quedan «la solicitud» en lo que el bot le dice al vecino al rechazar =====
+  {
+    nombre: "Bot: los motivos de rechazo y la IA llaman «Impreso toma datos» al impreso",
+    desde: "v154",
+    prueba: async (S) => {
+      const src = require("fs").readFileSync(require("path").join(S.RAIZ, "bot-whatsapp.cjs"), "utf8");
+      const motivos = (src.match(/motivo(FinalPDF)?\s*[:=]\s*"[^"]*"/g) || []).filter((m) => /solicitud/i.test(m));
+      return [
+        [motivos.length === 0, "ningún motivo para el vecino dice «solicitud»", motivos.join(" | ").slice(0, 300)],
+        [/AYUDA CON EL IMPRESO TOMA DATOS/.test(src) && !/AYUDA CON LA SOLICITUD/.test(src), "la IA llama al impreso por su nombre", ""],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
