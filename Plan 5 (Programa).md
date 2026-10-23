@@ -2518,6 +2518,30 @@ Mientras habla Guille el bot solo manda lo automático que toque: el acuse de un
 | 23/10 | Malvaloca 1 0C (María) | Tras el Pedir contacto, Guille le contestó y ella le escribió «¿Qué necesita usted?»; el bot se adelantó con «Gracias por su mensaje. Lo vemos…» | Mientras habla Guille, el bot no se mete (v162) |
 | 23/10 | Tharsis 5 3IZ (Amalia) | Ficha terminada; a «Estupendo, gracias» el bot contestó «Cuando lo tenga…» | Ficha terminada: solo contesta preguntas; cortesías combinadas, sin respuesta (v158) |
 
+**6.21.6 Respuestas tipo para vecinos (WhatsApp, las prepara Claudia)**
+Modelos que salieron de los casos reales del 23/10/2026, para contestar por el ro-botón. De momento los usa Claudia; si se repiten mucho, se valorará meterlos en el programa (desplegable «Insertar respuesta tipo» en Contestar por el bot, sin DALE). Normas para todos (§8): la firma 👨‍🔧 sale sola arriba en el recuadro; terminan con «Muchas gracias.» o, si hubo molestia o error nuestro, «Disculpe las molestias.»; los documentos por el nombre de su archivo (Impreso toma datos, Impreso autorización usufructo); los importes siempre de la toma de datos de Plan 5 de su comunidad; sin nombres de otros vecinos; con la ventana de 24 h cerrada (ro-botón rojo), primero Pedir contacto, y el primer mensaje tras su HOLA es ya lo que queremos decirle (nunca «díganos qué necesita»).
+
+1. **Titularidad: la Nota simple no está a su nombre** (Malvaloca 1 1B, 2A, 2B, 5A):
+   > Buenas {nombre}, gracias por la documentación. Revisándola hemos visto que, según la Nota simple, {el titular de la vivienda es / los titulares de la vivienda son} {titulares}. ¿Nos puede explicar qué relación tiene usted con {él / ella / ellos}? Según lo que nos diga, le indicaremos qué documentación hace falta. Muchas gracias.
+
+   Según la respuesta (criterio de Guille): si algún titular vive → familiar: DNI del titular, libro de familia e Impreso autorización usufructo (además de su Impreso toma datos y su DNI); si no vive ninguno → testamento y certificado de defunción, o declaración de herederos; si el titular es una sociedad → qué relación tiene con la sociedad.
+2. **Lo tenemos todo** (Malvaloca 1 1A, Tharsis 5 3IZ):
+   > Buenas {nombre}, hemos recibido {lo último que mandó} y, con ello, ya tenemos toda la documentación de su vivienda completa y correcta. Nosotros nos encargamos ahora de tramitarla con EMASESA; si necesitáramos algo más, se lo diríamos por aquí. Muchas gracias.
+3. **Forma de pago con importes** (Malvaloca 1 0C, 1A). El bot solo entiende el número solo (1-4, o con emoji); «el 1» no:
+   > Ya tenemos toda su documentación y está correcta, así que solo nos falta saber cómo desea pagar la instalación. Para su vivienda serían: 1 · De una vez: {importe} € / 2 · En 6 meses: unos {fin6} €/mes / 3 · En 12 meses: unos {fin12} €/mes / 4 · En 18 meses: unos {fin18} €/mes. Escríbanos solo el número de la opción que prefiera (1, 2, 3 o 4). Muchas gracias.
+
+   (Malvaloca 1, 23/10/2026: 1.168 € · 199 · 101 · 69.)
+4. **Le volvemos a facilitar el impreso** (Malvaloca 1 0D; antes de enviar, pulsar el botón del impreso para adjuntarlo):
+   > Buenas {nombre}, hemos recibido {lo que sí mandó bien} y está correcto, muchas gracias. Solo nos falta el {Impreso toma datos / Impreso autorización usufructo}, {relleno con sus datos y firmado por usted / firmado por el titular}. Ya se lo enviamos en su momento, pero se lo volvemos a facilitar adjunto para que nos lo remita por aquí. Muchas gracias.
+5. **Le falta un documento concreto**:
+   > Buenas {nombre}, hemos recibido {lo recibido}. Para terminar solo nos falta {lo que falta}. Puede enviarlo por aquí mismo. Muchas gracias.
+6. **Dudas sobre el impreso: alquilado, empadronamiento** (Ardilla 9 2-26):
+   > Buenas {nombre}, como propietario, es usted quien decide a nombre de quién va el contrato. Si lo quiere a su nombre, no importa que el piso esté alquilado: rellene el Impreso toma datos con sus datos. El certificado de empadronamiento es opcional, y solo vale si el titular está empadronado en el piso. Si no lo entrega, marque en el impreso la casilla «No entrega Certificado de empadronamiento» y, cuando el bot se lo pida, conteste NO. Cuando lo tenga, envíenos por aquí el impreso firmado y su DNI por las dos caras. Muchas gracias.
+
+   En el primer apartado del impreso va la dirección de la vivienda del Plan 5; la de contacto, si es otra, en «Datos de contacto».
+7. **Piso que no cuadra con el listado** (Ardilla 9 1-19; el listado numera seguido por planta, 1-11…1-20, y los vecinos escriben planta y puerta, 1º-9):
+   > Buenas {nombre}, hemos recibido su Impreso toma datos, muchas gracias. Solo una cosa: en el piso ha puesto «{lo que puso}», pero según el listado que nos ha facilitado el administrador su vivienda es el {planta}º puerta {puerta}, y otro vecino ya nos ha entregado su documentación como {lo que puso}. ¿Nos confirma que la suya es la {planta}º-{puerta}? Si es así, envíenos el impreso con el piso corregido. Disculpe las molestias.
+
 # 7. PROCEDIMIENTO DE ENTREGA
 
 ## 7.1 El lado de Guille — `bajar-resturar-subir.bat`
