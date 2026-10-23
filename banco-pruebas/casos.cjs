@@ -318,6 +318,25 @@ const CASOS = [
       ];
     },
   },
+  // ===== v143: fuera el apaño de Sánchez Pizjuán 6 (v134 y v136) =====
+  {
+    nombre: "Sánchez Pizjuán 6 (O25-ARA/00213) imprime la cláusula 8 nueva y la línea inclinada, como los demás",
+    desde: "v143",
+    prueba: async (S) => {
+      const p5 = S.DATA.plan5_toma_datos || [];
+      const fila = (n) => p5.find((r, j) => j > 0 && String(r[2] || "").trim() === n);
+      const imp = async (n) => { const r = fila(n); return r ? String((await S.call("GET", "/plan5/presupuesto", { dir: r[0] })).body) : ""; };
+      const sp = await imp("O25-ARA/00213"), ot = await imp("O25-ARA/00219");
+      if (!sp || !ot) return [[false, "están en plan5_toma_datos O25-ARA/00213 y O25-ARA/00219", "falta alguno"]];
+      const ver = (h) => ({ nueva: /8\.1\. Este presupuesto/.test(h), antigua: /plazo de validez de 1 mes\. En caso/.test(h), linea: /class="fhueco"/.test(h) });
+      const a = ver(sp), b = ver(ot);
+      return [
+        [a.nueva && !a.antigua, "Sánchez Pizjuán 6: cláusula 8 nueva (8.1-8.6), no la antigua", JSON.stringify(a)],
+        [a.linea, "Sánchez Pizjuán 6: lleva la línea inclinada", JSON.stringify(a)],
+        [b.nueva && !b.antigua && b.linea, "Ardilla 9 sigue igual (cláusula nueva y línea)", JSON.stringify(b)],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
