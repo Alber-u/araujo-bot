@@ -803,6 +803,46 @@ const CASOS = [
       ];
     },
   },
+  // ===== v162: mientras habla Guille, el bot no se mete =====
+  {
+    nombre: "Bot: si lo último que recibió el vecino es de Guille (< 24 h), el bot no contesta a lo que escribe; va a Pide ayuda",
+    desde: "v162",
+    prueba: async (S) => {
+      const iA = S.col("pisos", "bot_piso_activo");
+      const f = S.DATA.pisos.find((x, i) => i > 0 && x[0] && String(x[iA >= 0 ? iA : 47]) === "BOT_WHATSAPP");
+      const be = S.DATA.bot_expedientes, h = be[0];
+      const fila = be.findIndex((x, i) => i > 0 && String(x[0]).replace(/\D/g, "").slice(-9) === String(f[0]).replace(/\D/g, "").slice(-9));
+      if (!f || fila < 0) return [[false, "hay un vecino en W con ficha del bot", "ninguno"]];
+      const iPaso = h.indexOf("paso_actual"), iDoc = h.indexOf("documento_actual");
+      const bc = S.DATA.bot_contactos;
+      const manda = async (texto) => {
+        be[fila][iPaso] = "recogida_documentacion"; if (!be[fila][iDoc]) be[fila][iDoc] = "dni_propietario_delante";
+        be[fila][28] = ""; be[fila][29] = ""; be[fila][30] = "";
+        S.SENT.length = 0;
+        const req = { method: "POST", body: { From: "whatsapp:" + f[0], Body: texto, NumMedia: "0", MessageSid: "SMg" + Math.random() }, query: {}, headers: {}, get: () => "", protocol: "https", originalUrl: "/whatsapp" };
+        await new Promise((ok) => { const rr = { status() { return this; }, type() { return this; }, set() { return this; }, send() { ok(); return this; }, end() { ok(); return this; }, json() { ok(); }, sendStatus() { ok(); } }; Promise.resolve(S.routes["POST /whatsapp"](req, rr)).catch(() => ok()); });
+        await S.espera(600);
+        const u = bc[bc.length - 1] || [];
+        return { resp: String(u[4] || ""), ayuda: String(be[fila][28] || "") };
+      };
+      const guille = (horas) => bc.push([new Date(Date.now() - horas * 3600 * 1000).toISOString(), f[0], "respuesta_equipo", "equipo", "Buenas, ¿qué necesita?"]);
+      guille(0.1);
+      const r1 = await manda("¿Qué necesita usted?");
+      guille(0.1);
+      const r2 = await manda("Ok");
+      guille(0.1);
+      const r3 = await manda("Mañana se lo mando");
+      for (let i = bc.length - 1; i > 0; i--) if (bc[i] && bc[i][2] === "respuesta_equipo" && String(bc[i][1]) === String(f[0])) bc.splice(i, 1);
+      guille(30);   // el único mensaje de Guille, hace más de 24 h
+      const r4 = await manda("¿Cuándo empiezan las obras?");
+      return [
+        [r1.resp === "" && /Qué necesita usted/.test(r1.ayuda), "pregunta tras un mensaje de Guille: sin respuesta del bot y a Pide ayuda", JSON.stringify(r1)],
+        [r2.resp === "", "«Ok» tras un mensaje de Guille: sin respuesta", JSON.stringify(r2)],
+        [r3.resp === "" && /Mañana/.test(r3.ayuda), "aviso tras un mensaje de Guille: sin «De acuerdo…» y a Pide ayuda", JSON.stringify(r3)],
+        [/Lo vemos/.test(r4.resp), "si el mensaje de Guille tiene más de 24 h, el bot vuelve a contestar", JSON.stringify(r4)],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };

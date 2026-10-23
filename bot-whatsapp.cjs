@@ -1848,6 +1848,24 @@ async function _ultimoMensajeVecino(telefono) {
   for (const f of rows.slice(1)) { if (f && String(f[1] || "").replace(/\D/g, "").slice(-9) === _k9 && /^(texto|archivo)(_fase08|_fuera)?$/.test(String(f[3] || "").trim()) && String(f[0] || "") > ult) ult = String(f[0]); }   // v126: _fuera = piso con el que el bot no trabaja
   return ult;
 }
+// v162 (23/10/2026, criterio de Guille: "a mi ultima contestacion se ha adelantado el bot... eso ensucia las conversaciones";
+//   "solo mensajes automaticos que toquen") -- ¿lo ULTIMO que recibio el vecino fue un mensaje de Guille (verde, tipo
+//   "equipo") en las ultimas 24 h? Se mira bot_contactos de ese telefono de atras adelante: una fila "equipo" -> si; una
+//   del bot ("bot") o un mensaje del vecino que el bot contesto (col E con texto) -> no.
+async function _hablaGuilleConVecino(telefono) {
+  try {
+    const rows = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:E" })).data.values || []);
+    const _k9 = String(telefono || "").replace(/\D/g, "").slice(-9);
+    const mias = rows.slice(1).filter((f) => f && String(f[1] || "").replace(/\D/g, "").slice(-9) === _k9).sort((a, b) => String(a[0] || "").localeCompare(String(b[0] || "")));
+    for (let i = mias.length - 1; i >= 0; i--) {
+      const f = mias[i], tipo = String(f[3] || "").trim();
+      if (tipo === "equipo") return (Date.now() - new Date(f[0]).getTime()) < 24 * 3600 * 1000;
+      if (tipo === "bot") return false;
+      if (String(f[4] || "").trim()) return false;   // el vecino escribio y el bot le contesto
+    }
+  } catch (e) { console.error("[bot] ¿habla Guille?:", e.message); }
+  return false;
+}
 async function responderVecino(telefono, texto, archivo) {
   const tel = _telE164(telefono), t = String(texto || "").trim();
   if (!tel || (!t && !archivo)) return { ok: false, error: "faltan el telefono o el texto" };
@@ -3234,6 +3252,8 @@ async function handleTextoLibreVecino({ res, telefono, msgOriginal, msg, numMedi
   if (pz.marca && !pz.pausado) { await _ponerPausaBot(expediente.rowIndex, ""); pz.marca = ""; }   // ya contestada por Guille
   if (_esRespuestaDelPaso(msgOriginal, msg, expediente)) { if (pz.marca) await _ponerPausaBot(expediente.rowIndex, ""); return; }
   const clase = clasificarTextoVecino(t);
+  const _guille = await _hablaGuilleConVecino(telefono);   // v162
+  if (_guille && clase === "corto") return responderSinMensaje(res, telefono, t);   // v162: un "ok"/"gracias" a Guille no lo contesta el bot
   if (clase === "corto") {
     // v149 (23/10/2026, criterio de Guille: "esas respuestas del vecino, de 1, Gracias... no deberian ser respondidas por el
     //   bot... confunden") -- con la ficha TERMINADA, ningun texto corto ("1", "ok", "vale", "hola"...) se contesta: se apunta
@@ -3244,6 +3264,17 @@ async function handleTextoLibreVecino({ res, telefono, msgOriginal, msg, numMedi
     return responderSinMensaje(res, telefono, t);   // espera a Guille: no le insiste
   }
   if (clase === "envio") return responderSinMensaje(res, telefono, t);   // v149: lo manda ahora; se espera al archivo
+  // v162 -- mientras Guille habla con el vecino (lo ultimo que recibio fue un mensaje suyo, < 24 h), el bot no contesta a lo
+  //   que el vecino le escribe: queda en la conversacion y le llega a Guille en Pide ayuda (circulito azul). Los documentos,
+  //   la respuesta a lo que pregunto el bot (forma de pago...) y los recordatorios por plazo siguen como siempre.
+  if (_guille) {
+    try {
+      marcarAtencionHumana(telefono, t).catch(() => {});
+      notificarEquipo("atencion_humana", { nombre: expediente.nombre, comunidad: expediente.comunidad, vivienda: expediente.vivienda,
+        telefono, mensaje: t.slice(0, 100), motivo: "el vecino contesta a Guille" }).catch(() => {});
+    } catch (e) {}
+    return responderSinMensaje(res, telefono, t);
+  }
   // v158 (23/10/2026, criterio de Guille: "esta respuesta no pega nada"; caso Tharsis 5 3IZ) -- con la ficha TERMINADA no hay
   //   nada que "tener": un aviso no se contesta ("De acuerdo... cuando lo tenga" no tiene sentido). Se apunta y le llega a
   //   Guille en Pide ayuda (abajo). Las preguntas siguen como siempre ("Gracias por su mensaje. Lo vemos...").
