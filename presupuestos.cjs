@@ -541,8 +541,7 @@ module.exports = function (app) {
         + '<div style="font-weight:700;font-size:14px;margin-bottom:2px">' + (ok ? 'Contestar por el bot' : 'Conversación con el vecino') + '</div>'
         + '<div data-sub="1" style="font-size:12px;color:#555;margin-bottom:8px"></div>'
         + '<div data-conv="1" style="max-height:320px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
-        + (ok ? '<div data-firma="1" style="display:none;font-size:12px;color:#555;margin-bottom:4px" title="Se a\u00f1ade sola encima de lo que escribes (se cambia en Flujo bot \u2192 Firma del equipo)"></div>'   // v150
-              + '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
+        + (ok ? '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
               + '<div data-adj="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px">'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjpc="1" title="PDF, JPG o PNG (hasta 10 MB)">\uD83D\uDCCE Adjuntar</button>'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="solicitud">Impreso toma datos</button>'
@@ -581,10 +580,11 @@ module.exports = function (app) {
         } catch (e) { alert('No se ha enviado: ' + e.message); bPc.disabled = false; bPc.textContent = '\uD83D\uDCE8 Pedir contacto'; }
       });
       if (!ok) return;
-      // v150 (23/10/2026, criterio de Guille) -- la firma que se pone sola encima de lo que escribes (plantilla firma_equipo)
-      var _firma = '';
-      Promise.resolve(_convP).then(function (d) { if (d && d.firma) { _firma = d.firma; var fz = fondo.querySelector('[data-firma]'); fz.textContent = 'Se a\u00f1ade arriba: ' + d.firma; fz.style.display = 'block'; } });
+      // v155 (23/10/2026, criterio de Guille: "que aparezca ya en la ventana del mensaje... si quiero lo dejo, si quiero lo
+      //   quito") -- la firma del equipo (plantilla firma_equipo) viene escrita DENTRO del recuadro, con el cursor debajo;
+      //   se puede borrar. Se envia exactamente lo que hay en el recuadro (el bot ya no anade nada).
       var ta = fondo.querySelector('textarea'); setTimeout(function () { ta.focus(); }, 30);
+      Promise.resolve(_convP).then(function (d) { if (d && d.firma && !String(ta.value || '').trim()) { ta.value = d.firma + '\n\n'; try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {} } });
       // v127 -- adjunto: uno del PC (PDF/JPG/PNG, hasta 10 MB) o uno de los fijos del bot
       var adj = null, fin = fondo.querySelector('input[type=file]'), chip = fondo.querySelector('[data-chip]');
       var ponAdj = function (a, nom) { adj = a; chip.style.display = a ? 'inline-flex' : 'none'; fondo.querySelector('[data-chipn]').textContent = a ? '\uD83D\uDCCE ' + nom : ''; };
@@ -612,7 +612,7 @@ module.exports = function (app) {
         //   cuando abra el horario, y nunca con un archivo del PC)
         var _prog = '';
         if (window.ptlHorarioAhora && !window.ptlHorarioAhora().dentro) {
-          var rh = await window.ptlConfirmarEnvio((_firma && txt ? _firma + '\n\n' : '') + txt + (adj ? (txt ? '\n\n' : '') + '\uD83D\uDCCE ' + (fondo.querySelector('[data-chipn]').textContent || '').replace(/^\uD83D\uDCCE\s*/, '') : ''), 'Contestar por el bot',
+          var rh = await window.ptlConfirmarEnvio(txt + (adj ? (txt ? '\n\n' : '') + '\uD83D\uDCCE ' + (fondo.querySelector('[data-chipn]').textContent || '').replace(/^\uD83D\uDCCE\s*/, '') : ''), 'Contestar por el bot',
             { tel: b.dataset.tel || '', libre: true, noProg: (adj && !adj.fijo) ? 'lleva un archivo de tu PC (no se puede guardar para m\u00e1s tarde)' : '' });
           if (!rh) return;
           _prog = window.ptlEsProgramar(rh) ? '1' : '';
@@ -6011,7 +6011,6 @@ module.exports = function (app) {
           + '<div data-m="1" style="font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word"></div>'
           + '<div data-pv="1" style="display:none;margin-top:10px"><div data-pvt="1" style="font-size:11px;font-weight:700;color:#555;margin-bottom:3px"></div>'
           + '<div data-pvr="1" style="display:none;font-size:12.5px;line-height:1.4;white-space:pre-wrap;word-break:break-word;border:1px solid #cfe0f5;background:#e6f1fb;border-radius:8px;padding:6px 8px;max-height:220px;overflow:auto"></div>'
-          + '<div data-pvf="1" style="display:none;font-size:12px;color:#555;margin:2px 0 3px"></div>'   // v151: la firma, si el texto cambiado sale como mensaje tuyo
           + '<textarea data-pve="1" rows="8" style="display:none;width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:12.5px"></textarea></div>'
           + '<div data-fh="1" style="display:none;margin-top:12px;padding:8px 10px;border-radius:8px;background:#fff4d6;border:1px solid #f0c36d;font-size:12.5px;line-height:1.4"></div>'
           + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap">'
@@ -6058,12 +6057,15 @@ module.exports = function (app) {
               }
             }
             // v151 (criterio de Guille: "tengo que ver exactamente lo que voy a enviar") -- aviso M cambiado: ya no sale la
-            //   plantilla sino un mensaje tuyo, que lleva la firma del equipo encima: se ensena en cuanto cambias el texto
+            //   plantilla sino un mensaje tuyo. v155: en cuanto lo cambias, la firma del equipo se escribe DENTRO del recuadro,
+            //   arriba (una sola vez; si la borras, no vuelve). Se envia lo que hay en el recuadro.
             if (d && d.ok && d.firma && _pvE && opc && opc.editable) {
-              var _pf = fondo.querySelector('[data-pvf]'), _orig = String(opc.preview || '').trim();
-              var _mira = function () { var c = String(_pvE.value || '').trim() !== _orig; _pf.style.display = c ? 'block' : 'none'; };
-              _pf.textContent = 'Al cambiarlo sale como mensaje tuyo, con esto encima: ' + d.firma;
-              _pvE.addEventListener('input', _mira); _mira();
+              var _orig = String(opc.preview || '').trim(), _puesta = false;
+              _pvE.addEventListener('input', function () {
+                if (_puesta || String(_pvE.value || '').trim() === _orig) return;
+                _puesta = true; var _c = _pvE.selectionStart || 0, _pre = d.firma + '\n\n';
+                _pvE.value = _pre + _pvE.value; try { _pvE.setSelectionRange(_c + _pre.length, _c + _pre.length); } catch (e) {}
+              });
             }
             if (!d || !d.ok || !d.items || !d.items.length) return;
             cont.style.display = 'block';
@@ -10285,7 +10287,7 @@ module.exports = function (app) {
       if (code === "empadronamiento") return "pide_empadronamiento";
       const m = String(code).match(/^dni_(?:([a-z]+)_)?(delante|detras)$/);
       if (m) return "pide_dni_" + m[2];
-      if (code.indexOf("bienvenida_") === 0 || code.indexOf("flujo_") === 0 || code.indexOf("aviso_") === 0 || code.indexOf("error_") === 0 || code === "doc_recibido" || code === "seguir_expediente") return code;
+      if (code.indexOf("bienvenida_") === 0 || code.indexOf("flujo_") === 0 || code.indexOf("aviso_") === 0 || code.indexOf("error_") === 0 || code === "doc_recibido" || code === "seguir_expediente" || code === "firma_equipo") return code;   // v155: la firma iba a "pide_firma_equipo" y la tarjeta salia vacia
       return "pide_" + code;
     }
     const COMPARTIDAS = { pide_solicitud_firmada:1, pide_dni_delante:1, pide_dni_detras:1, pide_empadronamiento:1 };
@@ -10360,7 +10362,7 @@ module.exports = function (app) {
       ["bienvenida_inquilino","Bienvenida","3",3,{}],
       ["bienvenida_local","Bienvenida","4",3,{}],
       ["bienvenida_sociedad","Bienvenida","5",3,{}],
-      ["solicitud_firmada","Solicitud EMASESA","1 / -1",4,{}],
+      ["solicitud_firmada","Impreso toma datos","1 / -1",4,{}],   // v155: como su archivo (antes "Solicitud EMASESA")
       ["dni_delante","DNI propietario · delante","1 / 5",5,{}],
       ["dni_detras","DNI propietario · detrás","1 / 5",6,{}],
       ["dni_administrador_delante","DNI administrador · delante","5",5,{}],
@@ -10372,7 +10374,7 @@ module.exports = function (app) {
       ["dni_familiar_detras","DNI familiar · detrás","2",8,{}],
       ["dni_inquilino_detras","DNI inquilino · detrás","3",8,{}],
       ["escritura_constitucion","Escritura constitución","5",10,{}],
-      ["autorizacion_familiar","Autorización familiar","2",9,{}],
+      ["autorizacion_familiar","Impreso autorización usufructo","2",9,{}],   // v155: como su archivo (antes "Autorización familiar")
       ["contrato_alquiler","Contrato alquiler","3",9,{}],
       ["poderes_representante","Poderes representante","5",11,{}],
       ["libro_familia","Libro familia","2",10,{}],
@@ -10409,7 +10411,7 @@ module.exports = function (app) {
       card("flujo_pregunta_espera","texto del vecino - pregunta (el bot espera)",{}),   // v128
       card("flujo_aviso_vecino","texto del vecino - aviso (el bot sigue)",{}),   // v128
       card("flujo_largo_sin_paginas","doc - \"1\" sin ninguna página ({documento})",{}),   // v128
-      card("firma_equipo","Firma del equipo (va encima de lo que escribes por el bot)",{}),   // v150
+      card("firma_equipo","Firma del equipo (sale escrita en el recuadro al contestar por el bot)",{}),   // v150; v155: va dentro del recuadro
       card("flujo_sin_ia","texto del vecino con la IA dormida (sustituida por las dos de arriba)",{}),   // v19.118; v128: lo sustituyen las dos de arriba
       card("flujo_falta_antes_de_cerrar","doc - falta algo al terminar ({falta})",{}),   // v127
     ].map(c => "<div>" + c + "</div>").join("");
@@ -14336,7 +14338,7 @@ module.exports = function (app) {
         let _prorroga05 = 20; // v18.99e — prórroga (05_ULT_AVISO.dias_primer_envio) para {fecha_prorroga}
         try { const _avPl = await leerPlantillaMail("05_ULT_AVISO"); const _np = parseFloat(String((_avPl && _avPl.dias_primer_envio) || "").replace(",", ".")); if (!isNaN(_np) && _np >= 0) _prorroga05 = _np; } catch (e) {}
         const _hoyMs = Date.now();
-        const _docLabel = (c) => ({ solicitud_firmada:"Solicitud EMASESA", dni_delante:"DNI \u00b7 delante", dni_detras:"DNI \u00b7 detr\u00e1s", empadronamiento:"Empadronamiento", escritura:"Escritura", nota_simple:"Nota simple", contrato_alquiler:"Contrato de alquiler", recibo_ibi:"Recibo IBI" }[String(c||"").trim()] || (String(c||"").trim() ? String(c).replace(/_/g," ") : ""));
+        const _docLabel = (c) => ({ solicitud_firmada:"Impreso toma datos", autorizacion_familiar:"Impreso autorizaci\u00f3n usufructo", dni_delante:"DNI \u00b7 delante", dni_detras:"DNI \u00b7 detr\u00e1s", empadronamiento:"Empadronamiento", escritura:"Escritura", nota_simple:"Nota simple", contrato_alquiler:"Contrato de alquiler", recibo_ibi:"Recibo IBI" }[String(c||"").trim()] || (String(c||"").trim() ? String(c).replace(/_/g," ") : ""));
         const _fFecha = (v) => { const _d = new Date(v); if (isNaN(_d.getTime())) return { ts: Infinity, txt: "" }; const _p2 = (x) => String(x).padStart(2, "0"); return { ts: _d.getTime(), txt: _p2(_d.getDate()) + "/" + _p2(_d.getMonth() + 1) + "/" + String(_d.getFullYear()).slice(-2) }; };
         // v18.99h — verde = piso con TODA su documentación marcada (misma cuenta que la ficha).
         let _docsPisoAv = [], _botIdxAv = {};

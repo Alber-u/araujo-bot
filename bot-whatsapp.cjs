@@ -1871,12 +1871,10 @@ async function responderVecino(telefono, texto, archivo) {
   }
   const ult = await _ultimoMensajeVecino(tel);
   if (!ult || (Date.now() - new Date(ult).getTime()) >= 24 * 3600 * 1000) return { ok: false, error: "han pasado mas de 24 h desde su ultimo mensaje al bot: usa el WhatsApp normal" };
-  // v150 (23/10/2026, criterio de Guille: "que sepan que no es el robot") -- encima de lo que escribe Guille, la firma
-  //   del equipo (bot_plantillas firma_equipo; apagada o vacia, no se pone nada). Con un archivo y sin texto, no lleva firma.
-  await cargarPlantillas();
-  const _pf = _plantillasCache && _plantillasCache["firma_equipo"];
-  const _firma = (_pf && !["NO", "FALSE", "0"].includes(_pf.activo)) ? String(_pf.texto || "").trim() : "";
-  const tf = (_firma && t) ? _firma + "\n\n" + t : t;
+  // v150 ponia aqui la firma del equipo encima de lo que escribe Guille. v155 (23/10/2026, criterio de Guille: "si quiero
+  //   lo dejo, si quiero lo quito, lo veo al mirar la ventana") -- la firma ya viene escrita DENTRO del recuadro de la
+  //   ventana (Contestar y aviso M cambiado): se envia exactamente lo que Guille ve, sin anadir nada.
+  const tf = t;
   if (_mUrl) await enviarWhatsAppConMedia(tel, tf, _mUrl); else await enviarWhatsApp(tel, tf);
   try { await guardarContacto(tel, "respuesta_equipo", "equipo", _mUrl ? ("\uD83D\uDCCE " + _mNom + (tf ? "\n\n" + tf : "")) : tf); } catch (e) {}
   return { ok: true };

@@ -529,8 +529,8 @@ const CASOS = [
   },
   // ===== v150: firma del equipo en lo que escribe Guille por el bot =====
   {
-    nombre: "Contestar por el bot: lleva arriba la firma del equipo (y no la lleva si está apagada); la ventana la enseña",
-    desde: "v150",
+    nombre: "Contestar por el bot: la firma viene escrita en el recuadro y se envía exactamente lo que hay en él (v150, cambiado en la v155)",
+    desde: "v155",
     prueba: async (S) => {
       const FIRMA = "👨‍🔧 *Este mensaje es personalizado (no automático)*";
       const bp = S.DATA.bot_plantillas;
@@ -541,7 +541,10 @@ const CASOS = [
       const bot = S.app.locals.botWhatsapp;
       const ultimo = () => { const bc = S.DATA.bot_contactos; return bc[bc.length - 1] || []; };
       S.SENT.length = 0;
-      const r1 = await bot.responderVecino(tel, "Lo tenemos todo, gracias");
+      const r1 = await bot.responderVecino(tel, FIRMA + "\n\nLo tenemos todo, gracias");   // la firma ya va en el recuadro
+      S.SENT.length = 0; await bot.responderVecino(tel, "Sin firma, la he borrado");
+      const env0 = (S.SENT.find((m) => m.canal === "whatsapp") || {}).body || "";
+      S.SENT.length = 0; await bot.responderVecino(tel, FIRMA + "\n\nLo tenemos todo, gracias");
       const env1 = (S.SENT.find((m) => m.canal === "whatsapp") || {}).body || "";
       const reg1 = String(ultimo()[4] || "");
       const conv = (await S.call("GET", "/presupuestos/hoy/conversacion", { tel })).body || {};
@@ -551,10 +554,15 @@ const CASOS = [
       const r2 = await bot.responderVecino(tel, "Otra prueba");
       const env2 = (S.SENT.find((m) => m.canal === "whatsapp") || {}).body || "";
       const flujo = String((await S.call("GET", "/presupuestos/plantillas-bot-flujo", {})).body || "");
+      const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      const iF = flujo.indexOf('data-clave="firma_equipo"'), trozo = iF >= 0 ? flujo.slice(iF, iF + 3000) : "";
       return [
-        [r1 && r1.ok && env1 === FIRMA + "\n\nLo tenemos todo, gracias", "sale con la firma encima", JSON.stringify(env1)],
+        [r1 && r1.ok && env1 === FIRMA + "\n\nLo tenemos todo, gracias", "con la firma en el recuadro, sale una sola vez", JSON.stringify(env1)],
+        [env0 === "Sin firma, la he borrado", "si la borras, sale sin firma (el bot no añade nada)", JSON.stringify(env0)],
+        [/ta\.value = d\.firma \+/.test(hoy) && !/Se a\\u00f1ade arriba/.test(hoy), "la ventana pone la firma dentro del recuadro (no en una línea gris aparte)", ""],
+        [trozo.indexOf("Este mensaje es personalizado") >= 0, "la tarjeta Firma del equipo de Flujo bot enseña su texto", iF < 0 ? "no está la tarjeta" : "vacía"],
         [reg1 === env1, "en la conversación queda igual que le llegó", JSON.stringify(reg1)],
-        [conv.firma === FIRMA, "la ventana de contestar recibe la firma para enseñarla", JSON.stringify(conv.firma)],
+        [conv.firma === FIRMA, "la ventana de contestar recibe la firma para escribirla en el recuadro", JSON.stringify(conv.firma)],
         [r2 && r2.ok && env2 === "Otra prueba", "con la firma apagada sale sin firma", JSON.stringify(env2)],
         [/firma_equipo/.test(flujo) && /Firma del equipo/.test(flujo), "Flujo bot tiene la tarjeta «Firma del equipo»", ""],
       ];
