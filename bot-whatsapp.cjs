@@ -3155,8 +3155,15 @@ function clasificarTextoVecino(texto) {
   if (letras.length < 3 || esMensajeAmbiguo(t)) return "corto";
   if (/^(ok|okey|okay|vale|si|sí|no|perfecto|bien|claro|entendido|recibido|de acuerdo|hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|gracias|muchas gracias|mil gracias|ok gracias|vale gracias|listo|hecho|enviado|genial|estupendo)[\s.!,\p{Extended_Pictographic}️]*$/iu.test(t)) return "corto";
   if (_RE_PREGUNTA_VECINO.test(t) || _RE_PREGUNTA_INICIO.test(t)) return "pregunta";
+  if (_esEnvioAhora(t)) return "envio";   // v149
   return "aviso";
 }
+// v149 (23/10/2026, criterio de Guille; caso Ardilla 9 1-19 "Aqui les envio el documento pendiente") -- el vecino dice que
+//   lo manda AHORA: no se le contesta ("De acuerdo... cuando lo tenga" no tiene sentido) ni va a Pide ayuda; el bot espera
+//   al archivo, que se contesta como siempre. Si dice cuando ("manana", "luego", "esta tarde"...) sigue siendo un aviso.
+const _RE_ENVIO_AHORA = /(?:^|[^\p{L}])(?:aqu[ií]|ah[ií]|ya)\s+(?:le|les|te|os|se\s+lo|se\s+la|se\s+los|se\s+las)?\s*(?:env[ií]o|mando|paso|adjunto|va|van|tiene[ns]?)(?![\p{L}])|^\s*(?:le|les|te|os)\s+(?:env[ií]o|mando|paso|adjunto)(?![\p{L}])|^\s*(?:se|te)\s+l[oa]s?\s+(?:env[ií]o|mando|paso)(?![\p{L}])|^\s*(?:adjunto|env[ií]o|mando|paso)\s+(?:el|la|los|las|mi|su|un|una)(?![\p{L}])|^\s*ah[ií]\s+van?(?![\p{L}])/iu;
+const _RE_ENVIO_LUEGO = /(?:^|[^\p{L}])(?:mañana|manana|luego|despu[eé]s|m[aá]s tarde|esta tarde|esta noche|cuando|en cuanto|pronto|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|semana|pr[oó]xim\p{L}*|voy a|vamos a|intentar\p{L}*)(?![\p{L}])/iu;
+function _esEnvioAhora(t) { t = String(t || ""); return _RE_ENVIO_AHORA.test(t) && !_RE_ENVIO_LUEGO.test(t); }
 function _esRespuestaDelPaso(msgOriginal, msg, expediente) {
   const p = expediente.paso_actual, d = expediente.documento_actual;
   if (p === "pregunta_financiacion") return !!mapFinanciacion(msg) && !/[?¿]/.test(String(msgOriginal || ""));
@@ -3199,10 +3206,15 @@ async function handleTextoLibreVecino({ res, telefono, msgOriginal, msg, numMedi
   if (_esRespuestaDelPaso(msgOriginal, msg, expediente)) { if (pz.marca) await _ponerPausaBot(expediente.rowIndex, ""); return; }
   const clase = clasificarTextoVecino(t);
   if (clase === "corto") {
+    // v149 (23/10/2026, criterio de Guille: "esas respuestas del vecino, de 1, Gracias... no deberian ser respondidas por el
+    //   bot... confunden") -- con la ficha TERMINADA, ningun texto corto ("1", "ok", "vale", "hola"...) se contesta: se apunta
+    //   en la conversacion y ya. Antes los muy cortos seguian al generico "Tu expediente ya esta completo...".
+    if (expediente.paso_actual === "finalizado") return responderSinMensaje(res, telefono, t);
     if (!pz.pausado && esMensajeAmbiguo(t)) return;   // como siempre ("ok", "1", saludos)
     if (!pz.pausado) return responderSinMensaje(res, telefono, t);   // "muchas gracias", "ok gracias"...: no hace falta contestar
     return responderSinMensaje(res, telefono, t);   // espera a Guille: no le insiste
   }
+  if (clase === "envio") return responderSinMensaje(res, telefono, t);   // v149: lo manda ahora; se espera al archivo
   // pregunta o aviso: lo lee Guille
   try {
     marcarAtencionHumana(telefono, t).catch(() => {});

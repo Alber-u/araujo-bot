@@ -562,7 +562,10 @@ module.exports = function (app) {
       // v128 -- sin 24 h: "Pedir contacto" (plantilla plan5_contacto); su respuesta te llega a ti, el bot no la contesta
       var bPc = fondo.querySelector('[data-pc]');
       if (bPc) bPc.addEventListener('click', async function () {
-        var rc = await window.ptlConfirmarEnvio('\u00bfEnviar por el bot el mensaje de Pedir contacto a ' + (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + '?\n\nLe pide que responda HOLA. Lo que conteste te llega a ti (Pide ayuda en HOY) y el bot no le responde.', 'Pedir contacto', { tel: b.dataset.tel || '' });
+        // v149: como en los avisos M, el texto que va a salir (la plantilla con su nombre y vivienda); no se puede cambiar (sin 24 h)
+        var _pcPrev = '';
+        try { var _pq = await fetch(U.ctexto + (U.ctexto.indexOf('?') < 0 ? '?' : '&') + new URLSearchParams({ tel: b.dataset.tel || '', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '' }).toString()); var _pd = await _pq.json(); if (_pd && _pd.ok) _pcPrev = _pd.texto || ''; } catch (e) {}
+        var rc = await window.ptlConfirmarEnvio('\u00bfEnviar por el bot el mensaje de Pedir contacto a ' + (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + '?\n\nLe pide que responda HOLA. Lo que conteste te llega a ti (Pide ayuda en HOY) y el bot no le responde.', 'Pedir contacto', { tel: b.dataset.tel || '', preview: _pcPrev });
         if (!rc) return;
         bPc.disabled = true; bPc.textContent = 'Enviando...';
         try {
@@ -735,7 +738,7 @@ module.exports = function (app) {
     });
   }
   function _scriptVecinoBot(token) {
-    const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"), contacto: urlT(token, "/presupuestos/hoy/pedir-contacto"),
+    const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"), contacto: urlT(token, "/presupuestos/hoy/pedir-contacto"), ctexto: urlT(token, "/presupuestos/hoy/pedir-contacto-texto"),
       mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }) };
     return "(" + _clienteVecinoBot.toString() + ")(" + JSON.stringify(U) + ");";
   }
@@ -17588,7 +17591,11 @@ module.exports = function (app) {
   // GET /presupuestos/hoy/conversacion?tel=  (v125, 18/10/2026) -- TODOS los mensajes con ese vecino por el bot:
   //   lo que escribio (texto o documentos, con su nombre), lo que le contesto el bot (resumido) y lo que le
   //   contesto Guille desde HOY. Sale de bot_contactos (+ bot_documentos para saber que documento mando).
-  const _CLI_PLANT = /^(presentacion|job_presentacion|job_proactivo|ficha_reabierta|cambio_tipo|envio_contrato|contacto_pedido|aviso_m:.*)$/;   // v128: contacto_pedido   // v126: envios con plantilla
+  const _CLI_PLANT = /^(presentacion|job_presentacion|job_proactivo|ficha_reabierta|cambio_tipo|envio_contrato|contacto_pedido|aviso_m:.*)$/;
+  // v149 (23/10/2026, criterio de Guille: "verde todo lo mio, azul lo del bot, amarillo lo del vecino") -- lo que sale
+  //   porque Guille pulsa un boton (presentacion al pasar a W o en tanda, contrato de la 08, Pedir contacto, aviso del cambio
+  //   de tipo, avisos M y todo lo programado) va en verde como sus respuestas; en azul solo lo que el bot manda por su cuenta.
+  const _CLI_TUYO = /^(presentacion|envio_contrato|contacto_pedido|cambio_tipo|aviso_m:.*)$/;   // v128: contacto_pedido   // v126: envios con plantilla
   app.get("/presupuestos/hoy/conversacion", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
@@ -17624,7 +17631,7 @@ module.exports = function (app) {
       const _filasC = ((rc.data.values || []).slice(1)).filter(c => c && t9(c[1]) === k);
       if (!_filasC.some(c => String(c[2] || "").trim() === "presentacion")) {
         const _fx = ((rx.data.values || []).slice(1)).find(x => x && t9(x[0]) === k && /^\d{4}-\d{2}-\d{2}/.test(String(x[9] || "")));
-        if (_fx) items.push({ quien: "bot", fecha: fmt(_fx[9]), _leg: "presentacion", texto: "", _t: String(_fx[9]) });
+        if (_fx) items.push({ quien: "equipo", fecha: fmt(_fx[9]), _leg: "presentacion", texto: "", _t: String(_fx[9]) });   // v149: la presentacion la manda Guille
       }
       for (const c of _filasC) {
         const f = fmt(c[0]), tipo = String(c[3] || "").trim(), cli = String(c[2] || "").trim(), bot = String(c[4] || "").trim();
@@ -17644,7 +17651,7 @@ module.exports = function (app) {
             const mC = bot.match(/^\u23F0 Programado para (.+?): /);
             const cuandoTx = mC ? mC[1] : fmt(pr[2]);
             const cab = est === "error" ? "\u26A0\uFE0F No se pudo enviar: " + String(pr[6] || "").replace(/^error: /, "") : "\u23F0 Programado para " + cuandoTx;
-            items.push({ quien: esResp ? "equipo" : "bot", fecha: f, cab, texto: cuerpo });
+            items.push({ quien: "equipo", fecha: f, cab, texto: cuerpo });   // v149: solo Guille programa envios
             continue;
           }
         }
@@ -17655,8 +17662,9 @@ module.exports = function (app) {
           //   su titulo y, al pinchar, el texto exacto; el resto (mensajes normales) entero.
           if (_CLI_PLANT.test(cli)) {
             const cut = bot.indexOf("\n\n");
-            if (cut > 0 && /plantilla [^)]+\)$/.test(bot.slice(0, cut).trim())) items.push({ quien: "bot", fecha: f, titulo: bot.slice(0, cut).trim(), texto: bot.slice(cut + 2).trim() });
-            else items.push({ quien: "bot", fecha: f, _leg: cli, _bot: bot, texto: "" });   // guardado antes de v126: se completa abajo
+            const _q = _CLI_TUYO.test(cli) ? "equipo" : "bot";   // v149
+            if (cut > 0 && /plantilla [^)]+\)$/.test(bot.slice(0, cut).trim())) items.push({ quien: _q, fecha: f, titulo: bot.slice(0, cut).trim(), texto: bot.slice(cut + 2).trim() });
+            else items.push({ quien: _q, fecha: f, _leg: cli, _bot: bot, texto: "" });   // guardado antes de v126: se completa abajo
           } else items.push({ quien: "bot", fecha: f, texto: bot });
           continue;
         }
@@ -17761,6 +17769,43 @@ module.exports = function (app) {
     }
   });
 
+  // v149 (23/10/2026, criterio de Guille: "que me muestre el texto que va a enviar") -- nombre ({{1}}) y vivienda ({{2}})
+  //   de la plantilla plan5_contacto; la misma cuenta para enviar (POST pedir-contacto) y para ensenarlo (GET pedir-contacto-texto).
+  async function _datosPedirContacto(b) {
+    b = b || {};
+    const tel = String(b.tel || "");
+    const nn = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    const pis = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AW" })).data.values || []).slice(1);
+    const k9 = tel.replace(/\D/g, "").slice(-9);
+    const fp = pis.find(r => r && nn(r[1]) === nn(b.comunidad) && nn(r[2]) === nn(b.vivienda)) || pis.find(r => r && String(r[0] || "").replace(/\D/g, "").slice(-9) === k9) || [];
+    const comu = (await leerComunidades()).find(c => nn(c.direccion) === nn(fp[1] || b.comunidad) || nn(c.comunidad) === nn(fp[1] || b.comunidad));
+    const via = comu && comu.tipo_via ? String(comu.tipo_via).trim() + " " : "";
+    const vivienda = (via + String(fp[1] || b.comunidad || "").trim() + " (" + String(fp[2] || b.vivienda || "").trim() + ")").trim();
+    let _tipoB = String(fp[48] || "").trim();
+    if (!_tipoB) { try { const eb = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:E" })).data.values || []).slice(1).find(e => e && String(e[0] || "").replace(/\D/g, "").slice(-9) === k9); _tipoB = eb ? eb[4] : ""; } catch (eT) {} }
+    const nombre = _p5NombreDirigido(fp[3], fp[4], _tipoB);
+    return { tel, nombre, vivienda };
+  }
+  // GET /presupuestos/hoy/pedir-contacto-texto (v149) -- el texto de plan5_contacto con su nombre y vivienda, para la ventana.
+  app.get("/presupuestos/hoy/pedir-contacto-texto", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const pl = await leerPlantillasBot();
+      const f = pl.find(x => x.clave === "plan5_contacto");
+      if (!f || !String(f.twilio_sid || "").trim()) return res.json({ ok: false, error: "falta el c\u00f3digo Twilio de la plantilla plan5_contacto" });
+      let txt = await obtenerTextoTwilio(f.twilio_sid);
+      if (!txt) return res.json({ ok: false, error: "no se pudo leer el texto de Twilio" });
+      const { nombre, vivienda } = await _datosPedirContacto(req.query || {});
+      const r = (x, def) => { x = String(x == null ? "" : x).replace(/\s+/g, " ").trim(); return x || def; };   // como pedirContacto del bot
+      const v = { 1: r(nombre, "vecino/a"), 2: r(vivienda, "-") };
+      txt = String(txt).replace(/\{\{\s*(\d+)\s*\}\}/g, (m, n) => (v[n] != null ? String(v[n]) : m));
+      res.json({ ok: true, texto: txt });
+    } catch (e) {
+      console.error("[presupuestos] GET /hoy/pedir-contacto-texto:", e.message);
+      res.json({ ok: false, error: e.message });
+    }
+  });
+
   // POST /presupuestos/hoy/pedir-contacto (v128, criterio de Guille) -- plantilla plan5_contacto: {{1}} nombre (Nota
   //   simple o el de arriba), {{2}} vivienda "C Malvaloca 1 (1D)". Fuera del horario se puede programar.
   app.post("/presupuestos/hoy/pedir-contacto", async (req, res) => {
@@ -17771,16 +17816,7 @@ module.exports = function (app) {
       const b = req.body || {};
       const tel = String(b.tel || "");
       if (tel.replace(/\D/g, "").length < 9) return res.status(400).json({ ok: false, error: "el vecino no tiene tel\u00e9fono" });
-      const nn = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
-      const pis = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AW" })).data.values || []).slice(1);
-      const k9 = tel.replace(/\D/g, "").slice(-9);
-      const fp = pis.find(r => r && nn(r[1]) === nn(b.comunidad) && nn(r[2]) === nn(b.vivienda)) || pis.find(r => r && String(r[0] || "").replace(/\D/g, "").slice(-9) === k9) || [];
-      const comu = (await leerComunidades()).find(c => nn(c.direccion) === nn(fp[1] || b.comunidad) || nn(c.comunidad) === nn(fp[1] || b.comunidad));
-      const via = comu && comu.tipo_via ? String(comu.tipo_via).trim() + " " : "";
-      const vivienda = (via + String(fp[1] || b.comunidad || "").trim() + " (" + String(fp[2] || b.vivienda || "").trim() + ")").trim();
-      let _tipoB = String(fp[48] || "").trim();
-      if (!_tipoB) { try { const eb = ((await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:E" })).data.values || []).slice(1).find(e => e && String(e[0] || "").replace(/\D/g, "").slice(-9) === k9); _tipoB = eb ? eb[4] : ""; } catch (eT) {} }
-      const nombre = _p5NombreDirigido(fp[3], fp[4], _tipoB);
+      const { nombre, vivienda } = await _datosPedirContacto(b);
       const r = await bot.enviarOProgramar(String(b.programar || "") === "1", "pedirContacto", [tel, { nombre, vivienda }], { tel, desc: "pedir contacto" });
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
       res.json({ ok: true, programado: !!r.programado, cuandoTxt: r.cuandoTxt || "" });

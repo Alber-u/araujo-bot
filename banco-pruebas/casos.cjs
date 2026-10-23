@@ -449,6 +449,84 @@ const CASOS = [
       ];
     },
   },
+  // ===== v149: Pedir contacto con su texto, verde lo de Guille, silencio a cortos y a «se lo mando ahora» =====
+  {
+    nombre: "Pedir contacto: la ventana enseña el mismo texto que sale por WhatsApp",
+    desde: "v149",
+    prueba: async (S) => {
+      const iA = S.col("pisos", "bot_piso_activo");
+      const f = S.DATA.pisos.find((x, i) => i > 0 && x[0] && x[1] && x[2] && String(x[iA >= 0 ? iA : 47]) === "BOT_WHATSAPP");
+      if (!f) return [[false, "hay un piso en W", "ninguno"]];
+      const q = { tel: f[0], comunidad: f[1], vivienda: f[2] };
+      // sin red: Twilio contesta con el texto aprobado de plan5_contacto (lo que trae obtenerTextoTwilio)
+      const https = require("https"), { EventEmitter } = require("events"), _req0 = https.request;
+      const TXT = "Hola {{1}}, somos Instalaciones Araujo. Estamos gestionando en su comunidad el Plan 5 de EMASESA para la individualización de contadores de agua de su vivienda {{2}}. Responda *HOLA* a este mensaje.";
+      https.request = (o, cb) => { if (!o || o.hostname !== "content.twilio.com") return _req0.apply(https, arguments); const rq = new EventEmitter(); rq.end = () => { const rs = new EventEmitter(); cb(rs); rs.emit("data", JSON.stringify({ types: { "twilio/text": { body: TXT } } })); rs.emit("end"); }; rq.setTimeout = () => rq; rq.destroy = () => {}; return rq; };
+      const pv = (await S.call("GET", "/presupuestos/hoy/pedir-contacto-texto", q)).body || {};
+      S.SENT.length = 0;
+      const env = (await S.call("POST", "/presupuestos/hoy/pedir-contacto", q)).body || {};
+      const m = S.SENT.find((x) => x.canal === "whatsapp");
+      let vars = {}; try { vars = JSON.parse((m && m.contentVariables) || "{}"); } catch (e) {}
+      return [
+        [pv.ok === true && !!pv.texto, "la ruta devuelve el texto de la plantilla", JSON.stringify(pv)],
+        [env.ok === true && !!m, "Pedir contacto se envía", JSON.stringify(env)],
+        [!!m && pv.texto === TXT.replace("{{1}}", vars["1"]).replace("{{2}}", vars["2"]), "la ventana enseña exactamente lo que sale (nombre y vivienda)", (pv.texto || "") + " | enviado: " + JSON.stringify(vars)],
+        [!!vars["2"] && /\(/.test(vars["2"]), "la vivienda va como «C Comunidad (piso)»", JSON.stringify(vars)],
+      ];
+    },
+  },
+  {
+    nombre: "Conversación: lo que sale por decisión de Guille va en verde; lo del bot, en azul",
+    desde: "v149",
+    prueba: async (S) => {
+      const tel = "+34600111222";
+      const ahora = Date.now(), iso = (m) => new Date(ahora - m * 60000).toISOString();
+      const bc = S.DATA.bot_contactos;
+      bc.push([iso(50), tel, "presentacion", "bot", "Presentación del bot (plantilla presentacion)\n\nHola"]);
+      bc.push([iso(40), tel, "job_presentacion", "bot", "reenvio presentacion"]);
+      bc.push([iso(30), tel, "aviso_m:plan5_recordatorio_m1", "bot", "Recordatorio M1 (plantilla plan5_recordatorio_m1)\n\nHola"]);
+      bc.push([iso(20), tel, "contacto_pedido", "bot", "Pedir contacto (plantilla plan5_contacto)\n\nHola"]);
+      bc.push([iso(10), tel, "job_proactivo", "bot", "Recordatorio automático (plantilla recordatorio)\n\nHola"]);
+      bc.push([iso(5), tel, "respuesta_equipo", "equipo", "Buenas"]);
+      const r = (await S.call("GET", "/presupuestos/hoy/conversacion", { tel })).body || {};
+      const it = (r.items || r.mensajes || []);
+      const q = it.map((x) => x.quien).join(",");
+      return [
+        [q === "equipo,bot,equipo,equipo,bot,equipo", "presentación, aviso M, Pedir contacto y respuesta en verde; reenvío y recordatorio del bot en azul", q || JSON.stringify(r).slice(0, 300)],
+      ];
+    },
+  },
+  {
+    nombre: "Bot: con la ficha terminada no contesta «1» ni «ok»; «aquí les envío…» no se contesta; «mañana lo mando» sí",
+    desde: "v149",
+    prueba: async (S) => {
+      const iA = S.col("pisos", "bot_piso_activo");
+      const f = S.DATA.pisos.find((x, i) => i > 0 && x[0] && String(x[iA >= 0 ? iA : 47]) === "BOT_WHATSAPP");
+      const be = S.DATA.bot_expedientes, h = be[0];
+      const fila = be.findIndex((x, i) => i > 0 && String(x[0]).replace(/\D/g, "").slice(-9) === String(f[0]).replace(/\D/g, "").slice(-9));
+      if (!f || fila < 0) return [[false, "hay un vecino en W con ficha del bot", "ninguno"]];
+      const iPaso = h.indexOf("paso_actual"), iDoc = h.indexOf("documento_actual"), iAD = 29, iAE = 30;
+      const manda = async (texto, paso) => {
+        be[fila][iPaso] = paso; if (paso === "recogida_documentacion" && !be[fila][iDoc]) be[fila][iDoc] = "dni_propietario_delante";
+        be[fila][iAD] = ""; be[fila][iAE] = "";
+        S.SENT.length = 0; let resp = "";
+        const req = { method: "POST", body: { From: "whatsapp:" + f[0], Body: texto, NumMedia: "0", MessageSid: "SMb" + Math.random() }, query: {}, headers: {}, get: () => "", protocol: "https", originalUrl: "/whatsapp" };
+        await new Promise((ok) => { const rr = { status() { return this; }, type() { return this; }, set() { return this; }, send(x) { resp = String(x || ""); ok(); return this; }, end() { ok(); return this; }, json() { ok(); }, sendStatus() { ok(); } }; Promise.resolve(S.routes["POST /whatsapp"](req, rr)).catch(() => ok()); });
+        await S.espera(600);
+        const bc = S.DATA.bot_contactos, u = bc[bc.length - 1] || [];
+        return String(u[4] || "") + (S.SENT.length ? " [+" + S.SENT.length + " envío]" : "");
+      };
+      const r1 = await manda("1", "finalizado"), r2 = await manda("ok", "finalizado");
+      const r3 = await manda("Aquí les envío el documento pendiente", "recogida_documentacion");
+      const r4 = await manda("Mañana les mando el DNI", "recogida_documentacion");
+      return [
+        [r1 === "", "ficha terminada + «1»: sin respuesta", r1],
+        [r2 === "", "ficha terminada + «ok»: sin respuesta", r2],
+        [r3 === "", "«Aquí les envío el documento pendiente»: sin respuesta", r3],
+        [/De acuerdo/.test(r4), "«Mañana les mando el DNI»: aviso, como antes", r4],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
