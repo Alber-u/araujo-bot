@@ -622,6 +622,26 @@ const CASOS = [
       return out.length ? out : [[false, "hay comunidades en 05 con pisos", "no"]];
     },
   },
+  // ===== v152: el M1/M2 de la 05 dice lo que falta =====
+  {
+    nombre: "Aviso M de la 05: el {{4}} dice qué documentos faltan",
+    desde: "v152",
+    prueba: async (S) => {
+      const j = (await S.call("GET", "/presupuestos/hoy", { soloAvisosM: "1" })).body || {};
+      const m05 = (j.avisos || []).filter((a) => /^plan5_recordatorio_m[12]$/.test(a.clave || "") && a.pendiente !== undefined);
+      if (!m05.length) return [[false, "hay avisos M1/M2 por el bot", "ninguno"]];
+      const conLista = m05.filter((a) => /^la documentación que falta de su vivienda \(.+\)$/.test(a.pendiente || ""));
+      const NOMBRES = /^(Solicitud de EMASESA firmada|DNI del (propietario|familiar|inquilino|representante|pagador)|Documento de autorización|Libro de familia|Contrato de alquiler completo y firmado|Certificado de empadronamiento|NIF\/CIF de la sociedad|Escritura de constitución|Poderes del representante|Licencia de apertura o declaración responsable|Justificante de ingresos|Documento de titularidad bancaria)$/;
+      const raros = [];
+      conLista.forEach((a) => { const l = a.pendiente.replace(/^[^(]*\(/, "").replace(/\)$/, ""); l.split(/, | y (?=[A-ZÁÉÍÓÚ])/).forEach((n) => { if (!NOMBRES.test(n)) raros.push(a.vivienda + ": " + n); }); });
+      const malos = m05.filter((a) => !/\(/.test(a.pendiente || "") && a.pendiente !== "la documentación de su vivienda");
+      return [
+        [conLista.length > 0, "algún aviso M lleva la lista de lo que falta", m05.map((a) => a.vivienda + "=" + a.pendiente).join(" | ").slice(0, 300)],
+        [raros.length === 0, "la lista solo lleva nombres de documentos (con tildes)", raros.join(" | ")],
+        [malos.length === 0 && m05.every((a) => !/[\n\r]/.test(a.pendiente || "")), "sin lista, el texto de siempre; nunca saltos de línea", malos.map((a) => a.pendiente).join(" | ")],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };

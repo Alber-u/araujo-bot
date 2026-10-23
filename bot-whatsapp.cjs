@@ -424,6 +424,11 @@ const DOC_LABELS = {
   adicional: "Documentacion adicional",
 };
 function labelDocumento(code) { return DOC_LABELS[code] || code || "documento"; }
+// v152 (23/10/2026, criterio de Guille) -- nombre de un documento tal como lo cuenta la ficha (un DNI = las dos caras),
+//   para decirle al vecino en el aviso M lo que le falta. Sale de DOC_LABELS (lo mismo que ve en los recordatorios).
+const _DNI_CARAS = { dni_propietario: "DNI del propietario", dni_familiar: "DNI del familiar", dni_inquilino: "DNI del inquilino", dni_administrador: "DNI del representante", dni_pagador: "DNI del pagador",
+  autorizacion_familiar: "Documento de autorización", escritura_constitucion: "Escritura de constitución", licencia_o_declaracion: "Licencia de apertura o declaración responsable" };
+function etiquetaDocVecino(code) { return _DNI_CARAS[code] || labelDocumento(code); }
 function labelsDocumentos(listText) { return splitList(listText).map(labelDocumento); }
 
 function esDocumentoDNI(code) {
@@ -5411,6 +5416,7 @@ setTimeout(() => {
     avisarCambioTipo,      // v126
     salud: _saludBot,   // v19.96: para el aviso de sistema de HOY
     iaActiva,              // v141: el aviso de la IA en HOY solo sale con la IA encendida
+    etiquetaDocVecino,     // v152: nombres de documentos para el "lo que falta" de los avisos M
     // v19.98 -- contratos por el bot en fase 08 (los usa documentacion.cjs, boton W)
     enviarContratoPiso,
     contratosBotComunidad,

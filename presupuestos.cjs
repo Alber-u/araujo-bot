@@ -4128,10 +4128,11 @@ module.exports = function (app) {
     const cfg = _TIPOS_BOT[tipo]; if (!cfg) return { hechos: 0, total: 0, aplica: false };
     const idx = _indexBotDocs(dp); const mapEst = dp.mapEst || {};
     let total = 0, hechos = 0, revisar = 0;   // v19.114: revisar = documentos en REVISAR (pendientes de revisar por Guille)
-    cfg.docs.forEach(d => { const e = _estadoSwitchBot(d.code, idx); if (d.opc && e === "VACIO") return; total++; if (e === "OK") hechos++; if (e === "REVISAR") revisar++; });
+    const faltan = [];   // v152: los que cuentan y no estan ni en OK ni en REVISAR (lo que le falta al vecino)
+    cfg.docs.forEach(d => { const e = _estadoSwitchBot(d.code, idx); if (d.opc && e === "VACIO") return; total++; if (e === "OK") hechos++; else if (e === "REVISAR") revisar++; else faltan.push(d.code); });
     if (cfg.fin) {
       const fv = String(mapEst["piso_meses_financiar"] || "").trim();
-      if (fv === "6" || fv === "12" || fv === "18") { _FIN_DOCS_BOT.forEach(d => { total++; const _ef = _estadoSwitchBot(d.code, idx); if (_ef === "OK") hechos++; if (_ef === "REVISAR") revisar++; }); }
+      if (fv === "6" || fv === "12" || fv === "18") { _FIN_DOCS_BOT.forEach(d => { total++; const _ef = _estadoSwitchBot(d.code, idx); if (_ef === "OK") hechos++; else if (_ef === "REVISAR") revisar++; else faltan.push(d.code); }); }
       else { total++; hechos++; }
     }
     if (String(mapEst["piso_disidente"] || "").trim().toUpperCase() === "OK") { total++; hechos++; }
@@ -4142,8 +4143,8 @@ module.exports = function (app) {
     // v18.131 — Nota simple: Pte (casilla vacia) NO entra en el recuento, igual que
     //   en los acordeones manuales. Solo cuenta en OK (hecha) o en F (falta).
     const _ns = String(mapEst["piso_titularidad"] || "").trim().toUpperCase();
-    if (_ns === "OK") { total++; hechos++; } else if (_ns !== "") { total++; }
-    return { hechos, total, revisar, aplica: true };
+    if (_ns === "OK") { total++; hechos++; } else if (_ns !== "") { total++; }   // la Nota simple la saca Araujo: no va en "faltan"
+    return { hechos, total, revisar, faltan, aplica: true };
   }
   function _normDirBot(x) { return String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim(); }
   function _normVivBot(x) { return String(x == null ? "" : x).trim().toLowerCase(); }
@@ -4182,6 +4183,7 @@ module.exports = function (app) {
     const bd = botDatos || { docsByPiso: {}, tipoByPiso: {}, descByPiso: {} };
     const _revisarBot = {}; // v19.114 -- viviendas del bot con algun documento en REVISAR
     const _verdesBot = {}; // v18.99h — viviendas con toda su documentación (verde)
+    const _faltanBot = {}; // v152 — viviendas del bot: codigos de lo que les falta (para el aviso M)
     let totalFilas = 0, completas = 0;
     if (!_ccppNoContrata(estadosCcpp, docsCcpp, fase)) {
       const rC = _resumenFase(estadosCcpp, docsCcpp, fase);
@@ -4205,12 +4207,13 @@ module.exports = function (app) {
         const c = _botContarPiso({ pisoTipo: p.piso_tipo || "", tipoBot, botDocs: bd.docsByPiso[viv] || [], descartadosBot: bd.descByPiso[viv] || [], mapEst });
         if (c.aplica && c.hechos >= c.total) { completas++; if (c.total > 0) _verdesBot[viv] = true; }
         if (c.aplica && c.revisar > 0) _revisarBot[viv] = true;   // v19.114
+        if (c.aplica && c.faltan && c.faltan.length) _faltanBot[viv] = c.faltan;   // v152
       } else {
         const r = _resumenFase(p.estados, docsPiso, fase);
         if (r.totalRel > 0 && r.hechos >= r.totalRel) { completas++; _verdesBot[viv] = true; }
       }
     }
-    return { totalFilas, pend: totalFilas > 0 ? (totalFilas - completas) : 0, verdes: _verdesBot, revisar: _revisarBot };
+    return { totalFilas, pend: totalFilas > 0 ? (totalFilas - completas) : 0, verdes: _verdesBot, revisar: _revisarBot, faltan: _faltanBot };
   }
 
   // Devuelve { lista_doc_ccpp, lista_doc_pisos, pct_pisos } para una CCPP.
@@ -14339,22 +14342,31 @@ module.exports = function (app) {
         let _docsPisoAv = [], _botIdxAv = {};
         try { _docsPisoAv = (await _leerDocsManuales()).docsPiso || []; } catch (e) {}
         try { _botIdxAv = await _leerBotDatosHoyIndex(); } catch (e) {}
-        const _verdeCache = {}, _revisarCache = {};
+        const _verdeCache = {}, _revisarCache = {}, _faltanCache = {};
         const _cargaVerde = async (comu) => {
           const key = _normDirBot(comu);
           if (!(key in _verdeCache)) {
-            let set = {}, rev = {};
+            let set = {}, rev = {}, fal = {};
             try {
               const pisosV = await _leerPisosDeCcpp(comu, _docsPisoAv);
               const rV = _contarFaltanBot([], [], pisosV, _docsPisoAv, "", _botIdxAv[key] || null);
-              set = rV.verdes || {}; rev = rV.revisar || {};
+              set = rV.verdes || {}; rev = rV.revisar || {}; fal = rV.faltan || {};
             } catch (e) {}
-            _verdeCache[key] = set; _revisarCache[key] = rev;
+            _verdeCache[key] = set; _revisarCache[key] = rev; _faltanCache[key] = fal;
           }
           return key;
         };
         const _pisoVerde = async (comu, viv) => { const key = await _cargaVerde(comu); return !!_verdeCache[key][_normVivBot(viv)]; };
         const _pisoRevisar = async (comu, viv) => { const key = await _cargaVerde(comu); return !!_revisarCache[key][_normVivBot(viv)]; };   // v19.114
+        // v152 (23/10/2026, criterio de Guille: "que el M1 diga lo que falta") -- en la 05, el {{4}} del aviso dice que
+        //   documentos le faltan (los mismos que cuenta el "N/M" de Datos documentacion); si no se sabe, el texto de siempre.
+        const _pendTxt05 = async (comu, viv) => {
+          const key = await _cargaVerde(comu); const cods = _faltanCache[key][_normVivBot(viv)] || [];
+          const B = app.locals.botWhatsapp; const et = (B && typeof B.etiquetaDocVecino === "function") ? B.etiquetaDocVecino : null;
+          if (!cods.length || !et) return "la documentación de su vivienda";
+          const n = cods.map(et); const lista = n.length === 1 ? n[0] : n.slice(0, -1).join(", ") + " y " + n[n.length - 1];
+          return "la documentación que falta de su vivienda (" + lista + ")";
+        };
         // v19.36 — Criterio de Guille: en fase 05 todos los vecinos ven la fecha de la
         //   COMUNIDAD (primer WhatsApp del bot a cualquier vecino + 20), la misma que los
         //   correos ({{fecha_limite_doc_vecinos}}). v19.102 (criterio de Guille, 09/10/2026): los
@@ -14588,7 +14600,7 @@ module.exports = function (app) {
               if (_SET_HECHO.has(String(pr[42] || "").trim())) continue;   // disidente
               let pendTxt;
               if (es08) { const fc = _pend(pr[43]), fp = _pend(pr[44]); if (!fc && !fp) continue; pendTxt = _p5PendienteCycp(fc, fp); }
-              else { if (await _pisoVerde(pr[1] || "", viv)) continue; pendTxt = "la documentación de su vivienda"; }
+              else { if (await _pisoVerde(pr[1] || "", viv)) continue; pendTxt = await _pendTxt05(pr[1] || "", viv); }   // v152
               const kp = _nd(pr[1]) + "|" + _nd(viv);
               const bot = _botPorPiso[kp] || null;
               const mv = _mailsVec[kp] || {};
