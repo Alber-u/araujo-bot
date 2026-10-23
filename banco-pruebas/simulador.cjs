@@ -73,7 +73,12 @@ function crear() {
 
   // ---------- Librerías externas simuladas ----------
   const stubAny = () => new Proxy(function () {}, { get: (t, k) => (k === "then" ? undefined : stubAny()), apply: () => stubAny(), construct: () => stubAny() });
-  const googleapis = { google: { sheets: () => sheetsApi, drive: () => stubAny(), auth: { OAuth2: function () { this.setCredentials = () => {}; }, GoogleAuth: function () { this.getClient = async () => ({}); } } } };
+  // Drive simulado: sin carpetas ni archivos (23/10/2026: con un objeto vacío, buscar los PDF de un piso no terminaba)
+  //   Un caso puede poner sus carpetas y PDF con setDriveList(fn): fn(params de files.list) -> lista de archivos.
+  let _driveList = () => [];
+  const driveApi = new Proxy({}, { get: (t, k) => (k === "files" ? new Proxy({}, { get: (t2, k2) => (k2 === "list" ? async (p) => ({ data: { files: (await _driveList(p || {})) || [] } }) : (k2 === "get" ? async () => ({ data: Buffer.from("%PDF-banco") }) : stubAny())) }) : stubAny()) });
+  const setDriveList = (fn) => { _driveList = fn || (() => []); };
+  const googleapis = { google: { sheets: () => sheetsApi, drive: () => driveApi, auth: { OAuth2: function () { this.setCredentials = () => {}; }, GoogleAuth: function () { this.getClient = async () => ({}); } } } };
   const twilio = function () {
     return {
       messages: { create: async (m) => { SENT.push(Object.assign({ canal: "whatsapp" }, m)); LOG.push("TWILIO " + (m.contentSid || "texto")); return { sid: "SMbanco" + SENT.length }; } },
@@ -134,7 +139,7 @@ function crear() {
   function col(tabla, nombre) { return ((DATA[tabla] || [])[0] || []).indexOf(nombre); }
   const espera = (ms) => new Promise((r) => _st(r, ms));
 
-  return { DATA, LOG, SENT, app, routes, call, P, comunidades, comunidad, filaDe, col, espera, RAIZ };
+  return { DATA, LOG, SENT, app, routes, call, P, comunidades, comunidad, filaDe, col, espera, RAIZ, setDriveList };
 }
 
 module.exports = { crear };

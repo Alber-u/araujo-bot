@@ -560,6 +560,68 @@ const CASOS = [
       ];
     },
   },
+  // ===== v151: lo que sale por WhatsApp se ve antes, tal cual =====
+  {
+    nombre: "Vistas previas (presentación, cambio de tipo, contrato): enseñan el mensaje exacto y no envían nada",
+    desde: "v151",
+    prueba: async (S) => {
+      const https = require("https"), { EventEmitter } = require("events"), _req0 = https.request;
+      const TXT = "Hola {{1}} · {{2}} · {{3}}";
+      https.request = (o, cb) => { if (!o || o.hostname !== "content.twilio.com") return _req0.apply(https, arguments); const rq = new EventEmitter(); rq.end = () => { const rs = new EventEmitter(); cb(rs); rs.emit("data", JSON.stringify({ types: { "twilio/text": { body: TXT } } })); rs.emit("end"); }; rq.setTimeout = () => rq; rq.destroy = () => {}; return rq; };
+      const bot = S.app.locals.botWhatsapp, P = S.P();
+      const be = S.DATA.bot_expedientes, t9 = (x) => String(x || "").replace(/\D/g, "").slice(-9);
+      const conFicha = new Set(be.slice(1).map((r) => t9(r[0])));
+      // un piso de una comunidad en 05, sin ficha del bot, y otro con ficha
+      const comus = await P.leerComunidades();
+      const c05 = comus.find((c) => P.normalizarFase(c.fase_presupuesto) === "05_DOCUMENTACION");
+      const pis = S.DATA.pisos.slice(1).filter((r) => r && r[0] && (String(r[1]).trim() === String(c05.direccion).trim() || String(r[1]).trim() === String(c05.comunidad).trim()));
+      const sin = pis.find((r) => !conFicha.has(t9(r[0]))), con = pis.find((r) => conFicha.has(t9(r[0])));
+      S.SENT.length = 0; const antesLog = S.LOG.filter((x) => /^APPEND|^UPDATE/.test(x)).length;
+      const out = [];
+      if (sin) {
+        const v = (await S.call("POST", "/documentacion/piso/vista-presentacion", { ccpp_id: c05.ccpp_id, vivienda: sin[2] })).body || {};
+        out.push([v.ok === true && /^Hola /.test(v.vista || ""), "presentación: enseña el mensaje con su nombre", JSON.stringify(v)]);
+      }
+      if (con) {
+        const v2 = (await S.call("POST", "/documentacion/piso/vista-presentacion", { ccpp_id: c05.ccpp_id, vivienda: con[2] })).body || {};
+        out.push([v2.estado === "ya_presentado", "presentación: si ya tiene ficha lo dice (no se le volvería a mandar)", JSON.stringify(v2)]);
+        const vt = (await S.call("POST", "/documentacion/piso/tipo-aviso", { ccpp_clave: c05.direccion, vivienda: con[2], ver: "1" })).body || {};
+        out.push([vt.ok === true ? /^Hola /.test(vt.vista || "") : !!vt.error, "cambio de tipo: enseña el mensaje (o dice por qué no se puede)", JSON.stringify(vt)]);
+        // la vista del cambio de tipo es la misma que el envio: se comparan las variables
+        if (vt.ok) {
+          S.SENT.length = 0;
+          await bot.avisarCambioTipo({ comunidad: String(con[1]), vivienda: con[2] });
+          const m = S.SENT.find((x) => x.canal === "whatsapp"); let vv = {}; try { vv = JSON.parse((m && m.contentVariables) || "{}"); } catch (e) {}
+          out.push([vt.vista === TXT.replace("{{1}}", vv["1"]).replace("{{2}}", vv["2"]).replace("{{3}}", vv["3"]), "cambio de tipo: lo que se ve es lo que sale", vt.vista + " | " + JSON.stringify(vv)]);
+          S.SENT.length = 0;
+        }
+      }
+      const c08 = comus.find((c) => P.normalizarFase(c.fase_presupuesto) === "08_CYCP");
+      if (c08) {
+        // carpeta del expediente con el contrato y la carta de pago de un piso (Drive simulado)
+        const pc = S.DATA.pisos.slice(1).find((r) => r && r[0] && (String(r[1]).trim() === String(c08.direccion).trim() || String(r[1]).trim() === String(c08.comunidad).trim()) && String(r[42] || "").toUpperCase() !== "OK" && !conFicha.has(t9(r[0])));
+        if (pc) {
+          const nomExp = ((c08.tipo_via ? c08.tipo_via + " " : "") + c08.direccion).trim();
+          S.setDriveList((q) => /'CARP08' in parents/.test(q.q || "") ? [{ id: "PDF1", name: "CONTRATO (" + pc[2] + ").pdf", mimeType: "application/pdf" }, { id: "PDF2", name: "CARTA DE PAGO (" + pc[2] + ").pdf", mimeType: "application/pdf" }]
+            : /google-apps\.folder/.test(q.q || "") ? [{ id: "CARP08", name: nomExp, mimeType: "application/vnd.google-apps.folder" }] : []);
+          const vv8 = (await S.call("POST", "/documentacion/piso/enviar-contrato", { ccpp_id: c08.ccpp_id, vivienda: pc[2], ver: "1" })).body || {};
+          const e8 = vv8.envio || {};
+          out.push([e8.ok === true && /^Hola /.test(e8.vista || "") && /CONTRATO/.test(e8.archivo || ""), "contrato: enseña el mensaje y el PDF que va", JSON.stringify(e8).slice(0, 200)]);
+          out.push([S.SENT.filter((x) => x.canal === "whatsapp").length === 0, "contrato: la vista no manda nada", S.SENT.length]);
+          // el envio real necesita la libreria que junta los PDF (el banco no la tiene); vista y envio usan la misma cuenta (_varsC)
+          S.SENT.length = 0; S.setDriveList(null);
+        }
+        const p8 = S.DATA.pisos.slice(1).find((r) => r && r[0] && (String(r[1]).trim() === String(c08.direccion).trim() || String(r[1]).trim() === String(c08.comunidad).trim()));
+        const azAntes = c08.fecha_envio_contratos_pagos;
+        const vc = (await S.call("POST", "/documentacion/piso/enviar-contrato", { ccpp_id: c08.ccpp_id, vivienda: p8 ? p8[2] : "", ver: "1" })).body || {};
+        const c08b = (await P.leerComunidades()).find((c) => c.ccpp_id === c08.ccpp_id);
+        out.push([!!vc.envio && (vc.envio.ok === true || !!vc.envio.error), "contrato: devuelve el mensaje o el motivo (sin enviar)", JSON.stringify(vc).slice(0, 200)]);
+        out.push([String(c08b.fecha_envio_contratos_pagos || "") === String(azAntes || ""), "contrato: la vista no toca la fecha de envío de contratos", ""]);
+      }
+      out.push([S.SENT.filter((x) => x.canal === "whatsapp").length === 0, "ninguna vista manda un WhatsApp", S.SENT.length]);
+      return out.length ? out : [[false, "hay comunidades en 05 con pisos", "no"]];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };

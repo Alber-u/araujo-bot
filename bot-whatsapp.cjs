@@ -147,10 +147,7 @@ async function enviarWhatsAppPlantilla(to, contentSid, variables, seguirEntrega)
   console.log("Enviando plantilla WhatsApp:", { to: toNum, contentSid });
   // Twilio requiere contentVariables como JSON string con claves string
   // Asegurarse de que todas las claves son strings y los valores no son nulos
-  const varsLimpias = {};
-  for (const [k, v] of Object.entries(variables || {})) {
-    varsLimpias[String(k)] = String(v || "").replace(/\n/g, " ").trim();
-  }
+  const varsLimpias = _varsPlantilla(variables);
   const _msg = {
     from: fromNum, to: toNum,
     contentSid,
@@ -161,6 +158,16 @@ async function enviarWhatsAppPlantilla(to, contentSid, variables, seguirEntrega)
   // v126 (criterio de Guille: "un espejo de lo que el vecino ha visto") -- devuelve el texto exacto enviado (la
   //   plantilla de Twilio con sus variables), para guardarlo en la conversacion. Si no se puede leer, "".
   try { return await _espejoPlantilla(contentSid, varsLimpias); } catch (e) { return ""; }
+}
+// v151 (23/10/2026, criterio de Guille: "tengo que ver exactamente lo que voy a enviar") -- las variables tal como se
+//   mandan a Twilio, y el texto que veria el vecino SIN enviar nada (para las ventanas de Enviar por el bot).
+function _varsPlantilla(variables) {
+  const out = {};
+  for (const [k, v] of Object.entries(variables || {})) out[String(k)] = String(v || "").replace(/\n/g, " ").trim();
+  return out;
+}
+async function _vistaPlantilla(sid, variables) {
+  try { return await _espejoPlantilla(sid, _varsPlantilla(variables)); } catch (e) { return ""; }
 }
 async function _espejoPlantilla(sid, vars) {
   const P = app.locals && app.locals.presupuestos;
@@ -1969,7 +1976,9 @@ async function avisarCambioTipo(o) {
   const _lista = _pend.map((d) => labelDocumento(d)).join(" \u00b7 ") || labelDocumento(exp.documento_actual);
   const sid = sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7");
   if (!sid) return { ok: false, error: "la plantilla Twilio recordatorio est\u00e1 desactivada" };
-  const _esp = await enviarWhatsAppPlantilla(f.tel, sid, { "1": limpiarNombreVecino(await nombreDirigido(exp.comunidad, exp.vivienda, exp.nombre)), "2": (exp.comunidad || "") + (exp.vivienda ? " " + exp.vivienda : ""), "3": _lista });
+  const _varsT = { "1": limpiarNombreVecino(await nombreDirigido(exp.comunidad, exp.vivienda, exp.nombre)), "2": (exp.comunidad || "") + (exp.vivienda ? " " + exp.vivienda : ""), "3": _lista };
+  if (o && o.soloVer) return { ok: true, vista: await _vistaPlantilla(sid, _varsT) };   // v151: solo ensenar lo que saldria
+  const _esp = await enviarWhatsAppPlantilla(f.tel, sid, _varsT);
   try { await guardarAviso(f.tel, "cambio_tipo", "enviado"); } catch (e) {}
   try { await guardarContacto(f.tel, "cambio_tipo", "bot", _conEspejo("Cambio de tipo a " + (exp.tipo_expediente || "") + ": lo que le falta (plantilla recordatorio)", _esp, "Tipo cambiado a " + (exp.tipo_expediente || "") + ". Le falta: " + _lista)); } catch (e) {}
   return { ok: true };
@@ -4971,6 +4980,14 @@ async function enviarContratoPiso(o) {
     if (!o.soloContrato && !pp.cartas.length) return { ok: false, estado: "falta_pdf", error: "No encuentro la carta de pago del " + piso.vivienda };
     if (pp.contratos.length > 1) return { ok: false, estado: "pdf_repetido", error: "Hay " + pp.contratos.length + " contratos del " + piso.vivienda + " en Drive: deja solo uno" };
     if (!o.soloContrato && pp.cartas.length > 1) return { ok: false, estado: "pdf_repetido", error: "Hay " + pp.cartas.length + " cartas de pago del " + piso.vivienda + " en Drive: deja solo una" };
+    // v151 -- nombre del PDF y variables de la plantilla: UNA sola cuenta para la vista y para el envio
+    const nombre = _nombreArchivoSeguro((o.soloContrato ? "CONTRATO " : "CONTRATO Y CARTA DE PAGO ") + piso.vivienda) + ".pdf";
+    const comuTxt = ((o.tipoVia ? o.tipoVia + " " : "") + piso.comunidad).trim();
+    const _varsC = (doc) => ({ "1": comuTxt, "2": piso.vivienda, "3": o.fechaLimite || "", "4": doc });
+    if (o.soloVer) {   // v151: lo que saldria (texto de la plantilla y los PDF que van juntos), sin enviar ni bajar nada
+      const _adj = [pp.contratos[0].name].concat(o.soloContrato ? [] : [pp.cartas[0].name]);
+      return { ok: true, vista: await _vistaPlantilla(sid, _varsC(nombre)), archivo: nombre, adjuntos: _adj };
+    }
     const bufC = await _bajarDrive(pp.contratos[0].id);
     const bufs = [bufC];
     if (!o.soloContrato) bufs.push(await _bajarDrive(pp.cartas[0].id));
@@ -4981,10 +4998,8 @@ async function enviarContratoPiso(o) {
     const pagTotal = await _paginasPdf(pdf);
     const avisos = [];
     if (pagContrato && pagContrato !== _HOJAS_CONTRATO) avisos.push("el contrato tiene " + pagContrato + " p\u00e1ginas (se esperaban " + _HOJAS_CONTRATO + ")");
-    const nombre = _nombreArchivoSeguro((o.soloContrato ? "CONTRATO " : "CONTRATO Y CARTA DE PAGO ") + piso.vivienda) + ".pdf";
     const clave = _guardarMediaContrato(pdf, nombre);
-    const comuTxt = ((o.tipoVia ? o.tipoVia + " " : "") + piso.comunidad).trim();
-    const _espC = await enviarWhatsAppPlantilla(tel, sid, { "1": comuTxt, "2": piso.vivienda, "3": o.fechaLimite || "", "4": clave + "/" + nombre });
+    const _espC = await enviarWhatsAppPlantilla(tel, sid, _varsC(clave + "/" + nombre));
     // Ficha y marcas (si algo de esto falla, el mensaje ya ha salido: se avisa en el registro)
     const ahora = ahoraISO();
     let primeroDelPiso = true;
@@ -5412,9 +5427,11 @@ setTimeout(() => {
         await cargarPlantillas().catch(() => {});
         const _sidPres = sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27");
         if (!_sidPres) return { ok: false, estado: "sin_plantilla", error: "la plantilla presentacion de Flujo bot está desactivada o sin código" };
-        const _espW = await enviarWhatsAppPlantilla(tel, _sidPres, {
+        const _varsW = {
           "1": limpiarNombreVecino(await nombreDirigido(datos && datos.comunidad, datos && datos.vivienda, datos && datos.nombre)),   // v19.98; v127: Nota simple
-        });
+        };
+        if (datos && datos.soloVer) return { ok: true, estado: "vista", vista: await _vistaPlantilla(_sidPres, _varsW) };   // v151: solo ensenar lo que saldria
+        const _espW = await enviarWhatsAppPlantilla(tel, _sidPres, _varsW);
         await crearExpedienteInicial(tel, {
           comunidad: (datos && datos.comunidad) || "",
           vivienda: (datos && datos.vivienda) || "",

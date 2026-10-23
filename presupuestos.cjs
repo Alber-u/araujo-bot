@@ -567,6 +567,7 @@ module.exports = function (app) {
         // v149: como en los avisos M, el texto que va a salir (la plantilla con su nombre y vivienda); no se puede cambiar (sin 24 h)
         var _pcPrev = '';
         try { var _pq = await fetch(U.ctexto + (U.ctexto.indexOf('?') < 0 ? '?' : '&') + new URLSearchParams({ tel: b.dataset.tel || '', comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '' }).toString()); var _pd = await _pq.json(); if (_pd && _pd.ok) _pcPrev = _pd.texto || ''; } catch (e) {}
+        if (!_pcPrev) { alert('No se ha podido leer el mensaje de la plantilla en Twilio, as\u00ed que no se env\u00eda nada. Prueba otra vez en un momento.'); return; }   // v151
         var rc = await window.ptlConfirmarEnvio('\u00bfEnviar por el bot el mensaje de Pedir contacto a ' + (b.dataset.com || '') + ' ' + (b.dataset.viv || '') + '?\n\nLe pide que responda HOLA. Lo que conteste te llega a ti (Pide ayuda en HOY) y el bot no le responde.', 'Pedir contacto', { tel: b.dataset.tel || '', preview: _pcPrev });
         if (!rc) return;
         bPc.disabled = true; bPc.textContent = 'Enviando...';
@@ -643,6 +644,8 @@ module.exports = function (app) {
         var pr = await fetch(U.mtexto + (U.mtexto.indexOf('?') < 0 ? '?' : '&') + new URLSearchParams({ clave: b.dataset.clave || '', nombre: b.dataset.nom || '', comunidad: b.dataset.com || '', piso: b.dataset.piso || '', pendiente: b.dataset.pend || '', fecha: b.dataset.fecha || '' }).toString());
         var pd = await pr.json(); if (pd && pd.ok) prev = pd.texto || '';
       } catch (e) {}
+      // v151 (criterio de Guille: "whatsapp no puede enviar nada que yo no vea en la pantalla"): sin el texto, no se envia
+      if (!prev) { alert('No se ha podido leer el mensaje de la plantilla en Twilio, as\u00ed que no se env\u00eda nada. Prueba otra vez en un momento.'); return; }
       var res = await window.ptlConfirmarEnvio(q, 'Enviar por el bot', { tel: b.dataset.tel || '', preview: prev, editable: !!(prev && edit) });
       if (!res) return;
       var _prog = window.ptlEsProgramar(res) ? '1' : '';   // v127: fuera del horario eligio "Programar"
@@ -6005,6 +6008,7 @@ module.exports = function (app) {
           + '<div data-m="1" style="font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word"></div>'
           + '<div data-pv="1" style="display:none;margin-top:10px"><div data-pvt="1" style="font-size:11px;font-weight:700;color:#555;margin-bottom:3px"></div>'
           + '<div data-pvr="1" style="display:none;font-size:12.5px;line-height:1.4;white-space:pre-wrap;word-break:break-word;border:1px solid #cfe0f5;background:#e6f1fb;border-radius:8px;padding:6px 8px;max-height:220px;overflow:auto"></div>'
+          + '<div data-pvf="1" style="display:none;font-size:12px;color:#555;margin:2px 0 3px"></div>'   // v151: la firma, si el texto cambiado sale como mensaje tuyo
           + '<textarea data-pve="1" rows="8" style="display:none;width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:12.5px"></textarea></div>'
           + '<div data-fh="1" style="display:none;margin-top:12px;padding:8px 10px;border-radius:8px;background:#fff4d6;border:1px solid #f0c36d;font-size:12.5px;line-height:1.4"></div>'
           + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap">'
@@ -6049,6 +6053,14 @@ module.exports = function (app) {
                 _cierra24 = _lim ? _lim.toLocaleString('es-ES', { timeZone: 'Europe/Madrid', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'nunca ha escrito';
                 _pintaFuera('');
               }
+            }
+            // v151 (criterio de Guille: "tengo que ver exactamente lo que voy a enviar") -- aviso M cambiado: ya no sale la
+            //   plantilla sino un mensaje tuyo, que lleva la firma del equipo encima: se ensena en cuanto cambias el texto
+            if (d && d.ok && d.firma && _pvE && opc && opc.editable) {
+              var _pf = fondo.querySelector('[data-pvf]'), _orig = String(opc.preview || '').trim();
+              var _mira = function () { var c = String(_pvE.value || '').trim() !== _orig; _pf.style.display = c ? 'block' : 'none'; };
+              _pf.textContent = 'Al cambiarlo sale como mensaje tuyo, con esto encima: ' + d.firma;
+              _pvE.addEventListener('input', _mira); _mira();
             }
             if (!d || !d.ok || !d.items || !d.items.length) return;
             cont.style.display = 'block';

@@ -1569,6 +1569,12 @@ module.exports = function (app) {
           const CCPP_ID = ${JSON.stringify((comu && comu.ccpp_id) || "")};
           // v17.54: endpoint del switch del bot WhatsApp por piso.
           const URL_BOT_PISO = ${JSON.stringify(urlT(token, "/presupuestos/piso/modo-bot"))};
+          const URL_VISTA_PRES = ${JSON.stringify(urlT(token, "/documentacion/piso/vista-presentacion"))};   // v151
+          // v151 -- el mensaje que saldria con una accion del bot (para ensenarlo en la ventana antes de enviar)
+          async function _vistaBot(url, params) {
+            try { var r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params).toString() }); return await r.json(); }
+            catch (e) { return { ok: false, error: e.message }; }
+          }
           const URL_MODO = ${JSON.stringify(urlT(token, "/documentacion/ccpp/modo"))};
 
           // Estados disponibles según el documento
@@ -1875,7 +1881,11 @@ module.exports = function (app) {
               var txt='Tipo cambiado a '+String(b.tipo||'').toUpperCase()+' tambi\u00e9n en el bot (antes '+(b.antes||'-')+').'
                 + (b.pendientes&&b.pendientes.length ? '\\n\\nAhora le falta:\\n\u2022 '+b.pendientes.join('\\n\u2022 ') : '\\n\\nNo le falta nada obligatorio.')
                 + '\\n\\n\u00bfEnviar AHORA por el bot al '+viv+' lo que le falta?';
-              var rc=await window.ptlConfirmarEnvio(txt,'Enviar por el bot',{tel:b.tel||''}); if(!rc) return;
+              var _pvT={ccpp_clave:direccion,vivienda:viv,ver:'1'}; if(token) _pvT.token=token;   // v151: el mensaje tal cual
+              var _vT=await _vistaBot('/documentacion/piso/tipo-aviso',_pvT);
+              if(!_vT||!_vT.ok){ alert('No se le puede avisar por el bot: '+((_vT&&_vT.error)||'error')); return; }
+              if(!_vT.vista){ alert('No se ha podido leer el mensaje de la plantilla en Twilio, as\u00ed que no se env\u00eda nada. Prueba otra vez en un momento.'); return; }
+              var rc=await window.ptlConfirmarEnvio(txt,'Enviar por el bot',{tel:b.tel||'',preview:_vT.vista||''}); if(!rc) return;
               var fa=new URLSearchParams(); fa.append('ccpp_clave',direccion); fa.append('vivienda',viv); if(token) fa.append('token',token);
               if(window.ptlEsProgramar && window.ptlEsProgramar(rc)) fa.append('programar','1');   // v127
               var r2=await fetch('/documentacion/piso/tipo-aviso',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fa.toString()});
@@ -2350,7 +2360,10 @@ module.exports = function (app) {
             var _esW = !!(_swW && _swW.dataset.modo === 'BOT_WHATSAPP');
             var _enviarPres = false;
             if (ri && _esW && _telN && _telN !== _telO && !ES_FASE_08) {   // v19.98: en 08 no se manda la presentacion
-              _enviarPres = await window.ptlConfirmarEnvio('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?', 'Enviar por el bot', { tel: _telN });
+              var _vPt = await _vistaBot(URL_VISTA_PRES, { ccpp_id: (_swW && _swW.dataset.ccppId) || CCPP_ID, vivienda: (_swW && _swW.dataset.vivienda) || '', telefono: (fila.querySelector('.ptl-vec-telefono') || {}).value || '' });   // v151
+              if (_vPt && _vPt.estado === 'ya_presentado') alert('Ese teléfono ya tiene ficha en el bot: no se le manda la presentación otra vez.');
+              else if (!_vPt || !_vPt.ok || !_vPt.vista) alert('No se ha podido preparar el mensaje de presentación para el teléfono nuevo (' + ((_vPt && (_vPt.error || _vPt.estado)) || 'sin texto de Twilio') + '), así que no se envía. Se guarda el piso igualmente.');
+              else _enviarPres = await window.ptlConfirmarEnvio('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?', 'Enviar por el bot', { preview: _vPt.vista, tel: _telN });
               if (_enviarPres) fd.append('enviar_presentacion', '1');
               if (window.ptlEsProgramar && window.ptlEsProgramar(_enviarPres)) fd.append('programar', '1');   // v127
             }
@@ -2630,19 +2643,31 @@ module.exports = function (app) {
           }
           // v126 -- telefono de la fila del piso (para ensenar su conversacion en la ventana de envio)
           function _telFila(btn) { var f = btn.closest('tr'); var i = f ? f.querySelector('.ptl-vec-telefono') : null; return i ? String(i.value || '') : ''; }
+          // v151 -- lo que saldria con el contrato (texto de la plantilla y el PDF que va), o el motivo por el que no se puede
+          async function _vistaContrato08(btn) {
+            var v = await _vistaBot(URL_ENVIAR_CONTRATO, { ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: btn.dataset.vivienda || '', ver: '1' });
+            var e = v && v.envio;
+            if (!e || !e.ok) return { error: (e && e.error) || (v && v.error) || 'error' };
+            if (!e.vista) return { error: 'no se ha podido leer el mensaje de la plantilla en Twilio (prueba otra vez en un momento)' };
+            return { texto: (e.vista || '') + '\\n\\n\uD83D\uDCCE ' + (e.archivo || 'PDF') + ((e.adjuntos && e.adjuntos.length) ? '  (' + e.adjuntos.join(' + ') + ')' : '') };
+          }
           async function _clickSwitch08(btn) {
             var viv = btn.dataset.vivienda || '';
             var que = SOLO_CONTRATO ? 'el contrato' : 'el contrato y la carta de pago';
             if (btn.dataset.modo === 'BOT_WHATSAPP') {
               var ya = btn.dataset.contratoBot ? ('Ya se le envi\u00f3 por el bot el ' + btn.dataset.contratoBot + '.\\n\\n') : '';
-              var rc1 = await window.ptlConfirmarEnvio(ya + '\u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?', 'Enviar por el bot', { tel: _telFila(btn) });
+              var _v1 = await _vistaContrato08(btn);
+              var rc1 = _v1.error ? (alert('No se puede enviar ' + que + ' del ' + viv + ': ' + _v1.error), false)
+                : await window.ptlConfirmarEnvio(ya + '\u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?', 'Enviar por el bot', { tel: _telFila(btn), preview: _v1.texto });
               if (rc1) { await _enviarContrato08(btn, rc1); return; }
               if (!confirm('\u00bfPasar el ' + viv + ' a manual (M)? El bot dejar\u00e1 de atenderle.')) return;
               await _cambiarModoPiso08(btn, 'MANUAL');
               return;
             }
             if (!(await _cambiarModoPiso08(btn, 'BOT_WHATSAPP'))) return;
-            var rc2 = await window.ptlConfirmarEnvio('Piso activado para el bot. \u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?', 'Enviar por el bot', { tel: _telFila(btn) });
+            var _v2 = await _vistaContrato08(btn);
+            if (_v2.error) { alert('Piso activado para el bot, pero no se puede enviar ' + que + ' del ' + viv + ': ' + _v2.error); return; }
+            var rc2 = await window.ptlConfirmarEnvio('Piso activado para el bot. \u00bfEnviar AHORA por el bot ' + que + ' del ' + viv + '?', 'Enviar por el bot', { tel: _telFila(btn), preview: _v2.texto });
             if (rc2) await _enviarContrato08(btn, rc2);
           }
           document.querySelectorAll('.ptl-bot-switch-piso').forEach(function(btn){
@@ -2657,7 +2682,13 @@ module.exports = function (app) {
               var nuevo = esBot ? 'MANUAL' : 'BOT_WHATSAPP';
               btn.disabled = true;
               try {
-                var enviarPres = (nuevo === 'BOT_WHATSAPP') && await window.ptlConfirmarEnvio('Piso activado para el bot. ¿Enviar AHORA el mensaje de presentacion a este vecino por WhatsApp?');
+                var enviarPres = false;
+                if (nuevo === 'BOT_WHATSAPP') {   // v151: con el mensaje de presentacion tal cual le llegaria
+                  var _vP = await _vistaBot(URL_VISTA_PRES, { ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: btn.dataset.vivienda || '' });
+                  if (_vP && _vP.estado === 'ya_presentado') alert('Piso activado para el bot. Este vecino ya tiene ficha en el bot: no se le vuelve a mandar la presentaci\u00f3n.');
+                  else if (!_vP || !_vP.ok || !_vP.vista) alert('Piso activado para el bot, pero no se ha podido preparar el mensaje de presentaci\u00f3n (' + ((_vP && (_vP.error || _vP.estado)) || 'sin texto de Twilio') + '), as\u00ed que no se env\u00eda. Puedes volver a intentarlo pasando el piso a M y otra vez a W.');
+                  else enviarPres = await window.ptlConfirmarEnvio('Piso activado para el bot. ¿Enviar AHORA el mensaje de presentacion a este vecino por WhatsApp?', 'Enviar por el bot', { tel: _telFila(btn), preview: _vP.vista });
+                }
                 var _params = { ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: btn.dataset.vivienda || '', modo: nuevo };
                 if (enviarPres) _params.enviar_presentacion = '1';
                 if (window.ptlEsProgramar && window.ptlEsProgramar(enviarPres)) _params.programar = '1';   // v127
@@ -3503,6 +3534,30 @@ module.exports = function (app) {
     }
   });
 
+  // ----- POST /documentacion/piso/vista-presentacion (v151, criterio de Guille: "tengo que ver exactamente lo que voy a
+  //   enviar") -- el mensaje de presentacion que saldria a ese piso (al pasarlo a W o al cambiar su telefono), sin enviar.
+  //   Mismos datos que el envio: comunidad = direccion del expediente, nombre = el de la ficha del piso. -----
+  app.post("/documentacion/piso/vista-presentacion", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const P = app.locals.presupuestos;
+    try {
+      const bot = app.locals.botWhatsapp;
+      if (!bot || typeof bot.enviarPresentacionPiso !== "function") return res.json({ ok: false, error: "bot no disponible" });
+      const comu = await P.buscarComunidadPorId(String(req.body.ccpp_id || "").trim());
+      if (!comu) return res.json({ ok: false, error: "expediente no encontrado" });
+      const vivienda = String(req.body.vivienda || "").trim();
+      const rows = (await getSheets().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:E" })).data.values || [];
+      const fila = rows.find(r => r && (mismaDireccion(r[1] || "", comu.comunidad) || mismaDireccion(r[1] || "", comu.direccion)) && String(r[2] || "").trim() === vivienda) || [];
+      const tel = String(req.body.telefono || fila[0] || "").trim();
+      if (!tel) return res.json({ ok: false, error: "el piso no tiene tel\u00e9fono" });
+      const v = await bot.enviarPresentacionPiso(tel, { comunidad: comu.direccion || comu.comunidad, vivienda, nombre: fila[4] || "", soloVer: true });
+      res.json(v || { ok: false });
+    } catch (e) {
+      console.error("[documentacion] piso/vista-presentacion:", e.message);
+      res.json({ ok: false, error: e.message });
+    }
+  });
+
   // ----- POST /documentacion/piso/tipo-aviso (v126) -- avisa al vecino por el bot de lo que le falta tras cambiar el tipo -----
   app.post("/documentacion/piso/tipo-aviso", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -3516,6 +3571,10 @@ module.exports = function (app) {
       const fila = rows.find(r => r && (mismaDireccion(r[1] || "", comu.comunidad) || mismaDireccion(r[1] || "", comu.direccion)) && String(r[2] || "").trim() === vivienda);
       const bot = app.locals.botWhatsapp;
       if (!bot || typeof bot.avisarCambioTipo !== "function") return res.status(500).json({ ok: false, error: "bot no disponible" });
+      if (String(req.body.ver || "") === "1") {   // v151: solo ensenar el mensaje que saldria
+        const v = await bot.avisarCambioTipo({ comunidad: (fila && fila[1]) || comu.direccion || comu.comunidad, vivienda, soloVer: true });
+        return res.json(v && v.ok ? { ok: true, vista: v.vista || "" } : { ok: false, error: (v && v.error) || "no se pudo preparar" });
+      }
       const r = await bot.enviarOProgramar(String(req.body.programar || "") === "1", "avisarCambioTipo", [{ comunidad: (fila && fila[1]) || comu.direccion || comu.comunidad, vivienda }],
         { tel: (fila && fila[0]) || "", desc: "aviso de cambio de tipo" });   // v127
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
@@ -3615,6 +3674,10 @@ module.exports = function (app) {
       let _telContrato08 = "";   // v127: para apuntar el programado en su conversacion
       try { const _rp = (await getSheets().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:C" })).data.values || [];
         const _fp = _rp.find(r => r && (mismaDireccion(r[1] || "", comu.comunidad) || mismaDireccion(r[1] || "", comu.direccion)) && String(r[2] || "").trim() === vivienda); _telContrato08 = (_fp && _fp[0]) || ""; } catch (e) {}
+      if (String(req.body.ver || "") === "1") {   // v151: solo ensenar lo que saldria (sin enviar ni tocar fechas)
+        const v = await bot.enviarContratoPiso({ comunidad: dir, vivienda, tipoVia: String(comu.tipo_via || "").trim(), fechaLimite, soloContrato, soloVer: true });
+        return res.json({ ok: true, envio: v || { ok: false, error: "no se pudo preparar" } });
+      }
       const envio = await bot.enviarOProgramar(String(req.body.programar || "") === "1", "enviarContratoPiso", [{ comunidad: dir, vivienda, tipoVia: String(comu.tipo_via || "").trim(), fechaLimite, soloContrato }],
         { tel: _telContrato08 || "", desc: (soloContrato ? "contrato" : "contrato y carta de pago") + " (fase 08)" });   // v127
       if (envio && envio.ok && est.primero && comu._rowIndex) {
