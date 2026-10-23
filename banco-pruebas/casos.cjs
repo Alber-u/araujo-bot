@@ -347,8 +347,7 @@ const CASOS = [
       const html = String((await S.call("GET", "/plan5", { dir: r ? r[0] : "C Alberche 6C" })).body);
       const sel = (id) => ((html.match(new RegExp('<select id="' + id + '">([\\s\\S]*?)</select>')) || [])[1] || "");
       const ops = (id) => [...sel(id).matchAll(/<option[^>]*>([^<]*)<\/option>/g)].map((m) => m[1]).filter(Boolean).join(" · ");
-      const pa = ops("comPunto1"), pb = ops("comPunto2"), ub = ops("ac_ubic"), cc = ops("cc_ubic");
-      const esperado = "PORTAL · ARMARIO DE CONTADORES · CUARTO DE MOTORES · CUARTO DE SERVICIO · PATIO · AZOTEA";
+      const pa = ops("comPunto1"), pb = ops("comPunto2"), ub = ops("ac_ubic");
       // la función que pasa lo guardado con el nombre viejo al nuevo, sacada de la propia página
       const m = html.match(/function _p5Renombra\(id,v\)\{[^\n]*\}/);
       let ren = null; try { ren = m ? new Function(m[0] + "; return _p5Renombra;")() : null; } catch (e) { ren = null; }
@@ -358,13 +357,52 @@ const CASOS = [
       const rotos = scriptsRotos(html);
       return [
         [rotos.length === 0, "los scripts de Toma de Datos se leen", rotos.join(" | ")],
-        [pa === esperado && pb === esperado, "las dos casillas de puntos de agua: " + esperado, pa + " / " + pb],
+        [/ARMARIO DE CONTADORES · CUARTO DE MOTORES · CUARTO DE SERVICIO/.test(pa) && pa === pb && !/C\.CONTADORES/.test(pa), "las dos casillas de puntos de agua con ARMARIO DE CONTADORES, CUARTO DE MOTORES y CUARTO DE SERVICIO (sin C.CONTADORES)", pa + " / " + pb],
         [/CUARTO DE SERVICIO/.test(ub) && !/EN CUARTO DE SERVICIO/.test(ub), "Ubicación del contador: «CUARTO DE SERVICIO» sin «EN»", ub],
-        [/EN CUARTO DE SERVICIO/.test(cc), "Ubicación del armario de contadores no cambia", cc],
-        [!!ren && ren("comPunto1", "C.CONTADORES") === "ARMARIO DE CONTADORES" && ren("comPunto2", "C.CONTADORES") === "ARMARIO DE CONTADORES" && ren("ac_ubic", "EN CUARTO DE SERVICIO") === "CUARTO DE SERVICIO" && ren("cc_ubic", "EN CUARTO DE SERVICIO") === "EN CUARTO DE SERVICIO" && ren("comPunto1", "PATIO") === "PATIO", "lo guardado con el nombre viejo se abre con el nuevo (y solo en esas casillas)", m ? m[0].slice(0, 80) : "(no está la función)"],
+        [!!ren && ren("comPunto1", "C.CONTADORES") === "ARMARIO DE CONTADORES" && ren("comPunto2", "C.CONTADORES") === "ARMARIO DE CONTADORES" && ren("ac_ubic", "EN CUARTO DE SERVICIO") === "CUARTO DE SERVICIO" && ren("comPunto1", "PORTAL") === "PORTAL" && ren("ac_llave", "EN CUARTO DE SERVICIO") === "EN CUARTO DE SERVICIO", "lo guardado con el nombre viejo se abre con el nuevo (y solo en esas casillas)", m ? m[0].slice(0, 80) : "(no está la función)"],
         [!!viejo && /armario de contadores/.test(imp) && !/cuarto de contadores/.test(imp), "un presupuesto guardado con C.CONTADORES imprime «armario de contadores»", viejo ? viejo[0] : "(ninguno guardado con C.CONTADORES)"],
         [/id="vatico"><\/div>\s*<div class="gv" style="margin-top:12px">/.test(html), "hueco entre Viviendas en ático y Puntos de agua", ""],
       ];
+    },
+  },
+  // ===== v145: patios y fachadas laterales como en los peines; delantero y trasero primero =====
+  {
+    nombre: "Menús de ubicación con los 5 patios y las 2 fachadas laterales; el armario imprime igual sin el «EN» del menú",
+    desde: "v145",
+    prueba: async (S) => {
+      const p5 = S.DATA.plan5_toma_datos || [];
+      const r = p5.find((x, j) => j > 0 && /ALBERCHE 6C/i.test(String(x[0] || "")));
+      const html = String((await S.call("GET", "/plan5", { dir: r ? r[0] : "C Alberche 6C" })).body);
+      const ops = (id) => [...(((html.match(new RegExp('<select id="' + id + '">([\\s\\S]*?)</select>')) || [])[1]) || "").matchAll(/<option[^>]*>([^<]*)<\/option>/g)].map((m) => m[1]).filter(Boolean).join(" · ");
+      const PAT = "PATIO DELANTERO · PATIO TRASERO · PATIO DERECHO · PATIO CENTRAL · PATIO IZQUIERDO";
+      const FAC = "FACHADA DELANTERA · FACHADA TRASERA · FACHADA LATERAL DERECHA · FACHADA LATERAL IZQUIERDA";
+      const quiero = {
+        comPunto1: "PORTAL · ARMARIO DE CONTADORES · CUARTO DE MOTORES · CUARTO DE SERVICIO · AZOTEA · " + PAT,
+        comPunto2: "PORTAL · ARMARIO DE CONTADORES · CUARTO DE MOTORES · CUARTO DE SERVICIO · AZOTEA · " + PAT,
+        ac_ubic: FAC + " · ZONAS COMUNES · CUARTO DE MOTORES · CUARTO DE SERVICIO · " + PAT,
+        cc_ubic: FAC + " · PORTAL · BAJO ESCALERA · CUARTO DE MOTORES · CUARTO DE SERVICIO · " + PAT,
+        ac_llave: "DELANTERA · TRASERA · LATERAL · DELANTERA-TRASLADAR · TRASERA-TRASLADAR · LATERAL-TRASLADAR",
+      };
+      const out = Object.keys(quiero).map((id) => [ops(id) === quiero[id], id + ": " + quiero[id], ops(id)]);
+      const sube = (html.match(/const OPT_SUBE=\[([^\]]*)\]/) || [])[1] || "";
+      out.push([/FACHADA DELANTERA.*FACHADA TRASERA.*LATERAL DERECHA.*LATERAL IZQUIERDA.*PATIO DELANTERO.*PATIO TRASERO.*PATIO DERECHO.*PATIO CENTRAL.*PATIO IZQUIERDO.*SCHUNT/.test(sube), "peines: «Sube por» con delantero y trasero primero", sube.slice(0, 160)]);
+      const m = html.match(/function _p5Renombra\(id,v\)\{[^\n]*\}/);
+      let ren = null; try { ren = m ? new Function(m[0] + "; return _p5Renombra;")() : null; } catch (e) { ren = null; }
+      out.push([!!ren && ren("cc_ubic", "EN PORTAL") === "PORTAL" && ren("cc_ubic", "EN PATIO INTERIOR") === "" && ren("cc_ubic", "BAJO ESCALERA") === "BAJO ESCALERA" && ren("comPunto1", "PATIO") === "" && ren("ac_ubic", "FACHADA LATERAL") === "" && ren("ac_ubic", "FACHADA TRASERA") === "FACHADA TRASERA", "lo guardado: «EN …» pasa al nombre nuevo y lo que ya no existe sale vacío", m ? "" : "(no está la función)"]);
+      // la frase del armario en el impreso: igual con lo viejo («EN PORTAL») que con lo nuevo («PORTAL»)
+      const cerr = p5.find((x, j) => j > 0 && String(x[2] || "").trim() === "O25-ARA/00213");
+      // se cambia la casilla en todas las copias guardadas (columna G y foto congelada de la I, con su copia de la Toma de Datos)
+      const pon = (o, valor) => { if (!o || typeof o !== "object") return; if (Array.isArray(o.vkv)) o.vkv.forEach((p) => { if (p && p[0] === "cc_ubic") p[1] = valor; }); if (Array.isArray(o.v) && o.v.length > 21) o.v[21] = valor; Object.keys(o).forEach((k) => { if (o[k] && typeof o[k] === "object" && k !== "v" && k !== "vkv") pon(o[k], valor); }); };
+      const frase = async (valor) => {
+        const viejo6 = cerr[6], viejo8 = cerr[8];
+        for (const c of [6, 8]) { if (!cerr[c]) continue; const g = JSON.parse(cerr[c]); pon(g, valor); cerr[c] = JSON.stringify(g); }
+        const h = String((await S.call("GET", "/plan5/presupuesto", { dir: cerr[0] })).body); cerr[6] = viejo6; cerr[8] = viejo8;
+        return ((h.replace(/<[^>]+>/g, " ").match(/Se colocar[^,]*,[^,]*,/) || [])[0] || "").replace(/\s+/g, " ");
+      };
+      const fv = await frase("EN PORTAL"), fn = await frase("PORTAL"), fp = await frase("PATIO TRASERO"), fb = await frase("BAJO ESCALERA");
+      out.push([/, en portal,$/.test(fv) && fv === fn, "armario: «EN PORTAL» (guardado) y «PORTAL» (nuevo) imprimen lo mismo", fv + " | " + fn]);
+      out.push([/, en patio trasero,$/.test(fp) && /, bajo escalera,$/.test(fb), "armario: «en patio trasero» y «bajo escalera»", fp + " | " + fb]);
+      return out;
     },
   },
 ];
