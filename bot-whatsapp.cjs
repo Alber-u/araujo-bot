@@ -4696,7 +4696,7 @@ function limpiarNombreVecino(n) {
   let s = String(n == null ? "" : n);
   s = s.split(/\s+\/\s*|\s*\/\s+/)[0];
   s = s.replace(/^\s*(\([^)]*\)\s*)+/, "");
-  for (let i = 0; i < 3; i++) s = s.replace(/\s*\([^)]*\)\s*$/, "");
+  for (let i = 0; i < 3; i++) { if (/\(Titular - [^)]*\)\s*$/.test(s)) break; s = s.replace(/\s*\([^)]*\)\s*$/, ""); }   // v161: el "(Titular - ...)" del saludo se queda
   s = s.replace(/\s+/g, " ").trim();
   return s || "vecino";
 }
@@ -4711,10 +4711,10 @@ function nombreDeNota(nota) {
 }
 // v128 (criterio de Guille) -- tipo FAMILIAR (usufructo): el nombre de arriba; los demas (inquilino incluido), el de la
 //   Nota simple; sin Nota simple, el de arriba.
+// v161 (23/10/2026, criterio de Guille): una sola regla para todos los tipos (nombre-vecino.cjs, la misma que HOY):
+//   el de arriba y, si no es el titular, "(Titular - <primero de la Nota simple>[ y otros])".
 function nombreParaPiso(nota, nombre, tipo) {
-  const nb = String(nombre || "").trim();
-  if (String(tipo || "").trim().toLowerCase() === "familiar" && nb) return nb;
-  return nombreDeNota(nota) || nb;
+  return require("./nombre-vecino.cjs").saludoVecino(nota, nombre);
 }
 let _cacheNombreDirigido = { t: 0, m: {} };
 async function nombreDirigido(comunidad, vivienda, fallback) {

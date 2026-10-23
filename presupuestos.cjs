@@ -106,11 +106,10 @@ function _p5NombreWa(n) { return String(n || "").replace(/^\s*\([^)]*\)\s*/, "")
 //   -- tipo FAMILIAR: se saluda al nombre de arriba (pisos col E), no al titular de la Nota simple. Los demas tipos
 //   (inquilino incluido: "con los inquilinos quiero tratar directamente con el dueño"), el primero de la Nota simple;
 //   sin Nota simple, el de arriba (en todos).
-function _p5NombreDirigido(nota, nombre, tipo) {
-  if (String(tipo || "").trim().toLowerCase() === "familiar") { const nb = String(nombre || "").replace(/^\s*\(\?\)\s*/, "").trim(); if (nb) return nb; }
-  let n = String(nota || "").split("/")[0].replace(/^\s*\([^)]*\)\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+/g, " ").trim();
-  if (n.length < 3 || /^(mismo|misma|piso|pte|pendiente|sin|ver|no )/i.test(n)) n = "";
-  return n || String(nombre || "").replace(/^\s*\(\?\)\s*/, "").trim();
+// v161 (23/10/2026, criterio de Guille) -- sustituye a lo de la v127/v128: una sola regla para todos los tipos, en
+//   nombre-vecino.cjs: el de arriba y, si no es el titular, "(Titular - <primero de la Nota simple>[ y otros])".
+function _p5NombreDirigido(nota, nombre, tipo) {   // tipo ya no cambia nada (se deja el parametro por compatibilidad)
+  return require("./nombre-vecino.cjs").saludoVecino(nota, nombre);
 }
 // v19.26 -- {vence_el}: la fecha limite vigente con el verbo segun el dia en que
 //   se manda el mensaje (hoy en Espana): "vence el DD/MM/AAAA", "vence hoy,

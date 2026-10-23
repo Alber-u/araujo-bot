@@ -780,6 +780,29 @@ const CASOS = [
       ];
     },
   },
+  // ===== v161: saludo «Hola <de arriba> (Titular - <Nota simple>)», una regla para todos =====
+  {
+    nombre: "Saludo al vecino: el de arriba y, si no es el titular, «(Titular - …[ y otros])»; igual en HOY y en el bot",
+    desde: "v161",
+    prueba: async (S) => {
+      const P = S.P(), B = S.app.locals.botWhatsapp || {};
+      const dir = (n, b, t) => (P._p5NombreDirigido ? P._p5NombreDirigido(n, b, t) : "(sin función)");
+      const fuente = require("fs").readFileSync(require("path").join(S.RAIZ, "bot-whatsapp.cjs"), "utf8");
+      const a = fuente.indexOf("function limpiarNombreVecino"), b = fuente.indexOf("\n}", a);
+      const limpiar = new Function(fuente.slice(a, b + 2) + "; return limpiarNombreVecino;")();
+      const d1 = dir("Enrique José Pérez de la Rosa Ruiz / José Antonio Pérez de la Rosa Ruiz", "David", "propietario");
+      const d2 = dir("José Luis Silva Isla", "Raquel Silva León", "familiar");
+      const d3 = dir("Carlos Blanco Molina / Alejandra del Rocío Crego Molina", "Carlos Blanco", "propietario");
+      const d4 = dir("", "David", "");
+      return [
+        [d1 === "David (Titular - Enrique José Pérez de la Rosa Ruiz y otros)", "no titular, varios titulares", d1],
+        [d2 === "Raquel Silva León (Titular - José Luis Silva Isla)", "familiar (usufructo): también con el titular", d2],
+        [d3 === "Carlos Blanco", "el de arriba es el titular: solo su nombre", d3],
+        [d4 === "David", "sin Nota simple: el de arriba", d4],
+        [limpiar(d1) === d1, "el bot no le quita el «(Titular - …)» al limpiar el nombre", limpiar(d1)],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
