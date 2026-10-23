@@ -398,7 +398,7 @@ function joinList(arr) { return (arr || []).filter(Boolean).join(","); }
 function splitList(text) { return (text || "").split(",").map((x) => x.trim()).filter(Boolean); }
 
 const DOC_LABELS = {
-  solicitud_firmada: "Solicitud de EMASESA firmada",
+  solicitud_firmada: "Impreso toma datos",   // v152 (Guille): los documentos se llaman como su archivo (000 PLANTILLA DOC P5)
   dni_delante: "DNI por la parte delantera",
   dni_detras: "DNI por la parte trasera",
   dni_familiar_delante: "DNI del familiar por delante",
@@ -410,7 +410,7 @@ const DOC_LABELS = {
   dni_administrador_delante: "DNI del representante por delante",
   dni_administrador_detras: "DNI del representante por detras",
   libro_familia: "Libro de familia",
-  autorizacion_familiar: "Documento de autorizacion",
+  autorizacion_familiar: "Impreso autorización usufructo",   // v152: como su archivo
   contrato_alquiler: "Contrato de alquiler completo y firmado",
   empadronamiento: "Certificado de empadronamiento",
   nif_sociedad: "NIF/CIF de la sociedad",
@@ -427,7 +427,7 @@ function labelDocumento(code) { return DOC_LABELS[code] || code || "documento"; 
 // v152 (23/10/2026, criterio de Guille) -- nombre de un documento tal como lo cuenta la ficha (un DNI = las dos caras),
 //   para decirle al vecino en el aviso M lo que le falta. Sale de DOC_LABELS (lo mismo que ve en los recordatorios).
 const _DNI_CARAS = { dni_propietario: "DNI del propietario", dni_familiar: "DNI del familiar", dni_inquilino: "DNI del inquilino", dni_administrador: "DNI del representante", dni_pagador: "DNI del pagador",
-  autorizacion_familiar: "Documento de autorización", escritura_constitucion: "Escritura de constitución", licencia_o_declaracion: "Licencia de apertura o declaración responsable" };
+  escritura_constitucion: "Escritura de constitución", licencia_o_declaracion: "Licencia de apertura o declaración responsable" };
 function etiquetaDocVecino(code) { return _DNI_CARAS[code] || labelDocumento(code); }
 function labelsDocumentos(listText) { return splitList(listText).map(labelDocumento); }
 
@@ -1113,23 +1113,23 @@ const REQUIRED_DOCS = {
 // ================= FLUJOS =================
 const FLOWS = {
   propietario: [
-    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 Descarga el formulario del enlace que te hemos enviado\n\u2022 R\u00e9llalo con tus datos\n\u2022 F\u00edrmalo a mano o por ordenador\n\u2022 H\u00e1zle una foto o env\u00edalo en PDF" },
+    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Impreso toma datos*\n\u2022 Descarga el formulario del enlace que te hemos enviado\n\u2022 R\u00e9llalo con tus datos\n\u2022 F\u00edrmalo a mano o por ordenador\n\u2022 H\u00e1zle una foto o env\u00edalo en PDF" },
     { code: "dni_delante",       prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara con tu foto*\n\u2022 La parte donde sale tu foto y tu nombre\n\u2022 Ponlo plano y hazle una foto entera con buena luz" },
     { code: "dni_detras",        prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s, donde salen los c\u00f3digos\n\u2022 Ponlo plano y hazle una foto entera con buena luz" },
     { code: "empadronamiento",   prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edamelo aqu\u00ed\n\u2022 Si no lo tienes, escribe NO y seguimos" },
   ],
   familiar: [
-    { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 Descarga el formulario del enlace\n\u2022 R\u00e9llalo con tus datos y f\u00edrmalo" },
+    { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Impreso toma datos*\n\u2022 Descarga el formulario del enlace\n\u2022 R\u00e9llalo con tus datos y f\u00edrmalo" },
     { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
     { code: "dni_propietario_detras",  prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
     { code: "dni_familiar_delante",    prompt: "\uD83D\uDC49 *DNI del familiar \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
     { code: "dni_familiar_detras",     prompt: "\uD83D\uDC49 *DNI del familiar \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
-    { code: "autorizacion_familiar",   prompt: "\uD83D\uDC49 *Autorizaci\u00f3n del propietario*\n\u2022 El documento que te hemos enviado, firmado por el due\u00f1o del piso\n\u2022 Foto clara o PDF" },
+    { code: "autorizacion_familiar",   prompt: "\uD83D\uDC49 *Impreso autorizaci\u00f3n usufructo*\n\u2022 El impreso que te hemos enviado, firmado por el due\u00f1o del piso\n\u2022 Foto clara o PDF" },
     { code: "libro_familia",           prompt: "\uD83D\uDC49 *Libro de familia*\n\u2022 \u00c1brelo por la p\u00e1gina donde salis t\u00fa y el propietario juntos\n\u2022 Foto clara o PDF" },
     { code: "empadronamiento",         prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edamelo aqu\u00ed\n\u2022 Si no lo tienes, escribe NO y seguimos" },
   ],
   inquilino: [
-    { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 Descarga el formulario del enlace\n\u2022 R\u00e9llalo con tus datos y f\u00edrmalo" },
+    { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Impreso toma datos*\n\u2022 Descarga el formulario del enlace\n\u2022 R\u00e9llalo con tus datos y f\u00edrmalo" },
     { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
     { code: "dni_propietario_detras",  prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
     { code: "dni_inquilino_delante",   prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara con tu foto*\n\u2022 La parte donde sale tu foto y tu nombre\n\u2022 Foto entera con buena luz" },
@@ -1138,7 +1138,7 @@ const FLOWS = {
     { code: "empadronamiento",         prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edamelo aqu\u00ed\n\u2022 Si no lo tienes, escribe NO y seguimos" },
   ],
   sociedad: [
-    { code: "solicitud_firmada",         prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 R\u00e9llala con los datos de la sociedad y f\u00edrmala\n\u2022 Foto clara o PDF" },
+    { code: "solicitud_firmada",         prompt: "\uD83D\uDC49 *Impreso toma datos*\n\u2022 Rell\u00e9nalo con los datos de la sociedad y f\u00edrmalo\n\u2022 Foto clara o PDF" },
     { code: "dni_administrador_delante", prompt: "\uD83D\uDC49 *DNI del representante \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
     { code: "dni_administrador_detras",  prompt: "\uD83D\uDC49 *DNI del representante \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
     { code: "nif_sociedad",              prompt: "\uD83D\uDC49 *NIF o CIF de la sociedad*\n\u2022 La tarjeta del CIF o cualquier papel oficial\n\u2022 Foto o PDF" },
@@ -1146,7 +1146,7 @@ const FLOWS = {
     { code: "poderes_representante",     prompt: "\uD83D\uDC49 *Poderes del representante*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
   ],
   local: [
-    { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 R\u00e9llala y f\u00edrmala\n\u2022 Foto clara o PDF" },
+    { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Impreso toma datos*\n\u2022 Rell\u00e9nalo y f\u00edrmalo\n\u2022 Foto clara o PDF" },
     { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
     { code: "dni_propietario_detras",  prompt: "\uD83D\uDC49 *DNI del propietario \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
     { code: "licencia_o_declaracion",  prompt: "\uD83D\uDC49 *Licencia de apertura o declaraci\u00f3n responsable*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
@@ -1823,7 +1823,7 @@ function _telE164(x) { const n = normalizarTelefono(String(x || "")); return /^[
 //   en /media-tmp/<id>/<nombre> para que Twilio lo descargue) o uno de los fijos (solicitud, autorizacion).
 const _mediaTmp = new Map();
 const _MIME_OK = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png" };
-const _FIJOS_ADJ = { solicitud: "toma datos (PDF)", autorizacion: "autorizacion usufructo (PDF)" };   // v127: nombres de Guille
+const _FIJOS_ADJ = { solicitud: "Impreso toma datos (PDF)", autorizacion: "Impreso autorización usufructo (PDF)" };   // v127: nombres de Guille; v152: como su archivo
 function _guardarMediaTmp(nombre, mime, buf) {
   const ahora = Date.now();
   for (const [k, v] of _mediaTmp) if (v.exp < ahora) _mediaTmp.delete(k);
@@ -3003,11 +3003,11 @@ async function manejarMensajeWhatsApp(req, res) {
 // Mensajes de bienvenida por tipo de expediente
 // Incluyen lista de documentos, PDFs rellenables y explicación del proceso
 const MENSAJES_BIENVENIDA = {
-  propietario: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 Tu DNI por las dos caras\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con tus datos y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
-  familiar: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 La Autorizaci\u00f3n del propietario (te la acabo de enviar) \u2014 la firma el due\u00f1o del piso\n\u2022 Tu DNI por las dos caras\n\u2022 El DNI del propietario por las dos caras\n\u2022 El libro de familia\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con tus datos y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
-  inquilino: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 Tu DNI por las dos caras\n\u2022 El DNI del propietario del piso por las dos caras\n\u2022 El contrato de alquiler completo y firmado\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con tus datos y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
-  sociedad: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 El DNI del representante por las dos caras\n\u2022 El NIF o CIF de la empresa\n\u2022 La escritura de constituci\u00f3n\n\u2022 Los poderes del representante\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con los datos de la empresa y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
-  local: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 El DNI del propietario por las dos caras\n\u2022 La licencia de apertura o declaraci\u00f3n responsable\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
+  propietario: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 El Impreso toma datos (te lo acabo de enviar)\n\u2022 Tu DNI por las dos caras\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con el Impreso toma datos. Rell\u00e9nalo con tus datos y f\u00edrmalo. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
+  familiar: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 El Impreso toma datos (te lo acabo de enviar)\n\u2022 El Impreso autorizaci\u00f3n usufructo (te lo acabo de enviar) \u2014 la firma el due\u00f1o del piso\n\u2022 Tu DNI por las dos caras\n\u2022 El DNI del propietario por las dos caras\n\u2022 El libro de familia\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con el Impreso toma datos. Rell\u00e9nalo con tus datos y f\u00edrmalo. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
+  inquilino: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 El Impreso toma datos (te lo acabo de enviar)\n\u2022 Tu DNI por las dos caras\n\u2022 El DNI del propietario del piso por las dos caras\n\u2022 El contrato de alquiler completo y firmado\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con el Impreso toma datos. Rell\u00e9nalo con tus datos y f\u00edrmalo. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
+  sociedad: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 El Impreso toma datos (te lo acabo de enviar)\n\u2022 El DNI del representante por las dos caras\n\u2022 El NIF o CIF de la empresa\n\u2022 La escritura de constituci\u00f3n\n\u2022 Los poderes del representante\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con el Impreso toma datos. Rell\u00e9nalo con los datos de la empresa y f\u00edrmalo. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
+  local: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 El Impreso toma datos (te lo acabo de enviar)\n\u2022 El DNI del propietario por las dos caras\n\u2022 La licencia de apertura o declaraci\u00f3n responsable\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con el Impreso toma datos. Rell\u00e9nalo y f\u00edrmalo. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
 };
 
 function buildMensajeBienvenida(tipo) {
@@ -3031,12 +3031,12 @@ async function enviarPDFsSegunTipo(telefono, tipoExpediente) {
   try {
     await new Promise(r => setTimeout(r, 1000));
     await enviarWhatsAppConMedia(telefono,
-      "\uD83D\uDCCE Aqu\u00ed tienes el impreso \u00abtoma datos\u00bb para rellenar y firmar:",
+      "\uD83D\uDCCE Aqu\u00ed tienes el impreso \u00abImpreso toma datos\u00bb para rellenar y firmar:",
       urlMedia("solicitud"));
     if (tipoExpediente === "familiar") {
       await new Promise(r => setTimeout(r, 1000));
       await enviarWhatsAppConMedia(telefono,
-        "\uD83D\uDCCE Y este es el impreso \u00abautorizacion usufructo\u00bb que tiene que firmar el propietario del piso:",
+        "\uD83D\uDCCE Y este es el \u00abImpreso autorizaci\u00f3n usufructo\u00bb que tiene que firmar el propietario del piso:",
         urlMedia("autorizacion"));
     }
   } catch(e) {
@@ -4361,7 +4361,7 @@ const MEDIA_DRIVE = {
 // v127 (criterio de Guille: "toma datos" y "autorizacion usufructo" en todos lados) -- nombre con el que le
 //   llega el PDF al vecino (va en la direccion, /media/<tipo>/<nombre>.pdf, que es la que muestra WhatsApp) y
 //   rotulo de los botones y de la conversacion.
-const NOMBRE_MEDIA = { solicitud: "toma datos", autorizacion: "autorizacion usufructo" };
+const NOMBRE_MEDIA = { solicitud: "Impreso toma datos", autorizacion: "Impreso autorización usufructo" };   // v152: como su archivo (con espacios y tilde, como /media-tmp)
 function urlMedia(tipo) {
   const base = String(process.env.BASE_URL || "https://araujo-bot.onrender.com").replace(/\/+$/, "");
   return base + "/media/" + tipo + (NOMBRE_MEDIA[tipo] ? "/" + encodeURIComponent(NOMBRE_MEDIA[tipo] + ".pdf") : "");
@@ -4375,7 +4375,8 @@ app.get(["/media/:tipo", "/media/:tipo/:nombre"], async (req, res) => {
     const response = await axios.get(url, { responseType: "stream", maxRedirects: 5 });
     const esVideo = (tipo === "video");
     res.setHeader("Content-Type", esVideo ? "video/mp4" : "application/pdf");
-    if (!esVideo) res.setHeader("Content-Disposition", `inline; filename="${NOMBRE_MEDIA[tipo] || tipo}.pdf"`);
+    // v152: con tilde, como /media-tmp (filename* en UTF-8; el otro, sin acentos, para quien no lo entienda)
+    if (!esVideo) { const _n = (NOMBRE_MEDIA[tipo] || tipo) + ".pdf"; res.setHeader("Content-Disposition", "inline; filename=\"" + _n.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w. \-]+/g, "_") + "\"; filename*=UTF-8''" + encodeURIComponent(_n)); }
     res.setHeader("Cache-Control", "public, max-age=3600");
     response.data.pipe(res);
   } catch(e) {

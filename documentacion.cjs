@@ -227,7 +227,7 @@ module.exports = function (app) {
   // la del bot WhatsApp (REQUIRED_DOCS en index.cjs). Una sola fuente
   // de verdad: cualquier cambio se hace aquí Y en el bot.
   const DOC_LABELS = {
-    solicitud_firmada: "Solicitud de EMASESA firmada",
+    solicitud_firmada: "Impreso toma datos",   // v152 (Guille): como su archivo
     dni_delante: "DNI por la parte delantera",
     dni_detras: "DNI por la parte trasera",
     dni_familiar_delante: "DNI del familiar por delante",
@@ -239,7 +239,7 @@ module.exports = function (app) {
     dni_administrador_delante: "DNI del administrador por delante",
     dni_administrador_detras: "DNI del administrador por detrás",
     libro_familia: "Libro de familia",
-    autorizacion_familiar: "Documento de autorización",
+    autorizacion_familiar: "Impreso autorización usufructo",   // v152: como su archivo
     contrato_alquiler: "Contrato de alquiler completo y firmado",
     empadronamiento: "Certificado de empadronamiento",
     nif_sociedad: "NIF/CIF de la sociedad",
@@ -1611,11 +1611,11 @@ module.exports = function (app) {
             {code:'titularidad_bancaria',label:'Acreditación cuenta bancaria'}
           ];
           const TIPOS_BOT = {
-            propietario:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
-            familiar:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_familiar',label:'DNI familiar',faces:true},{code:'autorizacion_familiar',label:'Autorización'},{code:'libro_familia',label:'Libro de familia'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
-            inquilino:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_inquilino',label:'DNI inquilino',faces:true},{code:'contrato_alquiler',label:'Contrato de alquiler'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
-            sociedad:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_administrador',label:'DNI representante',faces:true},{code:'nif_sociedad',label:'NIF sociedad'},{code:'escritura_constitucion',label:'Escrituras'},{code:'poderes_representante',label:'Poderes',opc:true}],fin:false},
-            local:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'licencia_o_declaracion',label:'Licencia / declaración'}],fin:true},
+            propietario:{docs:[{code:'solicitud_firmada',label:'Impreso toma datos'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
+            familiar:{docs:[{code:'solicitud_firmada',label:'Impreso toma datos'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_familiar',label:'DNI familiar',faces:true},{code:'autorizacion_familiar',label:'Impreso autorización usufructo'},{code:'libro_familia',label:'Libro de familia'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
+            inquilino:{docs:[{code:'solicitud_firmada',label:'Impreso toma datos'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_inquilino',label:'DNI inquilino',faces:true},{code:'contrato_alquiler',label:'Contrato de alquiler'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
+            sociedad:{docs:[{code:'solicitud_firmada',label:'Impreso toma datos'},{code:'dni_administrador',label:'DNI representante',faces:true},{code:'nif_sociedad',label:'NIF sociedad'},{code:'escritura_constitucion',label:'Escrituras'},{code:'poderes_representante',label:'Poderes',opc:true}],fin:false},
+            local:{docs:[{code:'solicitud_firmada',label:'Impreso toma datos'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'licencia_o_declaracion',label:'Licencia / declaración'}],fin:true},
             // v18.161 -- Disidente: sin documentos propios, solo cuentan la Nota
             // Simple y el switch "Disidente" que ya se pinta siempre al final.
             disidente:{docs:[],fin:false}

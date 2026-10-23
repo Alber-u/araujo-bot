@@ -631,7 +631,7 @@ const CASOS = [
       const m05 = (j.avisos || []).filter((a) => /^plan5_recordatorio_m[12]$/.test(a.clave || "") && a.pendiente !== undefined);
       if (!m05.length) return [[false, "hay avisos M1/M2 por el bot", "ninguno"]];
       const conLista = m05.filter((a) => /^la documentación que falta de su vivienda \(.+\)$/.test(a.pendiente || ""));
-      const NOMBRES = /^(Solicitud de EMASESA firmada|DNI del (propietario|familiar|inquilino|representante|pagador)|Documento de autorización|Libro de familia|Contrato de alquiler completo y firmado|Certificado de empadronamiento|NIF\/CIF de la sociedad|Escritura de constitución|Poderes del representante|Licencia de apertura o declaración responsable|Justificante de ingresos|Documento de titularidad bancaria)$/;
+      const NOMBRES = /^(Impreso toma datos|DNI del (propietario|familiar|inquilino|representante|pagador)|Impreso autorización usufructo|Libro de familia|Contrato de alquiler completo y firmado|Certificado de empadronamiento|NIF\/CIF de la sociedad|Escritura de constitución|Poderes del representante|Licencia de apertura o declaración responsable|Justificante de ingresos|Documento de titularidad bancaria)$/;
       const raros = [];
       conLista.forEach((a) => { const l = a.pendiente.replace(/^[^(]*\(/, "").replace(/\)$/, ""); l.split(/, | y (?=[A-ZÁÉÍÓÚ])/).forEach((n) => { if (!NOMBRES.test(n)) raros.push(a.vivienda + ": " + n); }); });
       const malos = m05.filter((a) => !/\(/.test(a.pendiente || "") && a.pendiente !== "la documentación de su vivienda");
@@ -639,6 +639,25 @@ const CASOS = [
         [conLista.length > 0, "algún aviso M lleva la lista de lo que falta", m05.map((a) => a.vivienda + "=" + a.pendiente).join(" | ").slice(0, 300)],
         [raros.length === 0, "la lista solo lleva nombres de documentos (con tildes)", raros.join(" | ")],
         [malos.length === 0 && m05.every((a) => !/[\n\r]/.test(a.pendiente || "")), "sin lista, el texto de siempre; nunca saltos de línea", malos.map((a) => a.pendiente).join(" | ")],
+      ];
+    },
+  },
+  // ===== v153: los documentos se llaman como su archivo (carpeta 000 PLANTILLA DOC P5) =====
+  {
+    nombre: "Los dos impresos se llaman como su archivo: aviso M, bot, ficha y adjunto",
+    desde: "v153",
+    prueba: async (S) => {
+      const B = S.app.locals.botWhatsapp || {};
+      const et = typeof B.etiquetaDocVecino === "function" ? B.etiquetaDocVecino : () => "(sin función)";
+      const comus = await S.P().leerComunidades();
+      const c05 = comus.find((c) => S.P().normalizarFase(c.fase_presupuesto) === "05_DOCUMENTACION");
+      const html = c05 ? String((await S.call("GET", "/documentacion/expediente", { id: c05.ccpp_id })).body || "") : "";
+      const fuente = require("fs").readFileSync(require("path").join(S.RAIZ, "bot-whatsapp.cjs"), "utf8");
+      return [
+        [et("solicitud_firmada") === "Impreso toma datos", "solicitud = «Impreso toma datos»", et("solicitud_firmada")],
+        [et("autorizacion_familiar") === "Impreso autorización usufructo", "autorización = «Impreso autorización usufructo»", et("autorizacion_familiar")],
+        [/label:'Impreso toma datos'/.test(html) && /label:'Impreso autorización usufructo'/.test(html) && !/Solicitud EMASESA/.test(html), "las pastillas de la ficha con los mismos nombres", c05 ? c05.direccion : "sin 05"],
+        [/NOMBRE_MEDIA = \{ solicitud: "Impreso toma datos", autorizacion: "Impreso autorización usufructo" \}/.test(fuente), "el adjunto que manda el bot se llama igual", ""],
       ];
     },
   },

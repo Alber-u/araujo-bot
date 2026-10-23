@@ -545,7 +545,7 @@ module.exports = function (app) {
               + '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
               + '<div data-adj="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px">'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjpc="1" title="PDF, JPG o PNG (hasta 10 MB)">\uD83D\uDCCE Adjuntar</button>'
-              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="solicitud">toma datos</button>'
+              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="solicitud">Impreso toma datos</button>'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-docs="1" title="Elige un documento del programa, rell\u00e9nalo y se adjunta">\uD83D\uDCC4 documento</button>'   // v128: menu de Imprimir documentos (antes: autorizacion usufructo en blanco)
               + '<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:none">'
               + '<span data-chip="1" style="display:none;align-items:center;gap:4px;background:#e8f0fe;border:1px solid #9bb8d8;border-radius:999px;padding:2px 8px"><span data-chipn="1"></span><a href="#" data-chipx="1" title="Quitar el adjunto" style="text-decoration:none;color:#a32d2d;font-weight:700">\u2715</a></span>'
@@ -17686,7 +17686,7 @@ module.exports = function (app) {
             if (esResp) {
               let a = []; try { a = JSON.parse(pr[4] || "[]"); } catch (e) {}
               const adj = a[2], tx = String(a[1] || "").trim();
-              const nAdj = adj ? (adj.fijo ? (adj.fijo === "solicitud" ? "toma datos" : String(adj.fijo)) : String(adj.nombre || "adjunto")) : "";
+              const nAdj = adj ? (adj.fijo ? (adj.fijo === "solicitud" ? "Impreso toma datos" : String(adj.fijo)) : String(adj.nombre || "adjunto")) : "";
               cuerpo = (nAdj ? "\uD83D\uDCCE " + nAdj + (tx ? "\n\n" : "") : "") + tx;
             } else cuerpo = String(pr[8] || fn);
             const mC = bot.match(/^\u23F0 Programado para (.+?): /);
@@ -17800,7 +17800,7 @@ module.exports = function (app) {
       const _prog = String(req.body.programar || "") === "1" || req.body.programar === true;   // v127
       if (_prog && _adj && !_adj.fijo) return res.status(400).json({ ok: false, error: "no se puede programar con un archivo del PC: env\u00edalo ahora o usa uno de los botones" });
       const r = await bot.enviarOProgramar(_prog, "responderVecino", [String(req.body.tel || ""), String(req.body.texto || ""), _adj],
-        { tel: String(req.body.tel || ""), desc: "respuesta" + (_adj ? " con \uD83D\uDCCE " + (_adj.fijo ? (_adj.fijo === "solicitud" ? "toma datos" : String(_adj.fijo)) : String(_adj.nombre || "adjunto")) : "") + ":\n\n" + String(req.body.texto || "").trim() });   // v128: el texto entero (Guille quiere ver que lo escribio bien)
+        { tel: String(req.body.tel || ""), desc: "respuesta" + (_adj ? " con \uD83D\uDCCE " + (_adj.fijo ? (_adj.fijo === "solicitud" ? "Impreso toma datos" : String(_adj.fijo)) : String(_adj.nombre || "adjunto")) : "") + ":\n\n" + String(req.body.texto || "").trim() });   // v128: el texto entero (Guille quiere ver que lo escribio bien)
       if (!r || !r.ok) return res.status(400).json({ ok: false, error: (r && r.error) || "no se pudo enviar" });
       // v126 (criterio de Guille) -- contestado = ya no esta pendiente: se marca su "Pide ayuda" (bot_expedientes
       //   col AE = 1) y su "Ha respondido" (pisos col AZ R=ahora), conteste desde HOY o desde la ficha.
