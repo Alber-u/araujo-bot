@@ -2189,6 +2189,10 @@ Cada tipo de expediente (`propietario`, `familiar`, `inquilino`, `sociedad`, `lo
 
 **Dónde se guarda el resultado y cómo lo ve Guille**: cada documento recibido y clasificado se escribe en la pestaña de Sheet `bot_documentos` — la misma que lee `documentacion.cjs` para pintar el acordeón de un piso BOT. El circuito completo (de qué código usa el bot a qué código usa la pantalla, la tabla de traducción, y cómo Guille puede corregir algo a mano) está documentado en §4.4, no se repite aquí.
 
+**Cuando la Nota simple está a nombre de otra persona (criterio de Guille, 23/10/2026; caso Malvaloca 1 1A)**:
+- **Algún titular vive** → el vecino es **familiar** (`FLOWS.familiar`): DNI del titular de la Nota simple, libro de familia e impreso de usufructo (autorización) firmado por el titular, además de su solicitud y su DNI.
+- **Ningún titular vive** → herencia: **testamento y certificado de defunción, o declaración de herederos**. **El programa no tiene este caso** (ni tipo en el bot ni pastillas en la ficha): se le piden a mano por el bot (Contestar por el bot) y se apuntan en las notas del piso.
+
 ## 6.3 Validación de un documento recibido — dos comprobaciones independientes
 > **v19.118 — con la IA dormida** (banda "IA del bot", §3.22.3.4): de lo que sigue solo funciona la validación técnica (foto del DNI); la IA no se llama (`iaActiva()` corta `llamarIAconImagen`, `llamarGPT4oConImagen`, `responderConIA` y `detectarNecesidadHumano`) y el documento queda en REVISAR con motivo `[sin_ia]`, que al vecino se le dice como recibido (`mensajeParaVecino`).
 Cuando llega un archivo, pasan DOS análisis por separado que luego se combinan:
