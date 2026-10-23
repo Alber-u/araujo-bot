@@ -497,8 +497,8 @@ const CASOS = [
     },
   },
   {
-    nombre: "Bot: con la ficha terminada no contesta «1» ni «ok»; «aquí les envío…» no se contesta; «mañana lo mando» sí",
-    desde: "v149",
+    nombre: "Bot (v158): con la ficha terminada solo contesta preguntas; «Estupendo, gracias» no se contesta nunca; «mañana lo mando» sí",
+    desde: "v158",
     prueba: async (S) => {
       const iA = S.col("pisos", "bot_piso_activo");
       const f = S.DATA.pisos.find((x, i) => i > 0 && x[0] && String(x[iA >= 0 ? iA : 47]) === "BOT_WHATSAPP");
@@ -519,11 +519,19 @@ const CASOS = [
       const r1 = await manda("1", "finalizado"), r2 = await manda("ok", "finalizado");
       const r3 = await manda("Aquí les envío el documento pendiente", "recogida_documentacion");
       const r4 = await manda("Mañana les mando el DNI", "recogida_documentacion");
+      const r5 = await manda("Estupendo, gracias", "finalizado");   // caso Tharsis 5 3IZ
+      const r6 = await manda("Estupendo, gracias", "recogida_documentacion");
+      const r7 = await manda("El lunes paso por la oficina", "finalizado");
+      const r8 = await manda("¿Cuándo empiezan las obras?", "finalizado");
       return [
         [r1 === "", "ficha terminada + «1»: sin respuesta", r1],
         [r2 === "", "ficha terminada + «ok»: sin respuesta", r2],
         [r3 === "", "«Aquí les envío el documento pendiente»: sin respuesta", r3],
         [/De acuerdo/.test(r4), "«Mañana les mando el DNI»: aviso, como antes", r4],
+        [r5 === "", "ficha terminada + «Estupendo, gracias»: sin respuesta", r5],
+        [r6 === "", "ficha sin terminar + «Estupendo, gracias»: sin respuesta", r6],
+        [r7 === "", "ficha terminada + un aviso: sin «De acuerdo… cuando lo tenga»", r7],
+        [/Lo vemos/.test(r8), "ficha terminada + pregunta: «Gracias por su mensaje. Lo vemos…»", r8],
       ];
     },
   },

@@ -3173,6 +3173,9 @@ function clasificarTextoVecino(texto) {
   const letras = t.replace(/[^\p{L}\p{N}]/gu, "");
   if (letras.length < 3 || esMensajeAmbiguo(t)) return "corto";
   if (/^(ok|okey|okay|vale|si|sí|no|perfecto|bien|claro|entendido|recibido|de acuerdo|hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|gracias|muchas gracias|mil gracias|ok gracias|vale gracias|listo|hecho|enviado|genial|estupendo)[\s.!,\p{Extended_Pictographic}️]*$/iu.test(t)) return "corto";
+  // v158 (23/10/2026, criterio de Guille; caso Tharsis 5 3IZ "Estupendo, gracias") -- frases hechas SOLO de palabras de
+  //   cortesia ("Estupendo, gracias", "Perfecto, muchas gracias", "Vale gracias!", "Genial, gracias 👍") tambien son cortas.
+  if (_esSoloCortesia(t)) return "corto";
   if (_RE_PREGUNTA_VECINO.test(t) || _RE_PREGUNTA_INICIO.test(t)) return "pregunta";
   if (_esEnvioAhora(t)) return "envio";   // v149
   return "aviso";
@@ -3182,6 +3185,13 @@ function clasificarTextoVecino(texto) {
 //   al archivo, que se contesta como siempre. Si dice cuando ("manana", "luego", "esta tarde"...) sigue siendo un aviso.
 const _RE_ENVIO_AHORA = /(?:^|[^\p{L}])(?:aqu[ií]|ah[ií]|ya)\s+(?:le|les|te|os|se\s+lo|se\s+la|se\s+los|se\s+las)?\s*(?:env[ií]o|mando|paso|adjunto|va|van|tiene[ns]?)(?![\p{L}])|^\s*(?:le|les|te|os)\s+(?:env[ií]o|mando|paso|adjunto)(?![\p{L}])|^\s*(?:se|te)\s+l[oa]s?\s+(?:env[ií]o|mando|paso)(?![\p{L}])|^\s*(?:adjunto|env[ií]o|mando|paso)\s+(?:el|la|los|las|mi|su|un|una)(?![\p{L}])|^\s*ah[ií]\s+van?(?![\p{L}])/iu;
 const _RE_ENVIO_LUEGO = /(?:^|[^\p{L}])(?:mañana|manana|luego|despu[eé]s|m[aá]s tarde|esta tarde|esta noche|cuando|en cuanto|pronto|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|semana|pr[oó]xim\p{L}*|voy a|vamos a|intentar\p{L}*)(?![\p{L}])/iu;
+const _CORTESIA = new Set(("ok okey okay vale si sí perfecto bien claro entendido recibido de acuerdo hola buenas buenos buen dia dias día días tardes " +
+  "noches gracias muchas muchisimas muchísimas mil listo hecho genial estupendo estupenda fenomenal fenómeno magnifico magnífico " +
+  "super súper vaya pues muy amable igualmente saludos un saludo cordial atentamente perfecta perfectamente por todo").split(/\s+/));
+function _esSoloCortesia(t) {   // v158: todas las palabras son de cortesia (al menos una de agradecer o asentir)
+  const w = String(t || "").toLowerCase().replace(/[^\p{L}\s]/gu, " ").split(/\s+/).filter(Boolean);
+  return w.length >= 2 && w.length <= 8 && w.every((x) => _CORTESIA.has(x)) && w.some((x) => /^(gracias|ok|okey|okay|vale|perfect[oa]?|perfectamente|genial|estupend[oa]|entendido|recibido|fenomenal|listo|hecho|igualmente|saludos?)$/.test(x));
+}
 function _esEnvioAhora(t) { t = String(t || ""); return _RE_ENVIO_AHORA.test(t) && !_RE_ENVIO_LUEGO.test(t); }
 function _esRespuestaDelPaso(msgOriginal, msg, expediente) {
   const p = expediente.paso_actual, d = expediente.documento_actual;
@@ -3234,6 +3244,10 @@ async function handleTextoLibreVecino({ res, telefono, msgOriginal, msg, numMedi
     return responderSinMensaje(res, telefono, t);   // espera a Guille: no le insiste
   }
   if (clase === "envio") return responderSinMensaje(res, telefono, t);   // v149: lo manda ahora; se espera al archivo
+  // v158 (23/10/2026, criterio de Guille: "esta respuesta no pega nada"; caso Tharsis 5 3IZ) -- con la ficha TERMINADA no hay
+  //   nada que "tener": un aviso no se contesta ("De acuerdo... cuando lo tenga" no tiene sentido). Se apunta y le llega a
+  //   Guille en Pide ayuda (abajo). Las preguntas siguen como siempre ("Gracias por su mensaje. Lo vemos...").
+  const _avisoTerminada = clase === "aviso" && expediente.paso_actual === "finalizado";
   // pregunta o aviso: lo lee Guille
   try {
     marcarAtencionHumana(telefono, t).catch(() => {});
@@ -3253,6 +3267,7 @@ async function handleTextoLibreVecino({ res, telefono, msgOriginal, msg, numMedi
     if (reciente) return responderSinMensaje(res, telefono, t);
     if (clase === "pregunta") return responderYLog(res, telefono, t, "texto", txtPlant("flujo_pregunta_espera", "Gracias por su mensaje. Lo vemos y le contestamos lo antes posible."));
   }
+  if (_avisoTerminada) return responderSinMensaje(res, telefono, t);   // v158
   return responderYLog(res, telefono, t, "texto", txtPlant("flujo_aviso_vecino", "De acuerdo, gracias por avisarnos. Cuando lo tenga, envíenoslo por aquí."));
 }
 
