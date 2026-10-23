@@ -375,7 +375,7 @@ const CASOS = [
       const html = String((await S.call("GET", "/plan5", { dir: r ? r[0] : "C Alberche 6C" })).body);
       const ops = (id) => [...(((html.match(new RegExp('<select id="' + id + '">([\\s\\S]*?)</select>')) || [])[1]) || "").matchAll(/<option[^>]*>([^<]*)<\/option>/g)].map((m) => m[1]).filter(Boolean).join(" · ");
       const PAT = "PATIO DELANTERO · PATIO TRASERO · PATIO DERECHO · PATIO CENTRAL · PATIO IZQUIERDO";
-      const FAC = "FACHADA DELANTERA · FACHADA TRASERA · FACHADA LATERAL DERECHA · FACHADA LATERAL IZQUIERDA";
+      const FAC = "FACHADA DELANTERA · FACHADA TRASERA · FACHADA DERECHA · FACHADA IZQUIERDA";   // v146: sin «LATERAL»
       const quiero = {
         comPunto1: "PORTAL · ARMARIO DE CONTADORES · CUARTO DE MOTORES · CUARTO DE SERVICIO · AZOTEA · " + PAT,
         comPunto2: "PORTAL · ARMARIO DE CONTADORES · CUARTO DE MOTORES · CUARTO DE SERVICIO · AZOTEA · " + PAT,
@@ -385,7 +385,7 @@ const CASOS = [
       };
       const out = Object.keys(quiero).map((id) => [ops(id) === quiero[id], id + ": " + quiero[id], ops(id)]);
       const sube = (html.match(/const OPT_SUBE=\[([^\]]*)\]/) || [])[1] || "";
-      out.push([/FACHADA DELANTERA.*FACHADA TRASERA.*LATERAL DERECHA.*LATERAL IZQUIERDA.*PATIO DELANTERO.*PATIO TRASERO.*PATIO DERECHO.*PATIO CENTRAL.*PATIO IZQUIERDO.*SCHUNT/.test(sube), "peines: «Sube por» con delantero y trasero primero", sube.slice(0, 160)]);
+      out.push([/FACHADA DELANTERA.*FACHADA TRASERA.*FACHADA DERECHA.*FACHADA IZQUIERDA.*PATIO DELANTERO.*PATIO TRASERO.*PATIO DERECHO.*PATIO CENTRAL.*PATIO IZQUIERDO.*SCHUNT/.test(sube), "peines: «Sube por» con delantero y trasero primero", sube.slice(0, 160)]);
       const m = html.match(/function _p5Renombra\(id,v\)\{[^\n]*\}/);
       let ren = null; try { ren = m ? new Function(m[0] + "; return _p5Renombra;")() : null; } catch (e) { ren = null; }
       out.push([!!ren && ren("cc_ubic", "EN PORTAL") === "PORTAL" && ren("cc_ubic", "EN PATIO INTERIOR") === "" && ren("cc_ubic", "BAJO ESCALERA") === "BAJO ESCALERA" && ren("comPunto1", "PATIO") === "" && ren("ac_ubic", "FACHADA LATERAL") === "" && ren("ac_ubic", "FACHADA TRASERA") === "FACHADA TRASERA", "lo guardado: «EN …» pasa al nombre nuevo y lo que ya no existe sale vacío", m ? "" : "(no está la función)"]);
@@ -403,6 +403,32 @@ const CASOS = [
       out.push([/, en portal,$/.test(fv) && fv === fn, "armario: «EN PORTAL» (guardado) y «PORTAL» (nuevo) imprimen lo mismo", fv + " | " + fn]);
       out.push([/, en patio trasero,$/.test(fp) && /, bajo escalera,$/.test(fb), "armario: «en patio trasero» y «bajo escalera»", fp + " | " + fb]);
       return out;
+    },
+  },
+  // ===== v146: FACHADA DERECHA / IZQUIERDA, sin «LATERAL» =====
+  {
+    nombre: "Sin «LATERAL» en menús y peines; un peine nuevo imprime «la fachada izquierda» y uno guardado con «lateral» imprime como antes",
+    desde: "v146",
+    prueba: async (S) => {
+      const p5 = S.DATA.plan5_toma_datos || [];
+      const r = p5.find((x, j) => j > 0 && /ALBERCHE 6C/i.test(String(x[0] || "")));
+      const html = String((await S.call("GET", "/plan5", { dir: r ? r[0] : "C Alberche 6C" })).body);
+      const menus = (html.match(/<select id="(ac_ubic|cc_ubic)">[\s\S]*?<\/select>/g) || []).join(" ") + (html.match(/const OPT_(SUBE|BAJA)=\[[^\]]*\]/g) || []).join(" ");
+      const m = html.match(/function _p5RenombraPeine\(v\)\{[^\n]*\}/);
+      let ren = null; try { ren = m ? new Function(m[0] + "; return _p5RenombraPeine;")() : null; } catch (e) { ren = null; }
+      // Sánchez Pizjuán 6 (enviado) tiene un peine «SUBE POR FACHADA LATERAL IZQUIERDA»: se imprime igual; con el nombre nuevo, sin «lateral»
+      const sp = p5.find((x, j) => j > 0 && String(x[2] || "").trim() === "O25-ARA/00213");
+      const texto = async () => String((await S.call("GET", "/plan5/presupuesto", { dir: sp[0] })).body).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+      const antes = await texto();
+      const v6 = sp[6], v8 = sp[8];
+      for (const c of [6, 8]) if (sp[c]) sp[c] = sp[c].split("SUBE POR FACHADA LATERAL IZQUIERDA").join("SUBE POR FACHADA IZQUIERDA");
+      const nuevo = await texto(); sp[6] = v6; sp[8] = v8;
+      return [
+        [/FACHADA DERECHA/.test(menus) && /FACHADA IZQUIERDA/.test(menus) && !/LATERAL/.test(menus), "contador, armario y peines sin «LATERAL»", menus.match(/[A-Z ]*LATERAL[A-Z ]*/g) || ""],
+        [!!ren && ren("SUBE POR FACHADA LATERAL IZQUIERDA") === "SUBE POR FACHADA IZQUIERDA" && ren("BAJA POR FACHADA LATERAL DERECHA") === "BAJA POR FACHADA DERECHA" && ren("SUBE POR PATIO TRASERO") === "SUBE POR PATIO TRASERO", "al reabrir, el peine pasa al nombre nuevo", m ? "" : "(no está la función)"],
+        [/fachada lateral izquierda para subir/.test(antes), "Sánchez Pizjuán 6, guardado: imprime como antes («la fachada lateral izquierda»)", ""],
+        [/buscando la fachada izquierda para subir/.test(nuevo) && !/fachada lateral izquierda/.test(nuevo), "con el nombre nuevo imprime «la fachada izquierda»", ""],
+      ];
     },
   },
 ];
