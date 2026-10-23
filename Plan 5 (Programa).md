@@ -2476,6 +2476,10 @@ Dentro del propio fichero, ninguna encontrada que merezca la pena mover — el t
 
 ---
 
+**Los dos WhatsApp de Araujo (Guille, 23/10/2026)**:
+- **💬 blanco (WhatsApp manual)**: **634-379-632**, el WhatsApp Business de Guille. El botón abre WhatsApp Web (`web.whatsapp.com/send?phone=…`) con el teléfono del vecino; sale desde la cuenta abierta en ese navegador. Es el que figura en la firma de los correos y en la plantilla 05-INICIO DOC (VECINO).
+- **🤖💬 ro-botón (el bot)**: el número de Twilio, **610…** (número completo pendiente de que lo dé Guille). Solo WhatsApp: no admite llamadas.
+
 ## 6.21 Enseñar al bot: qué contesta, qué calla y cómo se revisa (criterio de Guille, 23/10/2026)
 Todo lo que el bot va aprendiendo sobre **qué contestar a lo que escribe un vecino**, en un solo sitio. Las reglas viven en el código (`bot-whatsapp.cjs`, `handleTextoLibreVecino` y `clasificarTextoVecino`, detalle técnico en §6.10); los textos que dice, en el Sheet (FLUJO BOT); cada regla tiene su caso en el banco de pruebas, para que un cambio futuro no la rompa.
 
