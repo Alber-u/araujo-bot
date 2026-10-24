@@ -1953,10 +1953,10 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
   .rev{ text-align:right; font-size:8pt; color:#5b7fa6; margin-top:2mm; }
   /* ---- Tabla del presupuesto ---- */
   .sech{ color:var(--navy); font-size:14.3pt; font-weight:bold; border-bottom:2px solid var(--navy); padding-bottom:3px; margin:0 0 8px; }
-  table.ptab{ width:100%; border-collapse:collapse; font-size:8.6pt; line-height:1.0; }   /* v166: algo menos de espacio (antes 1.05) */
+  table.ptab{ width:100%; border-collapse:collapse; font-size:8.6pt; line-height:1.05; }   /* v167: vuelve a la medida de antes (Guille) */
   table.ptab th{ text-align:left; font-weight:normal; font-style:italic; color:#333; border-bottom:1px solid var(--navy); padding:2px 4px; }
   table.ptab th.num{ text-align:right; }
-  table.ptab td{ padding:0.4px 4px; vertical-align:top; }   /* v166: antes 0.8px */
+  table.ptab td{ padding:0.8px 4px; vertical-align:top; }
   table.ptab td.num{ text-align:right; white-space:nowrap; }
   table.ptab td.mat,table.ptab td.diam{ color:#444; white-space:nowrap; }
   table.ptab tr.cap td{ font-weight:bold; color:var(--navy); border-top:1px solid var(--navy); padding-top:4px; }
