@@ -542,16 +542,7 @@ module.exports = function (app) {
         + '<div data-conv="1" style="max-height:320px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
         + (ok ? '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
               + '<div data-adj="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px">'
-              + '<span style="position:relative;display:inline-block"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-rtipo="1" title="Elige una respuesta y se escribe en el recuadro (la ves antes de enviar)">' + (U.icoWa || '') + ' Respuestas tipo</button>'   // v170
-              + '<div data-rmenu="1" style="display:none;position:absolute;left:0;bottom:100%;margin-bottom:4px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:2;min-width:240px;padding:4px 0"></div></span>'
-              + '<span style="position:relative;display:inline-block"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjbtn="1" title="Desde tu PC, el Impreso toma datos o un documento personalizado">\uD83D\uDCCE Adjuntar</button>'   // v171: un solo boton con su lista (antes 3 botones)
-              + '<div data-amenu="1" style="display:none;position:absolute;left:0;bottom:100%;margin-bottom:4px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:2;min-width:220px;padding:4px 0">'
-              + '<div data-adjpc="1" data-aitem="1" title="Las carpetas del PC o de la tablet: PDF, JPG o PNG, hasta 10 MB">Desde mi dispositivo\u2026</div>'   // v175: antes (v173) Desde mi dispositivo o Drive
-              + '<div data-adjdrive="1" data-aitem="1" title="Pega el enlace del documento (Drive: Compartir, Copiar enlace); el programa lo baja y se lo env\u00eda como archivo">Desde Drive (enlace)\u2026</div>'
-              + '<div data-fijo="solicitud" data-aitem="1">Impreso toma datos</div>'
-              + '<div data-docs="1" data-aitem="1" title="Elige un documento del programa; sale relleno con los datos del vecino y del piso">Documento personalizado\u2026</div>'
-              + '</div></span>'
-              + '<input type="file" style="display:none">'   // v173 (Guille: desde la tablet todo va a ser desde Drive): sin accept, para que la tablet abra el selector completo (con Drive) y no solo la galeria; el tipo se mira al elegir
+              + (U.btnResp || '') + (U.btnAdj || '')   // v178: botones comunes (_btnEnvio); sus listas, ptlRespuestasTipo / ptlAdjuntar
               + '<span data-chip="1" style="display:none;align-items:center;gap:4px;background:#e8f0fe;border:1px solid #9bb8d8;border-radius:999px;padding:2px 8px"><span data-chipn="1"></span><a href="#" data-chipx="1" title="Quitar el adjunto" style="text-decoration:none;color:#a32d2d;font-weight:700">\u2715</a></span>'
               + '</div>'
               : '<div data-rojo="1" style="font-size:12px;color:#a32d2d;font-weight:600"></div>')
@@ -590,82 +581,42 @@ module.exports = function (app) {
       //   se puede borrar. Se envia exactamente lo que hay en el recuadro (el bot ya no anade nada).
       var ta = fondo.querySelector('textarea'); setTimeout(function () { ta.focus(); }, 30);
       Promise.resolve(_convP).then(function (d) { if (d && d.firma && !String(ta.value || '').trim()) { ta.value = d.firma + '\n\n'; try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {} } });
-      // v170 (24/10/2026, criterio de Guille) -- "Respuestas tipo": lista corta (las de Flujo bot, ya rellenas con los
-      //   datos de este vecino); al elegir una, se escribe en el recuadro debajo de la firma. No se envia nada solo.
-      var bRt = fondo.querySelector('[data-rtipo]'), mRt = fondo.querySelector('[data-rmenu]');
+      // v170 -- "Respuestas tipo" (las de Flujo bot, ya rellenas con los datos de este vecino): al elegir una, se escribe en
+      //   el recuadro debajo de la firma; no se envia nada solo. v178: la lista es la comun (ptlRespuestasTipo).
+      var bRt = fondo.querySelector('[data-rtipo]');
       if (bRt) bRt.addEventListener('click', function (ev) {
         ev.stopPropagation();
-        if (mRt.style.display !== 'none') { mRt.style.display = 'none'; return; }
-        var _mA = fondo.querySelector('[data-amenu]'); if (_mA) _mA.style.display = 'none';   // v171
         Promise.resolve(_convP).then(function (d) {
-          var lista = (d && d.respTipo) || [];
-          mRt.innerHTML = '';
-          if (!lista.length) { var v0 = document.createElement('div'); v0.style.cssText = 'padding:6px 10px;font-size:12px;color:#777'; v0.textContent = 'No hay respuestas tipo (se activan en Flujo bot).'; mRt.appendChild(v0); }
-          lista.forEach(function (it) {
-            var o = document.createElement('div'); o.textContent = it.nombre;
-            o.style.cssText = 'padding:6px 10px;font-size:12px;cursor:pointer;white-space:nowrap';
-            o.addEventListener('mouseenter', function () { o.style.background = '#eef3fb'; });
-            o.addEventListener('mouseleave', function () { o.style.background = ''; });
-            o.addEventListener('click', function () {
-              mRt.style.display = 'none';
-              var fi = (d && d.firma) ? String(d.firma) : '', actual = String(ta.value || '');
-              var resto = (fi && actual.indexOf(fi) === 0) ? actual.slice(fi.length).trim() : actual.trim();
-              if (resto && !confirm('Ya hay texto escrito en el recuadro. \u00bfLo cambio por la respuesta tipo?')) return;
-              ta.value = ((fi && actual.indexOf(fi) === 0) || (fi && !actual.trim()) ? fi + '\n\n' : '') + it.texto;
-              try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
-            });
-            mRt.appendChild(o);
+          window.ptlRespuestasTipo(bRt, (d && d.respTipo) || [], function (it) {
+            var fi = (d && d.firma) ? String(d.firma) : '', actual = String(ta.value || '');
+            var resto = (fi && actual.indexOf(fi) === 0) ? actual.slice(fi.length).trim() : actual.trim();
+            if (resto && !confirm('Ya hay texto escrito en el recuadro. \u00bfLo cambio por la respuesta tipo?')) return;
+            ta.value = ((fi && actual.indexOf(fi) === 0) || (fi && !actual.trim()) ? fi + '\n\n' : '') + it.texto;
+            try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
           });
-          mRt.style.display = 'block';
         });
       });
-      fondo.addEventListener('click', function () { if (mRt) mRt.style.display = 'none'; });
-      // v127 -- adjunto: uno del PC (PDF/JPG/PNG, hasta 10 MB) o uno de los fijos del bot
-      var adj = null, fin = fondo.querySelector('input[type=file]'), chip = fondo.querySelector('[data-chip]');
+      // v127 -- un adjunto por mensaje (la etiqueta azul con su X). v171-v178: "Adjuntar" abre la lista COMUN
+      //   (ptlAdjuntar); aqui solo se dice que se hace con lo elegido: va adjunto al mensaje como archivo.
+      var adj = null, chip = fondo.querySelector('[data-chip]');
       var ponAdj = function (a, nom) { adj = a; chip.style.display = a ? 'inline-flex' : 'none'; fondo.querySelector('[data-chipn]').textContent = a ? '\uD83D\uDCCE ' + nom : ''; };
-      fondo.querySelector('[data-chipx]').addEventListener('click', function (e) { e.preventDefault(); fin.value = ''; ponAdj(null); });
-      // v171 (24/10/2026, criterio de Guille: "un botón de respuestas tipo y otro de adjuntar documentos") -- Adjuntar abre
-      //   su lista: Desde mi PC / Impreso toma datos / Documento personalizado (el menu de Imprimir documentos, relleno)
-      var bAd = fondo.querySelector('[data-adjbtn]'), mAd = fondo.querySelector('[data-amenu]');
-      fondo.querySelectorAll('[data-aitem]').forEach(function (o) {
-        o.style.cssText = 'padding:6px 10px;font-size:12px;cursor:pointer;white-space:nowrap';
-        o.addEventListener('mouseenter', function () { o.style.background = '#eef3fb'; });
-        o.addEventListener('mouseleave', function () { o.style.background = ''; });
-        o.addEventListener('click', function () { mAd.style.display = 'none'; });
-      });
-      bAd.addEventListener('click', function (ev) { ev.stopPropagation(); if (mRt) mRt.style.display = 'none'; mAd.style.display = (mAd.style.display === 'none') ? 'block' : 'none'; });
-      fondo.addEventListener('click', function (ev) { if (!mAd.contains(ev.target)) mAd.style.display = 'none'; });
-      fondo.querySelector('[data-adjpc]').addEventListener('click', function () { fin.click(); });
-      // v175 (24/10/2026, criterio de Guille: "en mi pc tampoco abre drive") -- Desde Drive (enlace): se pega el enlace, el
-      //   programa baja el archivo con su cuenta de Google y queda adjunto como uno del PC (al vecino le llega el archivo)
-      var bDr = fondo.querySelector('[data-adjdrive]');
-      if (bDr) bDr.addEventListener('click', async function () {
-        var url = prompt('Pega el enlace del documento de Drive (en Drive: Compartir \u2192 Copiar enlace):', '');
-        if (!url || !String(url).trim()) return;
-        var chn = fondo.querySelector('[data-chipn]'); chip.style.display = 'inline-flex'; chn.textContent = '\u23F3 Bajando de Drive...';
-        try {
-          var r = await fetch(U.drive, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: String(url).trim() }) });
-          var d = await r.json().catch(function () { return {}; });
-          if (!r.ok || !d.ok) { ponAdj(adj, adj ? (adj.nombre || '') : ''); alert('No se ha podido adjuntar: ' + ((d && d.error) || r.status)); return; }
-          fin.value = ''; ponAdj({ nombre: d.nombre, mime: d.mime, b64: d.b64 }, d.nombre);
-        } catch (e) { ponAdj(adj, adj ? (adj.nombre || '') : ''); alert('No se ha podido adjuntar: ' + e.message); }
-      });
-      fondo.querySelectorAll('[data-fijo]').forEach(function (x) { x.addEventListener('click', function () { ponAdj({ fijo: x.dataset.fijo }, x.textContent + ' (PDF)'); }); });
-      // v128 -- documento del programa (menu de Imprimir documentos con el piso ya elegido), relleno y adjunto
-      var bDoc = fondo.querySelector('[data-docs]');
-      if (bDoc) bDoc.addEventListener('click', function () {
-        if (!window.ptlDocsModal) { alert('No est\u00e1 disponible en esta pantalla.'); return; }
-        window.ptlDocsModal({ comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '', modo: 'adjuntar', alAdjuntar: function (a) { fin.value = ''; ponAdj(a, a.nombre); } });
-      });
-      fin.addEventListener('change', function () {
-        var f = fin.files && fin.files[0]; if (!f) return;
-        var _ext = (String(f.name || '').match(/\.([a-z0-9]+)$/i) || ['', ''])[1].toLowerCase();   // v173: algunos selectores (Drive en la tablet) no dan el tipo
-        var _mime = f.type || ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' })[_ext] || '';
-        if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(_mime)) { alert('Solo PDF, JPG o PNG. Si es un documento de Google (Docs, Hojas), desc\u00e1rgalo antes como PDF.'); fin.value = ''; return; }
-        if (f.size > 10 * 1024 * 1024) { alert('El archivo pasa de 10 MB.'); fin.value = ''; return; }
-        var rd = new FileReader();
-        rd.onload = function () { ponAdj({ nombre: f.name, mime: _mime, b64: String(rd.result || '').split(',')[1] || '' }, f.name); };
-        rd.readAsDataURL(f);
+      fondo.querySelector('[data-chipx]').addEventListener('click', function (e) { e.preventDefault(); ponAdj(null); });
+      var bAd = fondo.querySelector('[data-adjbtn]');
+      if (bAd) bAd.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        window.ptlAdjuntar(bAd, { comunidad: b.dataset.com || '', vivienda: b.dataset.viv || '', soloPdfImg: true, maxMB: 10 }, {
+          archivo: function (a) { ponAdj(a, a.nombre); },
+          drive: async function (url) {   // v175: el programa lo baja con su cuenta de Google; al vecino le llega el archivo
+            var chn = fondo.querySelector('[data-chipn]'), prev = adj; chip.style.display = 'inline-flex'; chn.textContent = '\u23F3 Bajando de Drive...';
+            try {
+              var r = await fetch(U.drive, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: url }) });
+              var d = await r.json().catch(function () { return {}; });
+              if (!r.ok || !d.ok) { ponAdj(prev, prev ? (prev.nombre || 'Impreso toma datos (PDF)') : ''); alert('No se ha podido adjuntar: ' + ((d && d.error) || r.status)); return; }
+              ponAdj({ nombre: d.nombre, mime: d.mime, b64: d.b64 }, d.nombre);
+            } catch (e) { ponAdj(prev, prev ? (prev.nombre || 'Impreso toma datos (PDF)') : ''); alert('No se ha podido adjuntar: ' + e.message); }
+          },
+          impreso: function () { ponAdj({ fijo: 'solicitud' }, 'Impreso toma datos (PDF)'); }
+        });
       });
       fondo.querySelector('[data-s]').addEventListener('click', async function () {
         var txt = (ta.value || '').trim(); if (!txt && !adj) { ta.focus(); return; }
@@ -810,7 +761,7 @@ module.exports = function (app) {
   }
   function _scriptVecinoBot(token) {
     const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"), contacto: urlT(token, "/presupuestos/hoy/pedir-contacto"), ctexto: urlT(token, "/presupuestos/hoy/pedir-contacto-texto"),
-      mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), drive: urlT(token, "/presupuestos/hoy/drive-adjunto"), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }), icoWa: ICONO_WHATSAPP };   // v170: icono de estilo-visual
+      mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), drive: urlT(token, "/presupuestos/hoy/drive-adjunto"), btnResp: _btnEnvio("resp", ICONO_WHATSAPP, 'data-rtipo="1"'), btnAdj: _btnEnvio("adj", "", 'data-adjbtn="1"'), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }), icoWa: ICONO_WHATSAPP };   // v170: icono de estilo-visual
     return "(" + _clienteVecinoBot.toString() + ")(" + JSON.stringify(U) + ");";
   }
   function urlT(token, path, params) {
@@ -5919,16 +5870,80 @@ module.exports = function (app) {
   //   cada vez; el archivo se llama como el documento: "<Documento> - <Comunidad> <piso>.pdf" (general: sin piso).
   //   Los campos que se dejan vacios salen como raya larga para rellenar a mano.
   //   opc: { ccppId | comunidad (nombre, desde HOY), vivienda (piso ya elegido), modo, alAdjuntar }
-  // v177 (24/10/2026, criterio de Guille: "copiar los botones que tenemos en los whatsapps... los de adjuntar archivos")
-  //   -- boton "📎 Adjuntar" de las ventanas de correo (Enviar mail manual, Email de fase, Ultimatum). Rellena el primer
-  //   casillero libre de adjuntos: a la izquierda el nombre del archivo, a la derecha su enlace de Drive. Lo que ya esta en
-  //   Drive solo se enlaza; lo del dispositivo y los documentos personalizados se guardan en la carpeta "adjuntos" del
-  //   expediente (donde viven los adjuntos de los correos que llegan) y se enlazan. Boton: data-adjmail="<prefijo de
-  //   los ids de los casilleros>" y data-ccpp="<ccpp_id>".
-  function _clienteAdjMail(U) {
-    if (window.__adjMailListo) return; window.__adjMailListo = true;
-    var menu = null;
-    var cerrar = function () { if (menu) { menu.remove(); menu = null; } };
+  // v178 (24/10/2026, criterio de Guille: "siempre con la idea de igualar y unificar... que lo que se cambie en uno y
+  //   queremos que en el otro sea un espejo se haga cambiando en un solo lugar") -- BOTONES DE ENVIO COMUNES de WhatsApp
+  //   (Contestar por el bot) y correo (Enviar mail manual, Email de fase, Ultimatum). Un solo sitio para:
+  //   - window.ptlMenuBoton(boton, items, vacio): el desplegable de los botones (aspecto, posicion, cerrar al pinchar fuera);
+  //   - window.ptlRespuestasTipo(boton, lista, poner): la lista de "Respuestas tipo" (cada uno con sus textos);
+  //   - window.ptlAdjuntar(boton, ctx, destino): la lista de "Adjuntar" (nombres y orden de las opciones, elegir archivo,
+  //     Drive, el impreso en blanco, documento personalizado). Cada ventana solo dice que hace con el resultado (destino):
+  //     el WhatsApp lo adjunta al mensaje; el correo rellena un casillero con el nombre y el enlace de Drive.
+  //   Los botones (texto, icono, aspecto) salen de _btnEnvio en el servidor, tambien de un solo sitio. Manual §3.15.5.
+  function _clienteBotonesEnvio(U) {
+    if (window.__botonesEnvioListo) return; window.__botonesEnvioListo = true;
+    var abierto = null;
+    var cerrarMenu = function () { if (abierto) { abierto.m.remove(); abierto = null; } };
+    document.addEventListener('click', function (ev) { if (abierto && !abierto.m.contains(ev.target) && !abierto.b.contains(ev.target)) cerrarMenu(); }, true);
+    window.ptlMenuBoton = function (btn, items, vacio) {
+      if (abierto && abierto.b === btn) { cerrarMenu(); return; }
+      cerrarMenu();
+      var m = document.createElement('div'); m.setAttribute('data-ptlmenu', '1');
+      m.style.cssText = 'position:fixed;visibility:hidden;background:#fff;color:#111;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:10002;min-width:220px;padding:4px 0;font-size:12px';
+      if (!items.length) { var v0 = document.createElement('div'); v0.style.cssText = 'padding:6px 10px;color:#777'; v0.textContent = vacio || 'No hay opciones.'; m.appendChild(v0); }
+      items.forEach(function (it) {
+        var o = document.createElement('div'); o.textContent = it.texto; o.setAttribute('data-ptlmitem', '1');
+        if (it.titulo) o.title = it.titulo;
+        o.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap';
+        o.addEventListener('mouseenter', function () { o.style.background = '#eef3fb'; });
+        o.addEventListener('mouseleave', function () { o.style.background = ''; });
+        o.addEventListener('click', function (e) { e.stopPropagation(); cerrarMenu(); it.accion(); });
+        m.appendChild(o);
+      });
+      document.body.appendChild(m);
+      var rc = btn.getBoundingClientRect(), h = m.offsetHeight, w = m.offsetWidth;
+      var top = (rc.bottom + 4 + h > window.innerHeight && rc.top - 4 - h > 0) ? rc.top - 4 - h : rc.bottom + 4;
+      m.style.left = Math.max(4, Math.min(rc.left, window.innerWidth - w - 4)) + 'px'; m.style.top = Math.round(top) + 'px'; m.style.visibility = 'visible';
+      abierto = { b: btn, m: m };
+    };
+    window.ptlRespuestasTipo = function (btn, lista, poner) {
+      window.ptlMenuBoton(btn, (lista || []).map(function (r) { return { texto: r.nombre, accion: function () { poner(r); } }; }), 'No hay respuestas tipo.');
+    };
+    // ctx: { ccppId | comunidad, vivienda, soloPdfImg (solo PDF/JPG/PNG), maxMB }
+    // destino: { archivo({nombre, mime, b64}), drive(url), impreso() }
+    window.ptlAdjuntar = function (btn, ctx, destino) {
+      ctx = ctx || {};
+      var elegirArchivo = function () {
+        // sin filtro de tipo: la tablet abre el selector completo (con Drive) y no solo la galeria (v173); el tipo se mira al elegir
+        var fi = document.createElement('input'); fi.type = 'file'; fi.style.display = 'none'; document.body.appendChild(fi);
+        fi.addEventListener('change', function () {
+          var f = fi.files && fi.files[0]; fi.remove(); if (!f) return;
+          var ext = (String(f.name || '').match(/\.([a-z0-9]+)$/i) || ['', ''])[1].toLowerCase();
+          var mime = f.type || ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' })[ext] || 'application/octet-stream';
+          if (ctx.soloPdfImg && !/^(application\/pdf|image\/jpeg|image\/png)$/.test(mime)) { alert('Solo PDF, JPG o PNG. Si es un documento de Google (Docs, Hojas), descárgalo antes como PDF.'); return; }
+          var max = ctx.maxMB || 10;
+          if (f.size > max * 1024 * 1024) { alert('El archivo pasa de ' + max + ' MB.'); return; }
+          var rd = new FileReader();
+          rd.onload = function () { destino.archivo({ nombre: f.name, mime: mime, b64: String(rd.result || '').split(',')[1] || '' }); };
+          rd.readAsDataURL(f);
+        });
+        fi.click();
+      };
+      window.ptlMenuBoton(btn, [
+        { texto: 'Desde mi dispositivo…', titulo: 'Las carpetas del PC o de la tablet', accion: elegirArchivo },
+        { texto: 'Desde Drive (enlace)…', titulo: 'Pega el enlace del documento (Drive: Compartir, Copiar enlace)', accion: function () {
+          var url = prompt('Pega el enlace del documento de Drive (en Drive: Compartir → Copiar enlace):', '');
+          if (url && String(url).trim()) destino.drive(String(url).trim());
+        } },
+        { texto: 'Impreso toma datos', titulo: 'El impreso en blanco', accion: function () { destino.impreso(); } },
+        { texto: 'Documento personalizado…', titulo: 'Un documento del programa, relleno con los datos', accion: function () {
+          if (!window.ptlDocsModal) { alert('No está disponible en esta pantalla.'); return; }
+          window.ptlDocsModal({ ccppId: ctx.ccppId || '', comunidad: ctx.comunidad || '', vivienda: ctx.vivienda || '', modo: 'adjuntar', alAdjuntar: destino.archivo });
+        } }
+      ]);
+    };
+    // ---- correo (v177): rellena el primer casillero libre con el nombre del archivo y su enlace de Drive. Lo que ya esta
+    //   en Drive solo se enlaza; lo del dispositivo y los documentos personalizados se guardan en la carpeta "adjuntos" del
+    //   expediente. Boton: data-adjmail="<prefijo de los ids de los casilleros>" y data-ccpp="<ccpp_id>".
     var hueco = function (pre) {
       for (var n = 1; n <= 3; n++) {
         var l = document.getElementById(pre + 'adj' + n + 'lbl'), u = document.getElementById(pre + 'adj' + n + 'url');
@@ -5936,12 +5951,8 @@ module.exports = function (app) {
       }
       return null;
     };
-    var poner = function (pre, nombre, url) {
-      var h = hueco(pre);
-      if (!h) { alert('Los 3 casilleros de adjuntos están ocupados: borra uno antes.'); return false; }
-      if (h.l) h.l.value = nombre || ''; h.u.value = url;
-      return true;
-    };
+    var LLENOS = 'Los 3 casilleros de adjuntos están ocupados: borra uno antes.';
+    var poner = function (pre, nombre, url) { var h = hueco(pre); if (!h) { alert(LLENOS); return; } if (h.l) h.l.value = nombre || ''; h.u.value = url; };
     var sinExt = function (n) { return String(n || '').replace(/\.(pdf|jpe?g|png|docx?|xlsx?|pptx?)$/i, ''); };
     var post = async function (url, body) {
       var r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -5949,60 +5960,26 @@ module.exports = function (app) {
       if (!r.ok || !d.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
       return d;
     };
-    var subir = async function (b, pre, a) {
-      if (!hueco(pre)) { alert('Los 3 casilleros de adjuntos están ocupados: borra uno antes.'); return; }
-      var t = b.textContent; b.disabled = true; b.textContent = '⏳ Guardando en Drive...';
-      try { var d = await post(U.subir, { ccpp: b.dataset.ccpp || '', nombre: a.nombre, mime: a.mime, b64: a.b64 }); poner(pre, sinExt(d.nombre || a.nombre), d.url); }
-      catch (e) { alert('No se ha podido adjuntar: ' + e.message); }
-      b.disabled = false; b.textContent = t;
-    };
-    var opciones = function (b, pre) {
-      return [
-        ['Desde mi dispositivo…', function () {
-          var fi = document.createElement('input'); fi.type = 'file'; fi.style.display = 'none'; document.body.appendChild(fi);
-          fi.addEventListener('change', function () {
-            var f = fi.files && fi.files[0]; fi.remove(); if (!f) return;
-            if (f.size > 15 * 1024 * 1024) { alert('El archivo pasa de 15 MB.'); return; }
-            var rd = new FileReader();
-            rd.onload = function () { subir(b, pre, { nombre: f.name, mime: f.type || 'application/octet-stream', b64: String(rd.result || '').split(',')[1] || '' }); };
-            rd.readAsDataURL(f);
-          });
-          fi.click();
-        }],
-        ['Desde Drive (enlace)…', async function () {
-          var url = prompt('Pega el enlace del documento de Drive (en Drive: Compartir → Copiar enlace):', '');
-          if (!url || !String(url).trim()) return;
-          if (!hueco(pre)) { alert('Los 3 casilleros de adjuntos están ocupados: borra uno antes.'); return; }
-          try { var d = await post(U.nombre, { url: String(url).trim() }); poner(pre, sinExt(d.nombre), String(url).trim()); }
-          catch (e) { alert('No se ha podido adjuntar: ' + e.message); }
-        }],
-        ['Impreso toma datos', function () {
-          if (!U.fijo) { alert('No encuentro el Impreso toma datos en Drive.'); return; }
-          poner(pre, 'Impreso toma datos', U.fijo);
-        }],
-        ['Documento personalizado…', function () {
-          if (!window.ptlDocsModal) { alert('No está disponible en esta pantalla.'); return; }
-          window.ptlDocsModal({ ccppId: b.dataset.ccpp || '', modo: 'adjuntar', alAdjuntar: function (a) { subir(b, pre, a); } });
-        }]
-      ];
-    };
     document.addEventListener('click', function (ev) {
       var b = ev.target && ev.target.closest ? ev.target.closest('[data-adjmail]') : null;
-      if (!b) { if (menu && !menu.contains(ev.target)) cerrar(); return; }
+      if (!b) return;
       ev.preventDefault();
-      if (menu) { cerrar(); return; }
-      var pre = b.dataset.adjmail, rc = b.getBoundingClientRect();
-      menu = document.createElement('div');
-      menu.style.cssText = 'position:fixed;left:' + Math.round(rc.left) + 'px;top:' + Math.round(rc.bottom + 4) + 'px;background:#fff;color:#111;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:10002;min-width:220px;padding:4px 0;font-size:12px';
-      opciones(b, pre).forEach(function (op) {
-        var o = document.createElement('div'); o.textContent = op[0]; o.setAttribute('data-adjmitem', '1');
-        o.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap';
-        o.addEventListener('mouseenter', function () { o.style.background = '#eef3fb'; });
-        o.addEventListener('mouseleave', function () { o.style.background = ''; });
-        o.addEventListener('click', function (e2) { e2.stopPropagation(); cerrar(); op[1](); });
-        menu.appendChild(o);
+      var pre = b.dataset.adjmail;
+      window.ptlAdjuntar(b, { ccppId: b.dataset.ccpp || '', maxMB: 15 }, {
+        archivo: async function (a) {
+          if (!hueco(pre)) { alert(LLENOS); return; }
+          var t = b.textContent; b.disabled = true; b.textContent = '⏳ Guardando en Drive...';
+          try { var d = await post(U.subir, { ccpp: b.dataset.ccpp || '', nombre: a.nombre, mime: a.mime, b64: a.b64 }); poner(pre, sinExt(d.nombre || a.nombre), d.url); }
+          catch (e) { alert('No se ha podido adjuntar: ' + e.message); }
+          b.disabled = false; b.textContent = t;
+        },
+        drive: async function (url) {
+          if (!hueco(pre)) { alert(LLENOS); return; }
+          try { var d = await post(U.nombre, { url: url }); poner(pre, sinExt(d.nombre), url); }
+          catch (e) { alert('No se ha podido adjuntar: ' + e.message); }
+        },
+        impreso: function () { if (!U.fijo) { alert('No encuentro el Impreso toma datos en Drive.'); return; } poner(pre, 'Impreso toma datos', U.fijo); }
       });
-      document.body.appendChild(menu);
     }, true);
   }
   function _clienteDocsModal(U) {
@@ -6357,7 +6334,7 @@ module.exports = function (app) {
       <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
     </div>
   </nav>
-  <script>(${_clienteAdjMail.toString()})(${JSON.stringify({ subir: urlT(token, "/presupuestos/mail-adjunto/subir"), nombre: urlT(token, "/presupuestos/mail-adjunto/nombre"), fijo: _urlImpresoTomaDatos() })});</script>
+  <script>(${_clienteBotonesEnvio.toString()})(${JSON.stringify({ subir: urlT(token, "/presupuestos/mail-adjunto/subir"), nombre: urlT(token, "/presupuestos/mail-adjunto/nombre"), fijo: _urlImpresoTomaDatos() })});</script>
   <script>(${_clienteDocsModal.toString()})(${JSON.stringify({ menu: urlT(token, "/presupuestos/docs/menu"), huecos: urlT(token, "/presupuestos/docs/huecos"), gen: urlT(token, "/presupuestos/docs/generar") })});</script>
   <script>window.__ptlHorario=${JSON.stringify(_horarioP)};window.__ptlHorarioTxt=${JSON.stringify(_horarioModP.textoHorario(_horarioP))};window.__ptlCalcHorario=${_horarioModP.calcHorario.toString()};</script>
   <script>(${_clienteConfirmarEnvio.toString()})(${JSON.stringify({ conv: urlT(token, "/presupuestos/hoy/conversacion") })});</script>
@@ -7672,8 +7649,7 @@ module.exports = function (app) {
                 <input type="text" id="ptlComScco" placeholder="separar con coma" class="ptl-input-modal"/>
               </div>
               ${(_respTipo.length || _segManual) ? `<div style="position:relative">
-                <button type="button" id="ptlComSrespBtn" class="ptl-btn ptl-btn-secondary ptl-btn-sm" title="Elige una respuesta y entra en el cuerpo del mensaje">${ICONO_MAIL} Respuestas tipo</button>
-                <div id="ptlComSrespMenu" style="display:none;position:absolute;left:0;top:100%;margin-top:4px;background:#fff;color:#111;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:3;min-width:260px;padding:4px 0;font-size:12px"></div>
+                ${_btnEnvio("resp", ICONO_MAIL, 'id="ptlComSrespBtn"')}
                 <select id="ptlComSresp" style="display:none"><option value="">—</option>${_segManual ? `<option value="seg">${esc(_segManual.nombre)}</option>` : ""}${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
               </div>` : ""}
               <div>
@@ -7682,7 +7658,7 @@ module.exports = function (app) {
               </div>
               <div>
                 <label class="ptl-form-label">Adjuntos (hasta 3)</label>
-                <div style="margin:0 0 6px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjmail="ptlComS" data-ccpp="${esc(String(comu.ccpp_id || ""))}" title="Desde tu dispositivo, Drive, el Impreso toma datos o un documento personalizado: rellena el primer casillero libre">\uD83D\uDCCE Adjuntar</button></div>   <!-- v177 -->
+                <div style="margin:0 0 6px">${_btnEnvio("adj", "", 'data-adjmail="ptlComS" data-ccpp="' + esc(String(comu.ccpp_id || "")) + '"')}</div>   <!-- v177; v178: _btnEnvio -->
                 <div style="display:flex;flex-direction:column;gap:6px">
                   <div class="ptl-flex-g6">
                     <input type="text" id="ptlComSadj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" class="ptl-input-modal" style="flex:0 0 200px;width:auto"/>
@@ -8167,20 +8143,14 @@ module.exports = function (app) {
               sCu.value = t + (sCu.value.replace(/^\\s+/, '') ? '\\n\\n' + sCu.value.replace(/^\\s+/, '') : '');
               setTimeout(function () { sCu.focus(); sCu.setSelectionRange(t.length, t.length); sCu.scrollTop = 0; }, 30);
             };
-            // v177 (criterio de Guille: "igualarlas") -- boton "📧 Respuestas tipo" con su lista, como el del WhatsApp
-            const bResp = document.getElementById('ptlComSrespBtn'), mResp = document.getElementById('ptlComSrespMenu');
-            if (bResp && mResp && sResp) {
-              Array.prototype.forEach.call(sResp.options, function (op) {
-                if (!op.value) return;
-                const o = document.createElement('div'); o.textContent = op.textContent; o.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap';
-                o.addEventListener('mouseenter', function () { o.style.background = '#eef3fb'; });
-                o.addEventListener('mouseleave', function () { o.style.background = ''; });
-                o.addEventListener('click', function (e) { e.stopPropagation(); mResp.style.display = 'none'; sResp.value = op.value; sResp.dispatchEvent(new Event('change')); });
-                mResp.appendChild(o);
-              });
-              bResp.addEventListener('click', function (e) { e.stopPropagation(); mResp.style.display = (mResp.style.display === 'none') ? 'block' : 'none'; });
-              document.addEventListener('click', function (e) { if (!mResp.contains(e.target)) mResp.style.display = 'none'; });
-            }
+            // v177 (criterio de Guille: "igualarlas") -- boton "📧 Respuestas tipo"; v178: con la lista COMUN (ptlRespuestasTipo),
+            //   la misma que la del WhatsApp; al elegir, se pasa por el desplegable oculto de siempre (sResp)
+            const bResp = document.getElementById('ptlComSrespBtn');
+            if (bResp && sResp) bResp.addEventListener('click', function (e) {
+              e.stopPropagation();
+              const lista = Array.prototype.filter.call(sResp.options, function (op) { return !!op.value; }).map(function (op) { return { nombre: op.textContent, v: op.value }; });
+              window.ptlRespuestasTipo(bResp, lista, function (r) { sResp.value = r.v; sResp.dispatchEvent(new Event('change')); });
+            });
             if (sResp) sResp.addEventListener('change', async function () {
               if (sResp.value === 'seg' && SEG_M) {
                 sResp.value = ''; sResp.disabled = true;
@@ -9086,7 +9056,7 @@ module.exports = function (app) {
                 </div>
                 <div class="ptl-mb10">
                   <label class="ptl-label-2nd">Adjuntos (hasta 3)</label>
-                  <div style="margin:0 0 6px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjmail="ptl-mm-" title="Desde tu dispositivo, Drive, el Impreso toma datos o un documento personalizado: rellena el primer casillero libre">\uD83D\uDCCE Adjuntar</button></div>
+                  <div style="margin:0 0 6px">${_btnEnvio("adj", "", 'data-adjmail="ptl-mm-"')}</div>
                   <div style="display:flex;flex-direction:column;gap:6px">
                     <div class="ptl-flex-g6">
                       <input type="text" id="ptl-mm-adj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" class="ptl-select-200"/>
@@ -16533,7 +16503,7 @@ module.exports = function (app) {
               h+='<div class="ptl-mb10"><label class="ptl-label-2nd">CC</label><input id="ptl-ult-cc" type="text" style="'+s+'"/></div>';
               h+='<div class="ptl-mb10"><label class="ptl-label-2nd">CCO <span style="color:var(--ptl-gray-400);font-weight:normal">(oculta, separar con coma)</span></label><input id="ptl-ult-cco" type="text" style="'+s+'"/></div>';
               h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Mensaje</label><textarea id="ptl-ult-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea></div>';
-              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Adjuntos (hasta 3)</label><div style="margin:0 0 6px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjmail="ptl-ult-" title="Desde tu dispositivo, Drive, el Impreso toma datos o un documento personalizado: rellena el primer casillero libre">\uD83D\uDCCE Adjuntar</button></div><div style="display:flex;flex-direction:column;gap:6px">';
+              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Adjuntos (hasta 3)</label><div style="margin:0 0 6px">${_btnEnvio("adj", "", 'data-adjmail="ptl-ult-"')}</div><div style="display:flex;flex-direction:column;gap:6px">';
               h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj1lbl" placeholder="Etiqueta (ej: DISIDENTES)" class="ptl-select-200"/><input type="text" id="ptl-ult-adj1url" placeholder="https://drive.google.com/..." class="ptl-input-flex"/></div>';
               h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj2lbl" placeholder="Etiqueta" class="ptl-select-200"/><input type="text" id="ptl-ult-adj2url" placeholder="https://drive.google.com/..." class="ptl-input-flex"/></div>';
               h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj3lbl" placeholder="Etiqueta" class="ptl-select-200"/><input type="text" id="ptl-ult-adj3url" placeholder="https://drive.google.com/..." class="ptl-input-flex"/></div>';
@@ -18045,6 +18015,15 @@ module.exports = function (app) {
   // POST /presupuestos/hoy/responder-bot  (v122) -- Guille contesta a un vecino desde Avisos POR EL BOT.
   //   body: tel, texto, ayuda (1 = es una "Pide ayuda"). El bot comprueba la ventana de 24 h de WhatsApp.
   //   v127: con adjunto llega en JSON (archivo: {nombre, mime, b64} o {fijo: "solicitud"|"autorizacion"}).
+  // v178 -- los botones de envio, de UN solo sitio (WhatsApp y correo): mismo texto, aspecto y ayuda. tipo "resp" con el
+  //   icono de cada canal (estilo-visual: 📧 correo, 💬 WhatsApp) o "adj". attrs: los data-/id de cada ventana. Sin comillas
+  //   simples ni acentos graves en el HTML (se mete tambien dentro de cadenas de JS de las ventanas).
+  function _btnEnvio(tipo, icono, attrs) {
+    const t = tipo === "resp"
+      ? { txt: (icono ? icono + " " : "") + "Respuestas tipo", tit: "Elige una respuesta: se escribe en el mensaje y la ves antes de enviar" }
+      : { txt: "\uD83D\uDCCE Adjuntar", tit: "Desde tu dispositivo, Drive, el Impreso toma datos o un documento personalizado" };
+    return '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" ' + (attrs || "") + ' title="' + t.tit + '">' + t.txt + '</button>';
+  }
   // v177 -- enlace de Drive del Impreso toma datos (el mismo archivo que adjunta el bot), para los correos
   function _urlImpresoTomaDatos() {
     const md = (app.locals.botWhatsapp && app.locals.botWhatsapp.mediaDrive) || {};

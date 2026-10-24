@@ -57,6 +57,14 @@ function scriptsRotos(html) {
   return rotos;
 }
 
+// v178: la lista COMUN de «Adjuntar» (ptlAdjuntar) tal como sale en una pantalla
+function listaAdjuntar(html) {
+  const i = html.indexOf("window.ptlAdjuntar = function"), j = html.indexOf("// ---- correo", i);
+  if (i < 0 || j < 0) return [];
+  return (html.slice(i, j).match(/texto: '([^']+)'/g) || []).map(x => x.replace(/^texto: '|'$/g, "").replace(/\\u2026/g, "…"));
+}
+const LISTA_ADJ = ["Desde mi dispositivo…", "Desde Drive (enlace)…", "Impreso toma datos", "Documento personalizado…"];
+
 // ---------- casos ----------
 const CASOS = [
   // ===== pantallas =====
@@ -942,7 +950,7 @@ const CASOS = [
         [rt.nombre === "Nota simple (titular distinto)", "la respuesta tipo se llama «Nota simple (titular distinto)»", JSON.stringify(rt.nombre)],
         [/figura a nombre de Rafael Santisteban Conejo y M\S* Esperanza Nogales Delgado\./.test(rt.texto || "") && /^Buenas Rosa/.test(rt.texto || "") && /Muchas gracias\.$/.test(rt.texto || ""), "texto relleno con su nombre y los dos titulares (v174: ya sin «con ellos»)", rt.texto],
         [iBtn > 0 && iAdj > 0 && iBtn < iAdj && hoy.indexOf('"icoWa":"💬"') > 0, "el botón va a la izquierda de Adjuntar, con el 💬 de estilo-visual", iBtn + " / " + iAdj],
-        [(src.indexOf('<label class="ptl-form-label">${ICONO_MAIL} Respuestas tipo</label>') > 0 || src.indexOf('>${ICONO_MAIL} Respuestas tipo</button>') > 0) && src.indexOf("Insertar respuesta tipo</label>") < 0, "en el correo, «📧 Respuestas tipo» (antes «Insertar respuesta tipo»; v177: botón)", ""],
+        [(src.indexOf('<label class="ptl-form-label">${ICONO_MAIL} Respuestas tipo</label>') > 0 || src.indexOf('>${ICONO_MAIL} Respuestas tipo</button>') > 0 || src.indexOf('_btnEnvio("resp", ICONO_MAIL') > 0) && src.indexOf("Insertar respuesta tipo</label>") < 0, "en el correo, «📧 Respuestas tipo» (antes «Insertar respuesta tipo»; v177: botón)", ""],
       ];
     },
   },
@@ -952,11 +960,10 @@ const CASOS = [
     desde: "v171",
     prueba: async (S) => {
       const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
-      const i = hoy.indexOf("data-amenu"), menu = i < 0 ? "" : hoy.slice(i, hoy.indexOf("</div></span>", i));
-      const op = (menu.match(/data-aitem="1"[^>]*>[^<]*</g) || []).map(x => x.replace(/^[^>]*>|<$/g, ""));
+      const op = listaAdjuntar(hoy);
       return [
-        [/data-adjbtn="1"[^>]*>\\uD83D\\uDCCE Adjuntar</.test(hoy), "hay un botón «📎 Adjuntar»", ""],
-        [JSON.stringify(op) === JSON.stringify([hoy.indexOf(">Desde mi dispositivo o Drive") > 0 ? "Desde mi dispositivo o Drive\\u2026" : (hoy.indexOf(">Desde mi dispositivo\\u2026") > 0 ? "Desde mi dispositivo\\u2026" : "Desde mi PC\\u2026"), ...(hoy.indexOf("data-adjdrive") > 0 ? ["Desde Drive (enlace)\\u2026"] : []), "Impreso toma datos", "Documento personalizado\\u2026"]), "su lista, en este orden: Desde mi PC… / Impreso toma datos / Documento personalizado…", JSON.stringify(op)],
+        [hoy.indexOf('"btnAdj":"<button') > 0 && hoy.indexOf("📎 Adjuntar</button>") > 0, "hay un botón «📎 Adjuntar»", ""],
+        [JSON.stringify(op) === JSON.stringify(LISTA_ADJ), "su lista (v178: la común): Desde mi dispositivo… / Desde Drive (enlace)… / Impreso toma datos / Documento personalizado…", JSON.stringify(op)],
         [!/class="ptl-btn[^"]*"[^>]*data-fijo=/.test(hoy) && !/\\uDCC4 documento<\/button>/.test(hoy), "ya no están los botones sueltos «Impreso toma datos» y «📄 documento»", ""],
       ];
     },
@@ -981,11 +988,11 @@ const CASOS = [
     desde: "v173",
     prueba: async (S) => {
       const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
-      const i = hoy.indexOf("data-amenu"), menu = i < 0 ? "" : hoy.slice(i, hoy.indexOf("</div></span>", i));
+      const k = hoy.indexOf("window.ptlAdjuntar = function"), cod = k < 0 ? "" : hoy.slice(k, hoy.indexOf("// ---- correo", k));
       return [
-        [/data-adjpc="1"[^>]*>Desde mi dispositivo( o Drive)?\\u2026</.test(menu), "la primera opción se llama «Desde mi dispositivo…» (v175: sin «o Drive»)", ""],
-        [/<input type="file" style="display:none">/.test(hoy) && !/<input type="file" accept=".pdf,.jpg/.test(hoy), "el selector de archivos no lleva filtro de tipo", ""],
-        [/\}\)\[_ext\]/.test(hoy), "si el selector no da el tipo, lo saca de la extensión", ""],
+        [listaAdjuntar(hoy)[0] === "Desde mi dispositivo…", "la primera opción se llama «Desde mi dispositivo…» (v175: sin «o Drive»)", ""],
+        [/fi\.type = 'file'/.test(cod) && !/accept/.test(cod), "el selector de archivos no lleva filtro de tipo", ""],
+        [/\}\)\[ext\]/.test(cod), "si el selector no da el tipo, lo saca de la extensión", ""],
       ];
     },
   },
@@ -1019,7 +1026,7 @@ const CASOS = [
       if (baja) { try { await baja("https://example.com/no-es-drive"); } catch (e) { e1 = e.message; } }
       const r = await S.call("POST", "/presupuestos/hoy/drive-adjunto", { url: "hola" });
       return [
-        [JSON.stringify(op) === JSON.stringify(["Desde mi dispositivo\\u2026", "Desde Drive (enlace)\\u2026", "Impreso toma datos", "Documento personalizado\\u2026"]), "lista: dispositivo / Drive (enlace) / Impreso toma datos / Documento personalizado", JSON.stringify(op)],
+        [JSON.stringify(listaAdjuntar(hoy)) === JSON.stringify(LISTA_ADJ), "lista: dispositivo / Drive (enlace) / Impreso toma datos / Documento personalizado", JSON.stringify(listaAdjuntar(hoy))],
         [/no es un enlace de Drive/.test(e1), "un enlace que no es de Drive se rechaza con un aviso claro", e1],
         [r.body && r.body.ok === false && /no es un enlace de Drive/.test(String(r.body.error || "")), "la ruta contesta con el aviso, sin romper", JSON.stringify(r.body)],
         [/"drive":"[^"]*\/presupuestos\/hoy\/drive-adjunto/.test(hoy), "la ventana sabe a qué ruta pedirlo", ""],
@@ -1064,9 +1071,30 @@ const CASOS = [
         [new RegExp('data-adjmail="ptlComS" data-ccpp="' + id + '"').test(h), "Enviar mail manual: «📎 Adjuntar» con la comunidad", ""],
         [/data-adjmail="ptl-mm-"/.test(h) && /_bAm\.dataset\.ccpp = ccppId/.test(h), "Email de fase: «📎 Adjuntar» (la comunidad se pone al abrir)", ""],
         [/data-adjmail=\\?"ptl-ult-/.test(hoy) || /data-adjmail="ptl-ult-"/.test(hoy), "Ultimátum (HOY): «📎 Adjuntar»", ""],
-        [/Desde mi dispositivo(\\u2026|…)', function[\s\S]*Desde Drive \(enlace\)(\\u2026|…)'[\s\S]*'Impreso toma datos'[\s\S]*Documento personalizado(\\u2026|…)'/.test(h) && /"fijo":"https:\/\/drive\.google\.com\/file\/d\/15ZUevpwjtZKjfbaaoRJj--VKdqi8fnRo\/view"/.test(h), "la lista de Adjuntar, como en el WhatsApp, y el Impreso toma datos con su enlace de Drive", ""],
+        [JSON.stringify(listaAdjuntar(h)) === JSON.stringify(LISTA_ADJ) && /"fijo":"https:\/\/drive\.google\.com\/file\/d\/15ZUevpwjtZKjfbaaoRJj--VKdqi8fnRo\/view"/.test(h), "la lista de Adjuntar, como en el WhatsApp, y el Impreso toma datos con su enlace de Drive", JSON.stringify(listaAdjuntar(h))],
         [n1.body && n1.body.ok === false && /no es un enlace de Drive/.test(n1.body.error || ""), "un enlace que no es de Drive se rechaza", JSON.stringify(n1.body)],
         [s1.body && s1.body.ok === false && /no encuentro la comunidad/.test(s1.body.error || ""), "subir sin comunidad conocida no rompe", JSON.stringify(s1.body)],
+      ];
+    },
+  },
+  // ===== v178: botones de envío de WhatsApp y correo, de UN solo sitio =====
+  {
+    nombre: "Botones de envío: WhatsApp y correo usan la MISMA lista de Adjuntar y de Respuestas tipo, y los mismos botones (_btnEnvio): se cambian en un solo sitio",
+    desde: "v178",
+    prueba: async (S) => {
+      const fs = require("fs"), path = require("path");
+      const src = fs.readFileSync(path.join(S.RAIZ, "presupuestos.cjs"), "utf8");
+      const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      let r = await S.call("GET", "/presupuestos/expediente", { id: "ccpp_ardilla_9_f533fb" });
+      if (r.status === 302) r = await S.call("GET", "/documentacion/expediente", { id: "ccpp_ardilla_9_f533fb" });
+      const fi = String(r.body || "");
+      const cuenta = (t, x) => t.split(x).length - 1;
+      return [
+        [cuenta(src, "Desde Drive (enlace)") === 1 && cuenta(src, "Documento personalizado") === 1, "los nombres de la lista de Adjuntar están escritos una sola vez en el código", cuenta(src, "Desde Drive (enlace)") + " / " + cuenta(src, "Documento personalizado")],
+        [/window\.ptlAdjuntar\(bAd,/.test(hoy) && /window\.ptlAdjuntar\(b, \{ ccppId/.test(fi), "el WhatsApp y el correo abren la lista común", ""],
+        [/window\.ptlRespuestasTipo\(bRt,/.test(hoy) && /window\.ptlRespuestasTipo\(bResp,/.test(fi), "las dos «Respuestas tipo» usan la lista común", ""],
+        [cuenta(src, "Adjuntar</button>") === 0 && cuenta(src, "Respuestas tipo</button>") === 0 && cuenta(src, "_btnEnvio(") >= 6, "los botones salen todos de _btnEnvio (ninguno escrito a mano)", cuenta(src, "Adjuntar</button>") + " / " + cuenta(src, "Respuestas tipo</button>")],
+        [!scriptsRotos(fi).length && !scriptsRotos(hoy).length, "las pantallas se leen enteras", scriptsRotos(fi).concat(scriptsRotos(hoy)).join(" | ")],
       ];
     },
   },
