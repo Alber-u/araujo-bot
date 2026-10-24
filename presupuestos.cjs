@@ -2925,7 +2925,15 @@ module.exports = function (app) {
   async function _migRespNotaV170() {
     const sheets = getSheetsClient();
     const rows = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS })).data.values || [];
-    if (rows.some(x => x && String(x[0] || "").trim() === "resp_nota_simple")) return;
+    const _iR = rows.findIndex(x => x && String(x[0] || "").trim() === "resp_nota_simple");
+    if (_iR >= 0) {   // v172: con espacios; solo si sigue el texto de la v170 (si Guille lo ha tocado, no se pisa)
+      const _NV = require("./nombre-vecino.cjs");
+      if (String(rows[_iR][3] || "").trim() === _NV.RESP_NOTA_SIMPLE_V170) {
+        await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_plantillas!D" + (_iR + 1), valueInputOption: "RAW", requestBody: { values: [[_NV.RESP_NOTA_SIMPLE]] } });
+        console.log("[presupuestos] v172: resp_nota_simple con espacios");
+      }
+      return;
+    }
     await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: [["resp_nota_simple", "vecino", "texto", require("./nombre-vecino.cjs").RESP_NOTA_SIMPLE, "", "{nombre} {titulares} {con_quien}", "SI", "v170: respuesta tipo de Contestar por el bot (Nota simple a nombre de otro)"]] } });
     console.log("[presupuestos] v170: creada la fila resp_nota_simple");
   }

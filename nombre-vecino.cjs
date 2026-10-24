@@ -32,7 +32,11 @@ function saludoVecino(nota, nombre) {
 //   Rellena {nombre} (el de arriba, pisos col E), {titulares} (los de la Nota simple: "A", "A y B", "A, B y C") y
 //   {con_quien} ("ellos" si son varios, "esa persona" si es uno: asi no hay que adivinar si es hombre o mujer).
 //   Lo que no se sabe sale entre corchetes para que lo escriba Guille.
-const RESP_NOTA_SIMPLE = "Buenas {nombre}, gracias por la documentaci\u00f3n. Revis\u00e1ndola hemos visto que, seg\u00fan la Nota simple, la vivienda figura a nombre de {titulares}. \u00bfNos puede explicar qu\u00e9 relaci\u00f3n tiene usted con {con_quien}? Seg\u00fan lo que nos diga, le indicaremos qu\u00e9 documentaci\u00f3n hace falta. Muchas gracias.";
+// v172 (24/10/2026, criterio de Guille: "no lo pongas todo apegotonado... buenas, nombre, y dejo un par de renglones, pasa
+//   esto, y deja otro renglón... que si no parece eso una pelota que nadie lee") -- con una linea en blanco entre cada parte.
+const RESP_NOTA_SIMPLE = "Buenas {nombre},\n\nGracias por la documentaci\u00f3n. Revis\u00e1ndola hemos visto que, seg\u00fan la Nota simple, la vivienda figura a nombre de {titulares}.\n\n\u00bfNos puede explicar qu\u00e9 relaci\u00f3n tiene usted con {con_quien}?\n\nSeg\u00fan lo que nos diga, le indicaremos qu\u00e9 documentaci\u00f3n hace falta.\n\nMuchas gracias.";
+// el de la v170, todo seguido: si la fila de Flujo bot sigue con este texto (Guille no lo ha tocado), se cambia por el de arriba
+const RESP_NOTA_SIMPLE_V170 = "Buenas {nombre}, gracias por la documentaci\u00f3n. Revis\u00e1ndola hemos visto que, seg\u00fan la Nota simple, la vivienda figura a nombre de {titulares}. \u00bfNos puede explicar qu\u00e9 relaci\u00f3n tiene usted con {con_quien}? Seg\u00fan lo que nos diga, le indicaremos qu\u00e9 documentaci\u00f3n hace falta. Muchas gracias.";
 function rellenarRespuestaTipo(plantilla, nota, nombre) {
   const nb = String(nombre || "").replace(/^\s*(\([^)]*\)\s*)+/, "").replace(/\s+/g, " ").trim();
   const tit = titularesDeNota(nota);
@@ -40,4 +44,4 @@ function rellenarRespuestaTipo(plantilla, nota, nombre) {
   const conQuien = !tit.length ? "[ellos / esa persona]" : (tit.length > 1 ? "ellos" : "esa persona");
   return String(plantilla || "").replace(/\{nombre\}/g, nb || "[nombre]").replace(/\{titulares\}/g, lista).replace(/\{con_quien\}/g, conQuien);
 }
-module.exports = { saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, RESP_NOTA_SIMPLE };
+module.exports = { saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, RESP_NOTA_SIMPLE, RESP_NOTA_SIMPLE_V170 };

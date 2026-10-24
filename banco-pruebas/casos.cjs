@@ -961,6 +961,20 @@ const CASOS = [
       ];
     },
   },
+  // ===== v172: la respuesta tipo de la Nota simple, con espacios =====
+  {
+    nombre: "Respuesta tipo «Nota simple (titular distinto)» con una línea en blanco entre cada parte (Malvaloca 1 5A)",
+    desde: "v172",
+    prueba: async (S) => {
+      const f = S.DATA.pisos.find((x, i) => i > 0 && /malvaloca 1/i.test(String(x[1] || "")) && String(x[2] || "").trim().toUpperCase() === "5A");
+      if (!f) return [[false, "está Malvaloca 1 5A en pisos", "no"]];
+      const rt = (((await S.call("GET", "/presupuestos/hoy/conversacion", { tel: f[0] })).body || {}).respTipo || [])[0] || {};
+      const partes = String(rt.texto || "").split("\n\n");
+      return [
+        [partes.length === 5 && /^Buenas Rosa.*,$/.test(partes[0]) && /^Gracias por la documentaci/.test(partes[1]) && /^¿Nos puede explicar.*con ellos\?$/.test(partes[2]) && partes[4] === "Muchas gracias.", "cinco partes: saludo / lo que pasa / la pregunta / lo que haremos / Muchas gracias.", JSON.stringify(rt.texto)],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
