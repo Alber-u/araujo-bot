@@ -546,11 +546,11 @@ module.exports = function (app) {
               + '<div data-rmenu="1" style="display:none;position:absolute;left:0;bottom:100%;margin-bottom:4px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:2;min-width:240px;padding:4px 0"></div></span>'
               + '<span style="position:relative;display:inline-block"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjbtn="1" title="Desde tu PC, el Impreso toma datos o un documento personalizado">\uD83D\uDCCE Adjuntar</button>'   // v171: un solo boton con su lista (antes 3 botones)
               + '<div data-amenu="1" style="display:none;position:absolute;left:0;bottom:100%;margin-bottom:4px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:2;min-width:220px;padding:4px 0">'
-              + '<div data-adjpc="1" data-aitem="1" title="PDF, JPG o PNG (hasta 10 MB)">Desde mi PC\u2026</div>'
+              + '<div data-adjpc="1" data-aitem="1" title="Tus carpetas y Drive (si tienes su aplicaci\u00f3n): PDF, JPG o PNG, hasta 10 MB">Desde mi dispositivo o Drive\u2026</div>'   // v173: antes Desde mi PC
               + '<div data-fijo="solicitud" data-aitem="1">Impreso toma datos</div>'
               + '<div data-docs="1" data-aitem="1" title="Elige un documento del programa; sale relleno con los datos del vecino y del piso">Documento personalizado\u2026</div>'
               + '</div></span>'
-              + '<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:none">'
+              + '<input type="file" style="display:none">'   // v173 (Guille: desde la tablet todo va a ser desde Drive): sin accept, para que la tablet abra el selector completo (con Drive) y no solo la galeria; el tipo se mira al elegir
               + '<span data-chip="1" style="display:none;align-items:center;gap:4px;background:#e8f0fe;border:1px solid #9bb8d8;border-radius:999px;padding:2px 8px"><span data-chipn="1"></span><a href="#" data-chipx="1" title="Quitar el adjunto" style="text-decoration:none;color:#a32d2d;font-weight:700">\u2715</a></span>'
               + '</div>'
               : '<div data-rojo="1" style="font-size:12px;color:#a32d2d;font-weight:600"></div>')
@@ -644,10 +644,12 @@ module.exports = function (app) {
       });
       fin.addEventListener('change', function () {
         var f = fin.files && fin.files[0]; if (!f) return;
-        if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(f.type)) { alert('Solo PDF, JPG o PNG.'); fin.value = ''; return; }
+        var _ext = (String(f.name || '').match(/\.([a-z0-9]+)$/i) || ['', ''])[1].toLowerCase();   // v173: algunos selectores (Drive en la tablet) no dan el tipo
+        var _mime = f.type || ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' })[_ext] || '';
+        if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(_mime)) { alert('Solo PDF, JPG o PNG. Si es un documento de Google (Docs, Hojas), desc\u00e1rgalo antes como PDF.'); fin.value = ''; return; }
         if (f.size > 10 * 1024 * 1024) { alert('El archivo pasa de 10 MB.'); fin.value = ''; return; }
         var rd = new FileReader();
-        rd.onload = function () { ponAdj({ nombre: f.name, mime: f.type, b64: String(rd.result || '').split(',')[1] || '' }, f.name); };
+        rd.onload = function () { ponAdj({ nombre: f.name, mime: _mime, b64: String(rd.result || '').split(',')[1] || '' }, f.name); };
         rd.readAsDataURL(f);
       });
       fondo.querySelector('[data-s]').addEventListener('click', async function () {

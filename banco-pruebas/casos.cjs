@@ -956,7 +956,7 @@ const CASOS = [
       const op = (menu.match(/data-aitem="1"[^>]*>[^<]*</g) || []).map(x => x.replace(/^[^>]*>|<$/g, ""));
       return [
         [/data-adjbtn="1"[^>]*>\\uD83D\\uDCCE Adjuntar</.test(hoy), "hay un botón «📎 Adjuntar»", ""],
-        [JSON.stringify(op) === JSON.stringify(["Desde mi PC\\u2026", "Impreso toma datos", "Documento personalizado\\u2026"]), "su lista, en este orden: Desde mi PC… / Impreso toma datos / Documento personalizado…", JSON.stringify(op)],
+        [JSON.stringify(op) === JSON.stringify([hoy.indexOf("Desde mi dispositivo o Drive") > 0 ? "Desde mi dispositivo o Drive\\u2026" : "Desde mi PC\\u2026", "Impreso toma datos", "Documento personalizado\\u2026"]), "su lista, en este orden: Desde mi PC… / Impreso toma datos / Documento personalizado…", JSON.stringify(op)],
         [!/class="ptl-btn[^"]*"[^>]*data-fijo=/.test(hoy) && !/\\uDCC4 documento<\/button>/.test(hoy), "ya no están los botones sueltos «Impreso toma datos» y «📄 documento»", ""],
       ];
     },
@@ -972,6 +972,20 @@ const CASOS = [
       const partes = String(rt.texto || "").split("\n\n");
       return [
         [partes.length === 5 && /^Buenas Rosa.*,$/.test(partes[0]) && /^Gracias por la documentaci/.test(partes[1]) && /^¿Nos puede explicar.*con ellos\?$/.test(partes[2]) && partes[4] === "Muchas gracias.", "cinco partes: saludo / lo que pasa / la pregunta / lo que haremos / Muchas gracias.", JSON.stringify(rt.texto)],
+      ];
+    },
+  },
+  // ===== v173: «Desde mi dispositivo o Drive…» sin filtro de tipo en el selector =====
+  {
+    nombre: "Adjuntar: «Desde mi dispositivo o Drive…» abre el selector completo (sin accept, para que la tablet enseñe Drive) y el tipo se comprueba al elegir",
+    desde: "v173",
+    prueba: async (S) => {
+      const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      const i = hoy.indexOf("data-amenu"), menu = i < 0 ? "" : hoy.slice(i, hoy.indexOf("</div></span>", i));
+      return [
+        [/data-adjpc="1"[^>]*>Desde mi dispositivo o Drive\\u2026</.test(menu), "la primera opción se llama «Desde mi dispositivo o Drive…»", ""],
+        [/<input type="file" style="display:none">/.test(hoy) && !/<input type="file" accept=".pdf,.jpg/.test(hoy), "el selector de archivos no lleva filtro de tipo", ""],
+        [/\}\)\[_ext\]/.test(hoy), "si el selector no da el tipo, lo saca de la extensión", ""],
       ];
     },
   },
