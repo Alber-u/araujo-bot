@@ -543,6 +543,7 @@ module.exports = function (app) {
         + (ok ? '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
               + '<div data-adj="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px">'
               + (U.btnResp || '') + (U.btnAdj || '')   // v178: botones comunes (_btnEnvio); sus listas, ptlRespuestasTipo / ptlAdjuntar
+              + '<span data-raviso="1" style="display:none;flex-basis:100%;color:#a32d2d;font-weight:600"></span>'   // v179: avisos de las respuestas tipo
               + '<span data-chip="1" style="display:none;align-items:center;gap:4px;background:#e8f0fe;border:1px solid #9bb8d8;border-radius:999px;padding:2px 8px"><span data-chipn="1"></span><a href="#" data-chipx="1" title="Quitar el adjunto" style="text-decoration:none;color:#a32d2d;font-weight:700">\u2715</a></span>'
               + '</div>'
               : '<div data-rojo="1" style="font-size:12px;color:#a32d2d;font-weight:600"></div>')
@@ -583,16 +584,35 @@ module.exports = function (app) {
       Promise.resolve(_convP).then(function (d) { if (d && d.firma && !String(ta.value || '').trim()) { ta.value = d.firma + '\n\n'; try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {} } });
       // v170 -- "Respuestas tipo" (las de Flujo bot, ya rellenas con los datos de este vecino): al elegir una, se escribe en
       //   el recuadro debajo de la firma; no se envia nada solo. v178: la lista es la comun (ptlRespuestasTipo).
-      var bRt = fondo.querySelector('[data-rtipo]');
+      var bRt = fondo.querySelector('[data-rtipo]'), avRt = fondo.querySelector('[data-raviso]');
       if (bRt) bRt.addEventListener('click', function (ev) {
         ev.stopPropagation();
         Promise.resolve(_convP).then(function (d) {
-          window.ptlRespuestasTipo(bRt, (d && d.respTipo) || [], function (it) {
-            var fi = (d && d.firma) ? String(d.firma) : '', actual = String(ta.value || '');
-            var resto = (fi && actual.indexOf(fi) === 0) ? actual.slice(fi.length).trim() : actual.trim();
-            if (resto && !confirm('Ya hay texto escrito en el recuadro. \u00bfLo cambio por la respuesta tipo?')) return;
-            ta.value = ((fi && actual.indexOf(fi) === 0) || (fi && !actual.trim()) ? fi + '\n\n' : '') + it.texto;
+          var fi = (d && d.firma) ? String(d.firma) : '';
+          var meter = function (texto) {
+            var actual = String(ta.value || '');
+            ta.value = ((fi && actual.indexOf(fi) === 0) || (fi && !actual.trim()) ? fi + '\n\n' : '') + texto;
             try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+          };
+          var hayTexto = function () { var actual = String(ta.value || ''); return !!((fi && actual.indexOf(fi) === 0) ? actual.slice(fi.length).trim() : actual.trim()); };
+          // v179: la primera, "Respuesta sugerida" (la IA del programa lee la conversacion, los documentos y las normas del manual)
+          var lista = [{ nombre: 'Respuesta sugerida', sugerida: true }].concat((d && d.respTipo) || []);
+          window.ptlRespuestasTipo(bRt, lista, async function (it) {
+            if (hayTexto() && !confirm('Ya hay texto escrito en el recuadro. \u00bfLo cambio por la respuesta tipo?')) return;
+            avRt.style.display = 'none'; avRt.textContent = '';
+            if (it.sugerida) {
+              var t0 = bRt.textContent; bRt.disabled = true; bRt.textContent = '\u23F3 Pensando la respuesta...';
+              try {
+                var r = await fetch(U.sugerir, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tel: b.dataset.tel || '', items: (d && d.items) || [] }) });
+                var ds = await r.json().catch(function () { return {}; });
+                if (!r.ok || !ds.ok) alert('No se ha podido sugerir una respuesta: ' + ((ds && ds.error) || r.status));
+                else meter(ds.texto);
+              } catch (e) { alert('No se ha podido sugerir una respuesta: ' + e.message); }
+              bRt.disabled = false; bRt.textContent = t0;
+              return;
+            }
+            meter(it.texto);
+            if (it.aviso) { avRt.textContent = '\u26A0\uFE0F ' + it.aviso; avRt.style.display = 'block'; }
           });
         });
       });
@@ -761,7 +781,7 @@ module.exports = function (app) {
   }
   function _scriptVecinoBot(token) {
     const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"), contacto: urlT(token, "/presupuestos/hoy/pedir-contacto"), ctexto: urlT(token, "/presupuestos/hoy/pedir-contacto-texto"),
-      mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), drive: urlT(token, "/presupuestos/hoy/drive-adjunto"), btnResp: _btnEnvio("resp", ICONO_WHATSAPP, 'data-rtipo="1"'), btnAdj: _btnEnvio("adj", "", 'data-adjbtn="1"'), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }), icoWa: ICONO_WHATSAPP };   // v170: icono de estilo-visual
+      mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), drive: urlT(token, "/presupuestos/hoy/drive-adjunto"), sugerir: urlT(token, "/presupuestos/hoy/sugerir"), btnResp: _btnEnvio("resp", ICONO_WHATSAPP, 'data-rtipo="1"'), btnAdj: _btnEnvio("adj", "", 'data-adjbtn="1"'), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }), icoWa: ICONO_WHATSAPP };   // v170: icono de estilo-visual
     return "(" + _clienteVecinoBot.toString() + ")(" + JSON.stringify(U) + ");";
   }
   function urlT(token, path, params) {
@@ -2725,6 +2745,7 @@ module.exports = function (app) {
       flujo_largo_sin_paginas: ["flujo_largo_sin_paginas", "vecino", "texto", "", "", "{documento}", "SI", "v128: responde 1 sin haber mandado ninguna pagina"],
       firma_equipo: ["firma_equipo", "vecino", "texto", "", "", "", "SI", "v150: va encima de lo que escribe Guille por Contestar por el bot"],
       resp_nota_simple: ["resp_nota_simple", "vecino", "texto", "", "", "{nombre} {titulares} {con_quien}", "SI", "v170: respuesta tipo de Contestar por el bot (Nota simple a nombre de otro)"],
+      resp_doc_completa: ["resp_doc_completa", "vecino", "texto", "", "", "{nombre}", "SI", "v179: respuesta tipo de Contestar por el bot (documentacion completa)"],
       resp_nota_simple_sociedad: ["resp_nota_simple_sociedad", "vecino", "texto", "", "", "{nombre} {titulares}", "SI", "v174: respuesta tipo de Contestar por el bot (Nota simple a nombre de una sociedad)"],
       // v126 -- avisos M por el bot (plantillas de Alberto): la fila se crea al guardar su HX
       ..._FILAS_AVISOS_M };
@@ -2895,6 +2916,11 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const rows = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS })).data.values || [];
     const _NV = require("./nombre-vecino.cjs");
+    // v179: la de documentacion completa, si aun no existe su fila
+    if (!rows.some(x => x && String(x[0] || "").trim() === "resp_doc_completa")) {
+      await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: [["resp_doc_completa", "vecino", "texto", _NV.RESP_DOC_COMPLETA, "", "{nombre}", "SI", "v179: respuesta tipo de Contestar por el bot (documentacion completa)"]] } });
+      console.log("[presupuestos] v179: creada la fila resp_doc_completa");
+    }
     // v174: la de la sociedad, si aun no existe su fila
     if (!rows.some(x => x && String(x[0] || "").trim() === "resp_nota_simple_sociedad")) {
       await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: [["resp_nota_simple_sociedad", "vecino", "texto", _NV.RESP_NOTA_SIMPLE_SOCIEDAD, "", "{nombre} {titulares}", "SI", "v174: respuesta tipo de Contestar por el bot (Nota simple a nombre de una sociedad)"]] } });
@@ -7648,17 +7674,17 @@ module.exports = function (app) {
                 <label class="ptl-form-label">CCO (opcional)</label>
                 <input type="text" id="ptlComScco" placeholder="separar con coma" class="ptl-input-modal"/>
               </div>
-              ${(_respTipo.length || _segManual) ? `<div style="position:relative">
-                ${_btnEnvio("resp", ICONO_MAIL, 'id="ptlComSrespBtn"')}
-                <select id="ptlComSresp" style="display:none"><option value="">—</option>${_segManual ? `<option value="seg">${esc(_segManual.nombre)}</option>` : ""}${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
-              </div>` : ""}
               <div>
                 <label class="ptl-form-label">Cuerpo del mensaje</label>
                 <textarea id="ptlComScuerpo" rows="10" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical"></textarea>
               </div>
               <div>
+                <div style="display:flex;gap:6px;margin:0 0 6px">   <!-- v179: Respuestas tipo junto a Adjuntar, debajo del mensaje, como en el bot -->
+                  ${_btnEnvio("resp", ICONO_MAIL, 'id="ptlComSrespBtn"')}
+                  ${_btnEnvio("adj", "", 'data-adjmail="ptlComS" data-ccpp="' + esc(String(comu.ccpp_id || "")) + '"')}
+                  <select id="ptlComSresp" style="display:none"><option value="">—</option><option value="sug">Respuesta sugerida</option>${_segManual ? `<option value="seg">${esc(_segManual.nombre)}</option>` : ""}${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
+                </div>
                 <label class="ptl-form-label">Adjuntos (hasta 3)</label>
-                <div style="margin:0 0 6px">${_btnEnvio("adj", "", 'data-adjmail="ptlComS" data-ccpp="' + esc(String(comu.ccpp_id || "")) + '"')}</div>   <!-- v177; v178: _btnEnvio -->
                 <div style="display:flex;flex-direction:column;gap:6px">
                   <div class="ptl-flex-g6">
                     <input type="text" id="ptlComSadj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" class="ptl-input-modal" style="flex:0 0 200px;width:auto"/>
@@ -8152,6 +8178,20 @@ module.exports = function (app) {
               window.ptlRespuestasTipo(bResp, lista, function (r) { sResp.value = r.v; sResp.dispatchEvent(new Event('change')); });
             });
             if (sResp) sResp.addEventListener('change', async function () {
+              if (sResp.value === 'sug') {   // v179: Respuesta sugerida (lee los correos de la comunidad y lo que estas escribiendo)
+                sResp.value = '';
+                const bR = document.getElementById('ptlComSrespBtn'), t0 = bR ? bR.textContent : '';
+                if (bR) { bR.disabled = true; bR.textContent = '\u23F3 Pensando la respuesta...'; }
+                try {
+                  const rs = await fetch('${urlT(token, "/presupuestos/mail-sugerir")}', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ccpp: ${JSON.stringify(String(comu.ccpp_id || ""))}, asunto: (document.getElementById('ptlComSasunto') || {}).value || '', cuerpo: sCu.value || '' }) });
+                  const ds = await rs.json().catch(function () { return {}; });
+                  if (!rs.ok || !ds.ok) alert('No se ha podido sugerir una respuesta: ' + ((ds && ds.error) || rs.status));
+                  else _metePlant(String(ds.texto || ''));
+                } catch (e) { alert('No se ha podido sugerir una respuesta: ' + e.message); }
+                if (bR) { bR.disabled = false; bR.textContent = t0; }
+                return;
+              }
               if (sResp.value === 'seg' && SEG_M) {
                 sResp.value = ''; sResp.disabled = true;
                 try {
@@ -9055,8 +9095,8 @@ module.exports = function (app) {
                   <textarea id="ptl-mm-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
                 </div>
                 <div class="ptl-mb10">
+                  <div style="margin:0 0 6px">${_btnEnvio("adj", "", 'data-adjmail="ptl-mm-"')}</div>   <!-- v179: debajo del mensaje, como en el bot -->
                   <label class="ptl-label-2nd">Adjuntos (hasta 3)</label>
-                  <div style="margin:0 0 6px">${_btnEnvio("adj", "", 'data-adjmail="ptl-mm-"')}</div>
                   <div style="display:flex;flex-direction:column;gap:6px">
                     <div class="ptl-flex-g6">
                       <input type="text" id="ptl-mm-adj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" class="ptl-select-200"/>
@@ -10602,6 +10642,7 @@ module.exports = function (app) {
       card("flujo_largo_sin_paginas","doc - \"1\" sin ninguna página ({documento})",{}),   // v128
       card("firma_equipo","Firma del equipo (sale escrita en el recuadro al contestar por el bot)",{}),   // v150; v155: va dentro del recuadro
       card("resp_nota_simple","Respuestas tipo: Nota simple (titular distinto) ({nombre} {titulares})",{}),   // v170
+      card("resp_doc_completa","Respuestas tipo: Documentaci\u00f3n completa ({nombre})",{}),   // v179
       card("resp_nota_simple_sociedad","Respuestas tipo: Nota simple (titular distinto) si el titular es una sociedad ({nombre} {titulares})",{}),   // v174
       card("flujo_sin_ia","texto del vecino con la IA dormida (sustituida por las dos de arriba)",{}),   // v19.118; v128: lo sustituyen las dos de arriba
       card("flujo_falta_antes_de_cerrar","doc - falta algo al terminar ({falta})",{}),   // v127
@@ -16503,7 +16544,7 @@ module.exports = function (app) {
               h+='<div class="ptl-mb10"><label class="ptl-label-2nd">CC</label><input id="ptl-ult-cc" type="text" style="'+s+'"/></div>';
               h+='<div class="ptl-mb10"><label class="ptl-label-2nd">CCO <span style="color:var(--ptl-gray-400);font-weight:normal">(oculta, separar con coma)</span></label><input id="ptl-ult-cco" type="text" style="'+s+'"/></div>';
               h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Mensaje</label><textarea id="ptl-ult-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea></div>';
-              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Adjuntos (hasta 3)</label><div style="margin:0 0 6px">${_btnEnvio("adj", "", 'data-adjmail="ptl-ult-"')}</div><div style="display:flex;flex-direction:column;gap:6px">';
+              h+='<div class="ptl-mb10"><div style="margin:0 0 6px">${_btnEnvio("adj", "", 'data-adjmail="ptl-ult-"')}</div><label class="ptl-label-2nd">Adjuntos (hasta 3)</label><div style="display:flex;flex-direction:column;gap:6px">';
               h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj1lbl" placeholder="Etiqueta (ej: DISIDENTES)" class="ptl-select-200"/><input type="text" id="ptl-ult-adj1url" placeholder="https://drive.google.com/..." class="ptl-input-flex"/></div>';
               h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj2lbl" placeholder="Etiqueta" class="ptl-select-200"/><input type="text" id="ptl-ult-adj2url" placeholder="https://drive.google.com/..." class="ptl-input-flex"/></div>';
               h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj3lbl" placeholder="Etiqueta" class="ptl-select-200"/><input type="text" id="ptl-ult-adj3url" placeholder="https://drive.google.com/..." class="ptl-input-flex"/></div>';
@@ -17846,6 +17887,91 @@ module.exports = function (app) {
   //   porque Guille pulsa un boton (presentacion al pasar a W o en tanda, contrato de la 08, Pedir contacto, aviso del cambio
   //   de tipo, avisos M y todo lo programado) va en verde como sus respuestas; en azul solo lo que el bot manda por su cuenta.
   const _CLI_TUYO = /^(presentacion|envio_contrato|contacto_pedido|cambio_tipo|aviso_m:.*)$/;   // v128: contacto_pedido   // v126: envios con plantilla
+  // v179 -- estado de la documentacion de UN piso, con la misma cuenta que Datos documentacion (el "N/M" y el verde):
+  //   { verde, revisar, faltan: [codigos] }. Para el aviso de "Documentacion completa" y para la Respuesta sugerida.
+  async function _estadoDocsPiso(comu, viv) {
+    const docsPiso = (await _leerDocsManuales()).docsPiso || [];
+    const idx = await _leerBotDatosHoyIndex();
+    const pisos = await _leerPisosDeCcpp(comu, docsPiso);
+    const r = _contarFaltanBot([], [], pisos, docsPiso, "", idx[_normDirBot(comu)] || null);
+    const k = _normVivBot(viv);
+    return { verde: !!(r.verdes || {})[k], revisar: !!(r.revisar || {})[k], faltan: (r.faltan || {})[k] || [] };
+  }
+  function _etqDoc(c) { const B = app.locals.botWhatsapp; return (B && typeof B.etiquetaDocVecino === "function") ? B.etiquetaDocVecino(c) : String(c); }
+  // v179 -- cada Respuesta sugerida se apunta (pestana sugerencias_ia) para el repaso de los viernes (§6.21.4): Claudia la
+  //   compara con lo que Guille envio al final y lo que se repita lo convierte en norma del manual.
+  async function _apuntarSugerencia(canal, clave, comunidad, vivienda, texto) {
+    try {
+      const sheets = getSheetsClient();
+      try { await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "sugerencias_ia!A1:A1" }); }
+      catch (e) {
+        await sheets.spreadsheets.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { requests: [{ addSheet: { properties: { title: "sugerencias_ia" } } }] } });
+        await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "sugerencias_ia!A1:F1", valueInputOption: "RAW", requestBody: { values: [["fecha", "canal", "clave", "comunidad", "vivienda", "sugerencia"]] } });
+      }
+      await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: "sugerencias_ia!A:F", valueInputOption: "RAW", requestBody: { values: [[new Date().toISOString(), canal, String(clave || ""), String(comunidad || ""), String(vivienda || ""), String(texto || "")]] } });
+    } catch (e) { console.error("[presupuestos] v179 apuntar sugerencia:", e.message); }
+  }
+  // POST /presupuestos/hoy/sugerir (v179) -- Respuesta sugerida del WhatsApp: { tel, items (la conversacion que ve Guille) }
+  app.post("/presupuestos/hoy/sugerir", require("body-parser").json({ limit: "3mb" }), async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const RS = require("./respuesta-sugerida.cjs"), NV = require("./nombre-vecino.cjs");
+      const sheets = getSheetsClient();
+      const t9 = (x) => String(x || "").replace(/\D/g, "").slice(-9);
+      const k = t9(req.body && req.body.tel); if (!k) return res.json({ ok: false, error: "falta el tel\u00e9fono" });
+      const [rp, rx, rc] = await Promise.all([
+        sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AM" }),
+        sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AE" }),
+        sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_contactos!A:E" }),
+      ]);
+      const p = ((rp.data.values || []).slice(1)).find(r => r && t9(r[0]) === k && r[1]) || [];
+      const ex = rx.data.values || [], H = (ex[0] || []).map(x => String(x || "").trim());
+      const fx = ex.slice(1).find(r => r && t9(r[0]) === k) || [];
+      const X = (n) => { const i = H.indexOf(n); return i >= 0 ? String(fx[i] || "").trim() : ""; };
+      const comu = String(p[1] || X("comunidad") || "").trim(), viv = String(p[2] || X("vivienda") || "").trim();
+      let docs = "(sin dato)";
+      try {
+        const e = await _estadoDocsPiso(comu, viv);
+        docs = e.verde ? "todos en OK en Datos documentaci\u00f3n" : ((e.faltan.length ? "le falta: " + e.faltan.map(_etqDoc).join(", ") : "no est\u00e1 todo en OK en Datos documentaci\u00f3n (sin detalle de qu\u00e9)") + (e.revisar ? "; alguno est\u00e1 en REVISAR (pendiente de revisar por Guille)" : ""));
+      } catch (e) {}
+      if (X("documentos_recibidos")) docs += " · recibidos por el bot: " + X("documentos_recibidos").split(",").map(_etqDoc).join(", ");
+      const B = app.locals.botWhatsapp || {};
+      let importes = "", formaPago = "";
+      try { const im = B.importesComunidad ? await B.importesComunidad(comu) : null; if (im && im.comunero > 0) { const e = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "."); importes = "de una vez " + e(im.comunero) + " \u20ac; en 6 meses unos " + e(im.fin6) + " \u20ac/mes; en 12 meses unos " + e(im.fin12) + " \u20ac/mes; en 18 meses unos " + e(im.fin18) + " \u20ac/mes"; } } catch (e) {}
+      try { const fp = B.formaPagoDelPiso ? await B.formaPagoDelPiso(req.body.tel) : ""; formaPago = fp ? ({ "6": "6 meses", "12": "12 meses", "18": "18 meses", FFCC: "financiaci\u00f3n comunitaria", IPREM: "IPREM" }[fp] || fp) : ""; } catch (e) {}
+      // ejemplos: los ultimos mensajes de Guille por el ro-boton (sin la firma)
+      const firma = /^\s*\uD83D\uDC68\u200D\uD83D\uDD27[^\n]*\n+/;
+      const ejemplos = (rc.data.values || []).slice(1).filter(r => r && String(r[3] || "").trim() === "equipo" && String(r[4] || "").trim().length > 40)
+        .sort((a, b) => String(b[0] || "").localeCompare(String(a[0] || ""))).slice(0, 8).map(r => String(r[4] || "").replace(firma, "").trim());
+      const nombre = String(p[4] || X("nombre") || "").replace(/^\s*\([^)]*\)\s*/, "").trim();
+      const msgs = RS.promptWhatsApp({ comunidad: comu, vivienda: viv, nombre, nombrePila: NV.nombrePila(nombre), notaSimple: String(p[3] || "").trim(),
+        tipo: X("tipo_expediente"), paso: X("paso_actual"), fechaLimite: (function (f) { const m = String(f || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + "/" + m[2] + "/" + m[1] : f; })(X("fecha_limite_documentacion")), docs, formaPago, importes,
+        items: Array.isArray(req.body.items) ? req.body.items : [], ejemplos });
+      const texto = await RS.sugerir(msgs);
+      _apuntarSugerencia("whatsapp", req.body.tel, comu, viv, texto);
+      res.json({ ok: true, texto });
+    } catch (e) { res.json({ ok: false, error: e.message }); }
+  });
+  app.locals._sugerirWA = true;
+  // POST /presupuestos/mail-sugerir (v179) -- Respuesta sugerida del correo: { ccpp, asunto, cuerpo }
+  app.post("/presupuestos/mail-sugerir", require("body-parser").json({ limit: "3mb" }), async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const RS = require("./respuesta-sugerida.cjs");
+      const comu = await buscarComunidadPorId(String((req.body && req.body.ccpp) || ""));
+      if (!comu) return res.json({ ok: false, error: "no encuentro la comunidad de este correo" });
+      let hist = [];
+      try { hist = (await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion)) || []; } catch (e) {}
+      hist = hist.slice().sort((a, b) => String(b.fecha || "").localeCompare(String(a.fecha || "")));
+      const sinFirma = (t) => String(t || "").split(/\n\s*(Atentamente|Quedamos a su disposici)/i)[0].trim();
+      const ejemplos = hist.filter(m => /manual/i.test(String(m.tipo || "")) && String(m.mensaje || "").length > 60).slice(0, 5).map(m => sinFirma(m.mensaje));
+      const msgs = RS.promptCorreo({ comunidad: ((comu.tipo_via || "") + " " + (comu.direccion || comu.comunidad || "")).trim(), fase: comu.fase_presupuesto || "",
+        historico: hist.slice(0, 8), asunto: req.body.asunto || "", cuerpo: req.body.cuerpo || "", ejemplos });
+      const texto = await RS.sugerir(msgs);
+      _apuntarSugerencia("correo", comu.ccpp_id, comu.direccion, "", texto);
+      res.json({ ok: true, texto });
+    } catch (e) { res.json({ ok: false, error: e.message }); }
+  });
   app.get("/presupuestos/hoy/conversacion", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
@@ -17987,6 +18113,19 @@ module.exports = function (app) {
         const _rn = _pls.find(x => x.clave === _clv);   // sin fila todavia: el texto de siempre
         const _tn = _rn ? (_rn.activo ? String(_rn.texto || "").trim() : "") : (_soc ? _NV.RESP_NOTA_SIMPLE_SOCIEDAD : _NV.RESP_NOTA_SIMPLE);
         if (_tn) respTipo.push({ nombre: "Nota simple (titular distinto)", texto: _NV.rellenarRespuestaTipo(_tn, _notaV, _nomV) });
+        // v179 -- "Documentacion completa": si le queda algo sin OK en Datos documentacion, aviso (el bot seguiria mandando recordatorios)
+        const _rc = _pls.find(x => x.clave === "resp_doc_completa");
+        const _tc = _rc ? (_rc.activo ? String(_rc.texto || "").trim() : "") : _NV.RESP_DOC_COMPLETA;
+        if (_tc) {
+          let aviso = "";
+          try {
+            if (vecino && vecino.comunidad) {
+              const e = await _estadoDocsPiso(vecino.comunidad, vecino.vivienda);
+              if (!e.verde) aviso = "Ojo: le quedan documentos sin OK en Datos documentaci\u00f3n" + (e.faltan.length ? " (" + e.faltan.map(_etqDoc).join(", ") + ")" : "") + (e.revisar ? (e.faltan.length ? " y alguno en REVISAR" : " (alguno en REVISAR)") : "") + ". Hasta que los pongas en OK, el bot le seguir\u00e1 mandando recordatorios.";
+            }
+          } catch (e2) {}
+          respTipo.push({ nombre: "Documentaci\u00f3n completa", texto: _NV.rellenarRespuestaTipo(_tc, _notaV, _nomV), aviso });
+        }
       } catch (e) {}
       res.json({ ok: true, items, ultVecino, firma, vecino, respTipo });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
     } catch (e) {

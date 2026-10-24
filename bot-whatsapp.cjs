@@ -5453,6 +5453,7 @@ setTimeout(() => {
   app.locals.botWhatsapp = {
     reabrirSiFinalizado,   // v19.114
     responderVecino,       // v122
+    importesComunidad, formaPagoDelPiso,   // v179: para la Respuesta sugerida (los importes de la toma de datos)
     mediaDrive: MEDIA_DRIVE,   // v177: el Impreso toma datos tambien se adjunta en los correos (por su enlace de Drive)
     enviarAvisoM,          // v126
     pedirContacto,         // v128

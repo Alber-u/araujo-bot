@@ -1098,6 +1098,49 @@ const CASOS = [
       ];
     },
   },
+  // ===== v179: Respuesta sugerida, Documentación completa y los botones del correo juntos =====
+  {
+    nombre: "Respuestas tipo: «Respuesta sugerida» (la IA lee datos, normas del manual y ejemplos de Guille; WhatsApp y correo), «Documentación completa» con aviso si queda algo sin OK, y en el correo «📧 Respuestas tipo» junto a «📎 Adjuntar»",
+    desde: "v179",
+    prueba: async (S) => {
+      const path = require("path");
+      let RS = null; try { RS = require(path.join(S.RAIZ, "respuesta-sugerida.cjs")); } catch (e) {}
+      if (!RS) return [[false, "existe respuesta-sugerida.cjs", "no"]];
+      const piso = (v) => S.DATA.pisos.find((x, i) => i > 0 && /malvaloca 1/i.test(String(x[1] || "")) && String(x[2] || "").trim().toUpperCase() === v);
+      const p5 = piso("5A"), p4 = piso("4C");
+      const conv = ((await S.call("GET", "/presupuestos/hoy/conversacion", { tel: p5[0] })).body || {});
+      const dc = (conv.respTipo || []).find(x => x.nombre === "Documentación completa") || {};
+      // sin clave: aviso claro
+      const keyAntes = process.env.OPENAI_API_KEY; delete process.env.OPENAI_API_KEY;
+      const sinClave = (await S.call("POST", "/presupuestos/hoy/sugerir", { tel: p4[0], items: [] })).body || {};
+      // con clave y la IA simulada: se mira lo que se le manda
+      let enviado = null; const httpAntes = RS._http;
+      RS._http = async (url, body) => { enviado = body; return { data: { choices: [{ message: { content: "Buenas Antonio,\n\nTexto de prueba.\n\nMuchas gracias." } }] } }; };
+      process.env.OPENAI_API_KEY = "prueba";
+      let wa = {}, ml = {}, envWA = null, envML = null;
+      try {
+        wa = (await S.call("POST", "/presupuestos/hoy/sugerir", { tel: p4[0], items: [{ quien: "vecino", fecha: "24/10 12:42", texto: "Que tipo de documentación? Ya está todo enviado" }] })).body || {};
+        envWA = enviado; enviado = null;
+        ml = (await S.call("POST", "/presupuestos/mail-sugerir", { ccpp: "ccpp_ardilla_9_f533fb", asunto: "C Ardilla 9 (2-23) -Plan 5", cuerpo: "Hola..." })).body || {};
+        envML = enviado;
+      } finally { RS._http = httpAntes; if (keyAntes === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = keyAntes; }
+      const tW = envWA ? envWA.messages.map(m => m.content).join("\n") : "", tM = envML ? envML.messages.map(m => m.content).join("\n") : "";
+      let r = await S.call("GET", "/presupuestos/expediente", { id: "ccpp_ardilla_9_f533fb" });
+      if (r.status === 302) r = await S.call("GET", "/documentacion/expediente", { id: "ccpp_ardilla_9_f533fb" });
+      const fi = String(r.body || ""), hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      const iCu = fi.indexOf('id="ptlComScuerpo"'), iRt = fi.indexOf('id="ptlComSrespBtn"'), iAd = fi.indexOf('data-adjmail="ptlComS"'), iLb = fi.indexOf("Adjuntos (hasta 3)", iCu);
+      return [
+        [/^Buenas Rosa Mª,\n\nYa tenemos toda la documentación/.test(dc.texto || "") && /sin OK/.test(dc.aviso || ""), "«Documentación completa» (5A) con el aviso de que le queda algo sin OK", JSON.stringify(dc).slice(0, 300)],
+        [sinClave.ok === false && /clave de OpenAI/.test(sinClave.error || ""), "sin clave de OpenAI, lo dice", JSON.stringify(sinClave)],
+        [wa.ok === true && /^Buenas Antonio/.test(wa.texto || ""), "WhatsApp: devuelve la sugerencia", JSON.stringify(wa)],
+        [/6\.21\.6/.test(tW) && /Honeykiss SL/.test(tW) && /Buenas Antonio,/.test(tW) && /Que tipo de documentación/.test(tW) && /ASÍ ESCRIBE GUILLE/.test(tW) && envWA && envWA.model === "gpt-4o", "a la IA le llegan las normas del manual, la Nota simple, el nombre de pila, la conversación y ejemplos de Guille (gpt-4o)", tW.slice(0, 200)],
+        [ml.ok === true && /CORREOS DE ESTA COMUNIDAD/.test(tM) && /C Ardilla 9 \(2-23\)/.test(tM), "correo: la sugerencia lee los correos de la comunidad y lo que se está escribiendo", JSON.stringify(ml).slice(0, 200)],
+        [iCu > 0 && iCu < iRt && iRt < iAd && iAd < iLb, "correo: «📧 Respuestas tipo» junto a «📎 Adjuntar», debajo del mensaje y encima de los casilleros", [iCu, iRt, iAd, iLb].join(" < ")],
+        [/<option value="sug">Respuesta sugerida<\/option>/.test(fi) && /nombre: 'Respuesta sugerida', sugerida: true/.test(hoy) && /data-raviso/.test(hoy), "«Respuesta sugerida» la primera en los dos; el WhatsApp tiene la línea de avisos", ""],
+        [!scriptsRotos(fi).length && !scriptsRotos(hoy).length, "las pantallas se leen enteras", scriptsRotos(fi).concat(scriptsRotos(hoy)).join(" | ")],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };

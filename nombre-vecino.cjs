@@ -90,4 +90,7 @@ function rellenarRespuestaTipo(plantilla, nota, nombre) {
   const conQuien = !tit.length ? "[ellos / esa persona]" : (tit.length > 1 ? "ellos" : "esa persona");
   return String(plantilla || "").replace(/\{nombre\}/g, nb || "[nombre]").replace(/\{titulares\}/g, lista).replace(/\{con_quien\}/g, conQuien);
 }
-module.exports = { saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, nombrePila, esSociedad, notaEsSociedad, RESP_NOTA_SIMPLE, RESP_NOTA_SIMPLE_SOCIEDAD, RESP_NOTA_SIMPLE_VIEJOS };
+// v179 (24/10/2026, criterio de Guille: "para cerrar conversaciones... su documentacion esta completa") -- respuesta tipo
+//   "Documentacion completa" (la n.º 2 de §6.21.6, "Lo tenemos todo").
+const RESP_DOC_COMPLETA = "Buenas {nombre},\n\nYa tenemos toda la documentaci\u00f3n de su vivienda, completa y correcta.\n\nNosotros nos encargamos ahora de tramitarla con EMASESA. Si necesit\u00e1ramos algo m\u00e1s, se lo dir\u00edamos por aqu\u00ed.\n\nMuchas gracias.";
+module.exports = { RESP_DOC_COMPLETA, saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, nombrePila, esSociedad, notaEsSociedad, RESP_NOTA_SIMPLE, RESP_NOTA_SIMPLE_SOCIEDAD, RESP_NOTA_SIMPLE_VIEJOS };
