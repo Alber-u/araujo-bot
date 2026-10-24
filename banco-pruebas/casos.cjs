@@ -956,7 +956,7 @@ const CASOS = [
       const op = (menu.match(/data-aitem="1"[^>]*>[^<]*</g) || []).map(x => x.replace(/^[^>]*>|<$/g, ""));
       return [
         [/data-adjbtn="1"[^>]*>\\uD83D\\uDCCE Adjuntar</.test(hoy), "hay un botón «📎 Adjuntar»", ""],
-        [JSON.stringify(op) === JSON.stringify([hoy.indexOf("Desde mi dispositivo o Drive") > 0 ? "Desde mi dispositivo o Drive\\u2026" : "Desde mi PC\\u2026", "Impreso toma datos", "Documento personalizado\\u2026"]), "su lista, en este orden: Desde mi PC… / Impreso toma datos / Documento personalizado…", JSON.stringify(op)],
+        [JSON.stringify(op) === JSON.stringify([hoy.indexOf(">Desde mi dispositivo o Drive") > 0 ? "Desde mi dispositivo o Drive\\u2026" : (hoy.indexOf(">Desde mi dispositivo\\u2026") > 0 ? "Desde mi dispositivo\\u2026" : "Desde mi PC\\u2026"), ...(hoy.indexOf("data-adjdrive") > 0 ? ["Desde Drive (enlace)\\u2026"] : []), "Impreso toma datos", "Documento personalizado\\u2026"]), "su lista, en este orden: Desde mi PC… / Impreso toma datos / Documento personalizado…", JSON.stringify(op)],
         [!/class="ptl-btn[^"]*"[^>]*data-fijo=/.test(hoy) && !/\\uDCC4 documento<\/button>/.test(hoy), "ya no están los botones sueltos «Impreso toma datos» y «📄 documento»", ""],
       ];
     },
@@ -983,7 +983,7 @@ const CASOS = [
       const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
       const i = hoy.indexOf("data-amenu"), menu = i < 0 ? "" : hoy.slice(i, hoy.indexOf("</div></span>", i));
       return [
-        [/data-adjpc="1"[^>]*>Desde mi dispositivo o Drive\\u2026</.test(menu), "la primera opción se llama «Desde mi dispositivo o Drive…»", ""],
+        [/data-adjpc="1"[^>]*>Desde mi dispositivo( o Drive)?\\u2026</.test(menu), "la primera opción se llama «Desde mi dispositivo…» (v175: sin «o Drive»)", ""],
         [/<input type="file" style="display:none">/.test(hoy) && !/<input type="file" accept=".pdf,.jpg/.test(hoy), "el selector de archivos no lleva filtro de tipo", ""],
         [/\}\)\[_ext\]/.test(hoy), "si el selector no da el tipo, lo saca de la extensión", ""],
       ];
@@ -1003,6 +1003,26 @@ const CASOS = [
         [/¿Nos podría comentar si es usted familiar suyo, heredero, inquilino o si ha comprado la vivienda hace poco\? Así le indicamos qué documentación hace falta\./.test(a), "persona: la pregunta con pistas", JSON.stringify(a)],
         [/a nombre de la sociedad Honeykiss SL\./.test(b) && /administrador o representante de la sociedad, o inquilino\?/.test(b), "sociedad: «a nombre de la sociedad…» y «administrador o representante»", JSON.stringify(b)],
         [soc, "reconoce las sociedades (S.L., S.A., SOCIMI) y no confunde a las personas", ""],
+      ];
+    },
+  },
+  // ===== v175: «Desde Drive (enlace)…» =====
+  {
+    nombre: "Adjuntar: «Desde mi dispositivo…» y «Desde Drive (enlace)…» (pega el enlace, el programa baja el archivo con su cuenta y queda adjunto)",
+    desde: "v175",
+    prueba: async (S) => {
+      const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      const i = hoy.indexOf("data-amenu"), menu = i < 0 ? "" : hoy.slice(i, hoy.indexOf("</div></span>", i));
+      const op = (menu.match(/data-aitem="1"[^>]*>[^<]*</g) || []).map(x => x.replace(/^[^>]*>|<$/g, ""));
+      const baja = S.app.locals._bajarDriveAdjunto;
+      let e1 = "", e2 = "";
+      if (baja) { try { await baja("https://example.com/no-es-drive"); } catch (e) { e1 = e.message; } }
+      const r = await S.call("POST", "/presupuestos/hoy/drive-adjunto", { url: "hola" });
+      return [
+        [JSON.stringify(op) === JSON.stringify(["Desde mi dispositivo\\u2026", "Desde Drive (enlace)\\u2026", "Impreso toma datos", "Documento personalizado\\u2026"]), "lista: dispositivo / Drive (enlace) / Impreso toma datos / Documento personalizado", JSON.stringify(op)],
+        [/no es un enlace de Drive/.test(e1), "un enlace que no es de Drive se rechaza con un aviso claro", e1],
+        [r.body && r.body.ok === false && /no es un enlace de Drive/.test(String(r.body.error || "")), "la ruta contesta con el aviso, sin romper", JSON.stringify(r.body)],
+        [/"drive":"[^"]*\/presupuestos\/hoy\/drive-adjunto/.test(hoy), "la ventana sabe a qué ruta pedirlo", ""],
       ];
     },
   },

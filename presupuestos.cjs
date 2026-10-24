@@ -546,7 +546,8 @@ module.exports = function (app) {
               + '<div data-rmenu="1" style="display:none;position:absolute;left:0;bottom:100%;margin-bottom:4px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:2;min-width:240px;padding:4px 0"></div></span>'
               + '<span style="position:relative;display:inline-block"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjbtn="1" title="Desde tu PC, el Impreso toma datos o un documento personalizado">\uD83D\uDCCE Adjuntar</button>'   // v171: un solo boton con su lista (antes 3 botones)
               + '<div data-amenu="1" style="display:none;position:absolute;left:0;bottom:100%;margin-bottom:4px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:2;min-width:220px;padding:4px 0">'
-              + '<div data-adjpc="1" data-aitem="1" title="Tus carpetas y Drive (si tienes su aplicaci\u00f3n): PDF, JPG o PNG, hasta 10 MB">Desde mi dispositivo o Drive\u2026</div>'   // v173: antes Desde mi PC
+              + '<div data-adjpc="1" data-aitem="1" title="Las carpetas del PC o de la tablet: PDF, JPG o PNG, hasta 10 MB">Desde mi dispositivo\u2026</div>'   // v175: antes (v173) Desde mi dispositivo o Drive
+              + '<div data-adjdrive="1" data-aitem="1" title="Pega el enlace del documento (Drive: Compartir, Copiar enlace); el programa lo baja y se lo env\u00eda como archivo">Desde Drive (enlace)\u2026</div>'
               + '<div data-fijo="solicitud" data-aitem="1">Impreso toma datos</div>'
               + '<div data-docs="1" data-aitem="1" title="Elige un documento del programa; sale relleno con los datos del vecino y del piso">Documento personalizado\u2026</div>'
               + '</div></span>'
@@ -635,6 +636,20 @@ module.exports = function (app) {
       bAd.addEventListener('click', function (ev) { ev.stopPropagation(); if (mRt) mRt.style.display = 'none'; mAd.style.display = (mAd.style.display === 'none') ? 'block' : 'none'; });
       fondo.addEventListener('click', function (ev) { if (!mAd.contains(ev.target)) mAd.style.display = 'none'; });
       fondo.querySelector('[data-adjpc]').addEventListener('click', function () { fin.click(); });
+      // v175 (24/10/2026, criterio de Guille: "en mi pc tampoco abre drive") -- Desde Drive (enlace): se pega el enlace, el
+      //   programa baja el archivo con su cuenta de Google y queda adjunto como uno del PC (al vecino le llega el archivo)
+      var bDr = fondo.querySelector('[data-adjdrive]');
+      if (bDr) bDr.addEventListener('click', async function () {
+        var url = prompt('Pega el enlace del documento de Drive (en Drive: Compartir \u2192 Copiar enlace):', '');
+        if (!url || !String(url).trim()) return;
+        var chn = fondo.querySelector('[data-chipn]'); chip.style.display = 'inline-flex'; chn.textContent = '\u23F3 Bajando de Drive...';
+        try {
+          var r = await fetch(U.drive, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: String(url).trim() }) });
+          var d = await r.json().catch(function () { return {}; });
+          if (!r.ok || !d.ok) { ponAdj(adj, adj ? (adj.nombre || '') : ''); alert('No se ha podido adjuntar: ' + ((d && d.error) || r.status)); return; }
+          fin.value = ''; ponAdj({ nombre: d.nombre, mime: d.mime, b64: d.b64 }, d.nombre);
+        } catch (e) { ponAdj(adj, adj ? (adj.nombre || '') : ''); alert('No se ha podido adjuntar: ' + e.message); }
+      });
       fondo.querySelectorAll('[data-fijo]').forEach(function (x) { x.addEventListener('click', function () { ponAdj({ fijo: x.dataset.fijo }, x.textContent + ' (PDF)'); }); });
       // v128 -- documento del programa (menu de Imprimir documentos con el piso ya elegido), relleno y adjunto
       var bDoc = fondo.querySelector('[data-docs]');
@@ -795,7 +810,7 @@ module.exports = function (app) {
   }
   function _scriptVecinoBot(token) {
     const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"), contacto: urlT(token, "/presupuestos/hoy/pedir-contacto"), ctexto: urlT(token, "/presupuestos/hoy/pedir-contacto-texto"),
-      mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }), icoWa: ICONO_WHATSAPP };   // v170: icono de estilo-visual
+      mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), drive: urlT(token, "/presupuestos/hoy/drive-adjunto"), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }), icoWa: ICONO_WHATSAPP };   // v170: icono de estilo-visual
     return "(" + _clienteVecinoBot.toString() + ")(" + JSON.stringify(U) + ");";
   }
   function urlT(token, path, params) {
@@ -17924,6 +17939,35 @@ module.exports = function (app) {
   // POST /presupuestos/hoy/responder-bot  (v122) -- Guille contesta a un vecino desde Avisos POR EL BOT.
   //   body: tel, texto, ayuda (1 = es una "Pide ayuda"). El bot comprueba la ventana de 24 h de WhatsApp.
   //   v127: con adjunto llega en JSON (archivo: {nombre, mime, b64} o {fijo: "solicitud"|"autorizacion"}).
+  // POST /presupuestos/hoy/drive-adjunto (v175) -- baja un documento de Drive por su enlace para adjuntarlo en Contestar
+  //   por el bot: { url } -> { ok, nombre, mime, b64 }. Con la cuenta de Google del programa (la de los enlaces de los
+  //   correos): no cambia permisos. Solo PDF, JPG o PNG (un documento de Google sale en PDF), hasta 10 MB.
+  async function _bajarDriveAdjunto(url) {
+    const id = extraerIdDrive(url);
+    if (!id) throw new Error("no es un enlace de Drive (tiene que ser del tipo drive.google.com/file/d/...)");
+    const drive = getDriveClient();
+    let meta;
+    try { meta = (await drive.files.get({ fileId: id, fields: "name,mimeType,size", supportsAllDrives: true })).data || {}; }
+    catch (e) { throw new Error("el programa no puede leer ese documento con su cuenta de Google (comp\u00e1rtelo con ella o rev\u00edsa el enlace)"); }
+    let nombre = String(meta.name || "documento"), mime = String(meta.mimeType || ""), buf;
+    if (mime.indexOf("application/vnd.google-apps.") === 0) {
+      const exp = await drive.files.export({ fileId: id, mimeType: "application/pdf" }, { responseType: "arraybuffer" });
+      buf = Buffer.from(exp.data); mime = "application/pdf"; nombre = nombre.replace(/\.(docx?|xlsx?|pptx?)$/i, "") + ".pdf";
+    } else {
+      if (!/^(application\/pdf|image\/jpeg|image\/png)$/.test(mime)) throw new Error("solo PDF, JPG o PNG (este es " + (mime || "de otro tipo") + ")");
+      if (+meta.size > 10 * 1024 * 1024) throw new Error("pasa de 10 MB");
+      const r = await drive.files.get({ fileId: id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
+      buf = Buffer.from(r.data);
+    }
+    if (buf.length > 10 * 1024 * 1024) throw new Error("pasa de 10 MB");
+    return { nombre, mime, b64: buf.toString("base64") };
+  }
+  app.post("/presupuestos/hoy/drive-adjunto", require("body-parser").json({ limit: "1mb" }), async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try { res.json(Object.assign({ ok: true }, await _bajarDriveAdjunto(String((req.body && req.body.url) || "")))); }
+    catch (e) { res.json({ ok: false, error: e.message }); }
+  });
+  app.locals._bajarDriveAdjunto = _bajarDriveAdjunto;   // v175: para el banco de pruebas
   app.post("/presupuestos/hoy/responder-bot", require("body-parser").json({ limit: "15mb" }), async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
