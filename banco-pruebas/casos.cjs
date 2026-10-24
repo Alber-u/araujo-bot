@@ -851,13 +851,13 @@ const CASOS = [
   },
   // ===== v163: puertas de los montantes actuales respetando cada peine =====
   {
-    nombre: "Presupuesto: «Los de las puertas A, D y B, C…» respeta las puertas de cada peine (Francisco Meneses 4); Sánchez Pizjuán 6 igual",
+    nombre: "Presupuesto: «Los de las puertas A-D y B-C…» respeta las puertas de cada peine tal como se escriben (Francisco Meneses 4: un peine A-D y otro B-C); Sánchez Pizjuán 6 igual",
     desde: "v163",
     prueba: async (S) => {
       const abast = async (re) => { const r = S.DATA.plan5_toma_datos.find((x, j) => j > 0 && re.test(String(x[0] || ""))); if (!r) return "(no está)"; const h = String((await S.call("GET", "/plan5/presupuesto", { dir: r[0] })).body || ""); const m = h.match(/ABASTECIMIENTO ACTUAL:<\/b><br>([^<]*)/); return m ? m[1].replace(/\s+/g, " ").trim() : "?"; };
       const fm = await abast(/FRANCISCO MENESES 4/i), sp = await abast(/S[AÁ]NCHEZ PIZJU[AÁ]N 6/i);
       return [
-        [/Los de las puertas A, D y B, C son exteriores y enganchan en cocinas\./.test(fm), "Francisco Meneses 4: puertas por peine", fm],
+        [/Los de las puertas A-D y B-C son exteriores y enganchan en cocinas\./.test(fm), "Francisco Meneses 4: puertas por peine", fm],
         [/Los de las puertas 1, 2, 3 y 4 son exteriores y enganchan en cocinas\./.test(sp), "Sánchez Pizjuán 6 (enviado) no cambia", sp],
       ];
     },
