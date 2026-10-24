@@ -32,11 +32,23 @@ function saludoVecino(nota, nombre) {
 //   Rellena {nombre} (el de arriba, pisos col E), {titulares} (los de la Nota simple: "A", "A y B", "A, B y C") y
 //   {con_quien} ("ellos" si son varios, "esa persona" si es uno: asi no hay que adivinar si es hombre o mujer).
 //   Lo que no se sabe sale entre corchetes para que lo escriba Guille.
-// v172 (24/10/2026, criterio de Guille: "no lo pongas todo apegotonado... buenas, nombre, y dejo un par de renglones, pasa
-//   esto, y deja otro renglón... que si no parece eso una pelota que nadie lee") -- con una linea en blanco entre cada parte.
-const RESP_NOTA_SIMPLE = "Buenas {nombre},\n\nGracias por la documentaci\u00f3n. Revis\u00e1ndola hemos visto que, seg\u00fan la Nota simple, la vivienda figura a nombre de {titulares}.\n\n\u00bfNos puede explicar qu\u00e9 relaci\u00f3n tiene usted con {con_quien}?\n\nSeg\u00fan lo que nos diga, le indicaremos qu\u00e9 documentaci\u00f3n hace falta.\n\nMuchas gracias.";
-// el de la v170, todo seguido: si la fila de Flujo bot sigue con este texto (Guille no lo ha tocado), se cambia por el de arriba
+// v172 (24/10/2026, criterio de Guille: "no lo pongas todo apegotonado... que si no parece eso una pelota que nadie lee")
+//   -- con una linea en blanco entre cada parte.
+// v174 (24/10/2026, criterio de Guille: "menos tirante, menos inquisitiva") -- la pregunta da pistas para contestar
+//   (familiar, heredero, inquilino o compra reciente) y, si el titular es una SOCIEDAD (S.L., S.A., ...), otra
+//   pregunta: administrador o representante de la sociedad, o inquilino (plantilla aparte).
+const RESP_NOTA_SIMPLE = "Buenas {nombre},\n\nGracias por la documentaci\u00f3n. Revis\u00e1ndola hemos visto que, seg\u00fan la Nota simple, la vivienda figura a nombre de {titulares}.\n\n\u00bfNos podr\u00eda comentar si es usted familiar suyo, heredero, inquilino o si ha comprado la vivienda hace poco? As\u00ed le indicamos qu\u00e9 documentaci\u00f3n hace falta.\n\nMuchas gracias.";
+const RESP_NOTA_SIMPLE_SOCIEDAD = "Buenas {nombre},\n\nGracias por la documentaci\u00f3n. Revis\u00e1ndola hemos visto que, seg\u00fan la Nota simple, la vivienda figura a nombre de la sociedad {titulares}.\n\n\u00bfNos podr\u00eda comentar si es usted administrador o representante de la sociedad, o inquilino? As\u00ed le indicamos qu\u00e9 documentaci\u00f3n hace falta.\n\nMuchas gracias.";
+// textos anteriores: si la fila de Flujo bot sigue con uno de estos (Guille no la ha tocado), se cambia por el de arriba
 const RESP_NOTA_SIMPLE_V170 = "Buenas {nombre}, gracias por la documentaci\u00f3n. Revis\u00e1ndola hemos visto que, seg\u00fan la Nota simple, la vivienda figura a nombre de {titulares}. \u00bfNos puede explicar qu\u00e9 relaci\u00f3n tiene usted con {con_quien}? Seg\u00fan lo que nos diga, le indicaremos qu\u00e9 documentaci\u00f3n hace falta. Muchas gracias.";
+const RESP_NOTA_SIMPLE_V172 = "Buenas {nombre},\n\nGracias por la documentaci\u00f3n. Revis\u00e1ndola hemos visto que, seg\u00fan la Nota simple, la vivienda figura a nombre de {titulares}.\n\n\u00bfNos puede explicar qu\u00e9 relaci\u00f3n tiene usted con {con_quien}?\n\nSeg\u00fan lo que nos diga, le indicaremos qu\u00e9 documentaci\u00f3n hace falta.\n\nMuchas gracias.";
+const RESP_NOTA_SIMPLE_VIEJOS = [RESP_NOTA_SIMPLE_V170, RESP_NOTA_SIMPLE_V172];
+// titular que es una sociedad: termina en S.L., SL, S.L.U., S.A., S.A.U., S.C., C.B. o lleva SOCIEDAD / SOCIMI / LIMITADA / ANONIMA
+function esSociedad(n) {
+  const t = String(n || "").trim();
+  return /(^|[\s,])(S\.?\s?L\.?(\s?U\.?)?|S\.?\s?A\.?(\s?U\.?)?|S\.?\s?C\.?|C\.?\s?B\.?)$/i.test(t) || /\b(SOCIEDAD|SOCIMI|LIMITADA|AN[OÓ]NIMA)\b/i.test(t);
+}
+function notaEsSociedad(nota) { return titularesDeNota(nota).some(esSociedad); }
 function rellenarRespuestaTipo(plantilla, nota, nombre) {
   const nb = String(nombre || "").replace(/^\s*(\([^)]*\)\s*)+/, "").replace(/\s+/g, " ").trim();
   const tit = titularesDeNota(nota);
@@ -44,4 +56,4 @@ function rellenarRespuestaTipo(plantilla, nota, nombre) {
   const conQuien = !tit.length ? "[ellos / esa persona]" : (tit.length > 1 ? "ellos" : "esa persona");
   return String(plantilla || "").replace(/\{nombre\}/g, nb || "[nombre]").replace(/\{titulares\}/g, lista).replace(/\{con_quien\}/g, conQuien);
 }
-module.exports = { saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, RESP_NOTA_SIMPLE, RESP_NOTA_SIMPLE_V170 };
+module.exports = { saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, esSociedad, notaEsSociedad, RESP_NOTA_SIMPLE, RESP_NOTA_SIMPLE_SOCIEDAD, RESP_NOTA_SIMPLE_VIEJOS };

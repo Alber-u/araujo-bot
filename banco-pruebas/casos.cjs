@@ -940,7 +940,7 @@ const CASOS = [
       const iBtn = hoy.indexOf("data-rtipo"), iAdj = hoy.indexOf("data-adjbtn=") > 0 ? hoy.indexOf("data-adjbtn=") : hoy.indexOf("data-adjpc=");
       return [
         [rt.nombre === "Nota simple (titular distinto)", "la respuesta tipo se llama «Nota simple (titular distinto)»", JSON.stringify(rt.nombre)],
-        [/figura a nombre de Rafael Santisteban Conejo y M\S* Esperanza Nogales Delgado\./.test(rt.texto || "") && /con ellos\?/.test(rt.texto || "") && /^Buenas Rosa/.test(rt.texto || "") && /Muchas gracias\.$/.test(rt.texto || ""), "texto relleno con su nombre y los dos titulares («con ellos»)", rt.texto],
+        [/figura a nombre de Rafael Santisteban Conejo y M\S* Esperanza Nogales Delgado\./.test(rt.texto || "") && /^Buenas Rosa/.test(rt.texto || "") && /Muchas gracias\.$/.test(rt.texto || ""), "texto relleno con su nombre y los dos titulares (v174: ya sin «con ellos»)", rt.texto],
         [iBtn > 0 && iAdj > 0 && iBtn < iAdj && hoy.indexOf('"icoWa":"💬"') > 0, "el botón va a la izquierda de Adjuntar, con el 💬 de estilo-visual", iBtn + " / " + iAdj],
         [src.indexOf('<label class="ptl-form-label">${ICONO_MAIL} Respuestas tipo</label>') > 0 && src.indexOf("Insertar respuesta tipo</label>") < 0, "en el correo, «📧 Respuestas tipo» (antes «Insertar respuesta tipo»)", ""],
       ];
@@ -971,7 +971,7 @@ const CASOS = [
       const rt = (((await S.call("GET", "/presupuestos/hoy/conversacion", { tel: f[0] })).body || {}).respTipo || [])[0] || {};
       const partes = String(rt.texto || "").split("\n\n");
       return [
-        [partes.length === 5 && /^Buenas Rosa.*,$/.test(partes[0]) && /^Gracias por la documentaci/.test(partes[1]) && /^¿Nos puede explicar.*con ellos\?$/.test(partes[2]) && partes[4] === "Muchas gracias.", "cinco partes: saludo / lo que pasa / la pregunta / lo que haremos / Muchas gracias.", JSON.stringify(rt.texto)],
+        [partes.length >= 4 && /^Buenas Rosa.*,$/.test(partes[0]) && /^Gracias por la documentaci/.test(partes[1]) && /^¿Nos p/.test(partes[2]) && partes[partes.length - 1] === "Muchas gracias.", "en párrafos: saludo / lo que pasa / la pregunta / … / Muchas gracias.", JSON.stringify(rt.texto)],
       ];
     },
   },
@@ -986,6 +986,23 @@ const CASOS = [
         [/data-adjpc="1"[^>]*>Desde mi dispositivo o Drive\\u2026</.test(menu), "la primera opción se llama «Desde mi dispositivo o Drive…»", ""],
         [/<input type="file" style="display:none">/.test(hoy) && !/<input type="file" accept=".pdf,.jpg/.test(hoy), "el selector de archivos no lleva filtro de tipo", ""],
         [/\}\)\[_ext\]/.test(hoy), "si el selector no da el tipo, lo saca de la extensión", ""],
+      ];
+    },
+  },
+  // ===== v174: pregunta con pistas; otra si el titular es una sociedad =====
+  {
+    nombre: "Respuesta tipo «Nota simple (titular distinto)»: «familiar suyo, heredero, inquilino o compra reciente» (Malvaloca 1 5A) y, si el titular es una sociedad, «administrador o representante» (Malvaloca 1 4C, Honeykiss SL)",
+    desde: "v174",
+    prueba: async (S) => {
+      const piso = (v) => S.DATA.pisos.find((x, i) => i > 0 && /malvaloca 1/i.test(String(x[1] || "")) && String(x[2] || "").trim().toUpperCase() === v);
+      const rt = async (f) => f ? ((((await S.call("GET", "/presupuestos/hoy/conversacion", { tel: f[0] })).body || {}).respTipo || [])[0] || {}).texto || "" : "";
+      const a = await rt(piso("5A")), b = await rt(piso("4C"));
+      let NV = {}; try { NV = require(require("path").join(S.RAIZ, "nombre-vecino.cjs")); } catch (e) {}
+      const soc = typeof NV.esSociedad === "function" ? ["Honeykiss SL", "Inmo Momentos, S.L.", "Building Center S.A.", "Promontoria MACC RE SOCIMI, S.A."].every(NV.esSociedad) && !["Rafael Santisteban Conejo", "Mª Esperanza Nogales Delgado", "Ana Sala Salas", "Luis Casal"].some(NV.esSociedad) : false;
+      return [
+        [/¿Nos podría comentar si es usted familiar suyo, heredero, inquilino o si ha comprado la vivienda hace poco\? Así le indicamos qué documentación hace falta\./.test(a), "persona: la pregunta con pistas", JSON.stringify(a)],
+        [/a nombre de la sociedad Honeykiss SL\./.test(b) && /administrador o representante de la sociedad, o inquilino\?/.test(b), "sociedad: «a nombre de la sociedad…» y «administrador o representante»", JSON.stringify(b)],
+        [soc, "reconoce las sociedades (S.L., S.A., SOCIMI) y no confunde a las personas", ""],
       ];
     },
   },

@@ -2759,6 +2759,7 @@ module.exports = function (app) {
       flujo_largo_sin_paginas: ["flujo_largo_sin_paginas", "vecino", "texto", "", "", "{documento}", "SI", "v128: responde 1 sin haber mandado ninguna pagina"],
       firma_equipo: ["firma_equipo", "vecino", "texto", "", "", "", "SI", "v150: va encima de lo que escribe Guille por Contestar por el bot"],
       resp_nota_simple: ["resp_nota_simple", "vecino", "texto", "", "", "{nombre} {titulares} {con_quien}", "SI", "v170: respuesta tipo de Contestar por el bot (Nota simple a nombre de otro)"],
+      resp_nota_simple_sociedad: ["resp_nota_simple_sociedad", "vecino", "texto", "", "", "{nombre} {titulares}", "SI", "v174: respuesta tipo de Contestar por el bot (Nota simple a nombre de una sociedad)"],
       // v126 -- avisos M por el bot (plantillas de Alberto): la fila se crea al guardar su HX
       ..._FILAS_AVISOS_M };
     if (rowIndex < 0 && _CLAVES_NUEVAS[clave]) {
@@ -2927,12 +2928,17 @@ module.exports = function (app) {
   async function _migRespNotaV170() {
     const sheets = getSheetsClient();
     const rows = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS })).data.values || [];
+    const _NV = require("./nombre-vecino.cjs");
+    // v174: la de la sociedad, si aun no existe su fila
+    if (!rows.some(x => x && String(x[0] || "").trim() === "resp_nota_simple_sociedad")) {
+      await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: [["resp_nota_simple_sociedad", "vecino", "texto", _NV.RESP_NOTA_SIMPLE_SOCIEDAD, "", "{nombre} {titulares}", "SI", "v174: respuesta tipo de Contestar por el bot (Nota simple a nombre de una sociedad)"]] } });
+      console.log("[presupuestos] v174: creada la fila resp_nota_simple_sociedad");
+    }
     const _iR = rows.findIndex(x => x && String(x[0] || "").trim() === "resp_nota_simple");
-    if (_iR >= 0) {   // v172: con espacios; solo si sigue el texto de la v170 (si Guille lo ha tocado, no se pisa)
-      const _NV = require("./nombre-vecino.cjs");
-      if (String(rows[_iR][3] || "").trim() === _NV.RESP_NOTA_SIMPLE_V170) {
+    if (_iR >= 0) {   // v172/v174: texto nuevo solo si sigue uno de los anteriores (si Guille lo ha tocado, no se pisa)
+      if (_NV.RESP_NOTA_SIMPLE_VIEJOS.indexOf(String(rows[_iR][3] || "").trim()) >= 0) {
         await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_plantillas!D" + (_iR + 1), valueInputOption: "RAW", requestBody: { values: [[_NV.RESP_NOTA_SIMPLE]] } });
-        console.log("[presupuestos] v172: resp_nota_simple con espacios");
+        console.log("[presupuestos] v174: resp_nota_simple con el texto nuevo");
       }
       return;
     }
@@ -10505,7 +10511,8 @@ module.exports = function (app) {
       card("flujo_aviso_vecino","texto del vecino - aviso (el bot sigue)",{}),   // v128
       card("flujo_largo_sin_paginas","doc - \"1\" sin ninguna página ({documento})",{}),   // v128
       card("firma_equipo","Firma del equipo (sale escrita en el recuadro al contestar por el bot)",{}),   // v150; v155: va dentro del recuadro
-      card("resp_nota_simple","Respuestas tipo: Nota simple (titular distinto) ({nombre} {titulares} {con_quien})",{}),   // v170
+      card("resp_nota_simple","Respuestas tipo: Nota simple (titular distinto) ({nombre} {titulares})",{}),   // v170
+      card("resp_nota_simple_sociedad","Respuestas tipo: Nota simple (titular distinto) si el titular es una sociedad ({nombre} {titulares})",{}),   // v174
       card("flujo_sin_ia","texto del vecino con la IA dormida (sustituida por las dos de arriba)",{}),   // v19.118; v128: lo sustituyen las dos de arriba
       card("flujo_falta_antes_de_cerrar","doc - falta algo al terminar ({falta})",{}),   // v127
     ].map(c => "<div>" + c + "</div>").join("");
@@ -17884,8 +17891,10 @@ module.exports = function (app) {
         const _pls = await leerPlantillasBot();
         const _pf = _pls.find(x => x.clave === "firma_equipo"); if (_pf && _pf.activo) firma = String(_pf.texto || "").trim();
         const _NV = require("./nombre-vecino.cjs");
-        const _rn = _pls.find(x => x.clave === "resp_nota_simple");   // sin fila todavia: el texto de siempre
-        const _tn = _rn ? (_rn.activo ? String(_rn.texto || "").trim() : "") : _NV.RESP_NOTA_SIMPLE;
+        // v174: si el titular es una sociedad (S.L., S.A., ...), la plantilla de la sociedad
+        const _soc = _NV.notaEsSociedad(_notaV), _clv = _soc ? "resp_nota_simple_sociedad" : "resp_nota_simple";
+        const _rn = _pls.find(x => x.clave === _clv);   // sin fila todavia: el texto de siempre
+        const _tn = _rn ? (_rn.activo ? String(_rn.texto || "").trim() : "") : (_soc ? _NV.RESP_NOTA_SIMPLE_SOCIEDAD : _NV.RESP_NOTA_SIMPLE);
         if (_tn) respTipo.push({ nombre: "Nota simple (titular distinto)", texto: _NV.rellenarRespuestaTipo(_tn, _notaV, _nomV) });
       } catch (e) {}
       res.json({ ok: true, items, ultVecino, firma, vecino, respTipo });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
