@@ -906,6 +906,25 @@ const CASOS = [
       ];
     },
   },
+  // ===== v168: depósitos reutilizados con cantidad 0 =====
+  {
+    nombre: "Presupuesto: los depósitos que se reutilizan salen con cantidad 0, como el grupo actual (Doctor Jaime Marcos 3: «2 depósitos de 1000L»)",
+    desde: "v168",
+    prueba: async (S) => {
+      const r = S.DATA.plan5_toma_datos.find((x, j) => j > 0 && /JAIME MARCOS 3/i.test(String(x[0] || "")));
+      if (!r) return [[false, "está Doctor Jaime Marcos 3 en plan5_toma_datos", "no"]];
+      // Está cerrado (sirve la foto guardada): se quita la foto en memoria para ver lo que sale al abrir el candado y volver a cerrar
+      const antes = r[6], antes8 = r[8]; let sv = {}; try { sv = JSON.parse(r[6]); } catch (e) {}
+      delete sv.snapshot; sv.estado = "abierto"; r[6] = JSON.stringify(sv); r[8] = "";
+      let h = ""; try { h = String((await S.call("GET", "/plan5/presupuesto", { dir: r[0] })).body || ""); } finally { r[6] = antes; r[8] = antes8; }
+      const i = h.indexOf("3.4 Dep"), fila = i < 0 ? "" : h.slice(i, h.indexOf("</tr>", i));
+      const celdas = fila.replace(/<[^>]*>/g, "|").split("|").map(x => x.trim()).filter(Boolean);
+      return [
+        [celdas.indexOf("2 depósitos de 1000L") >= 0, "la descripción sigue diciendo lo que hay", celdas.join(" / ")],
+        [celdas.indexOf("0") >= 0 && !celdas.some(c => / ud$/.test(c)), "cantidad «0» a secas (como el 3.1), no «2 ud»", celdas.join(" / ")],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };

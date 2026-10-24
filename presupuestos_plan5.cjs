@@ -866,7 +866,7 @@ function _p5tablaPresupuesto(dsg, cuadro, matX){
     } else if(r.fuentes.length===1 && String(r.num).indexOf("3.")===0){
       var l3=r.fuentes[0];
       precio = _p5eur((l3.precio||0)*fac(l3.tipo));
-      cant = _p5num(l3.cantidad) + (l3.ud?(" "+_p5esc(l3.ud)):"");
+      cant = _p5num(l3.cantidad) + ((l3.ud && +l3.cantidad)?(" "+_p5esc(l3.ud)):"");   // v168: con 0 sale "0" a secas, como el grupo actual
     } else if(r.fuentes.length===0){
       precio = ""; cant = "";
     } else {
@@ -2676,7 +2676,8 @@ function calcGrupoPresion(e, diamAli, precios) {
              tipoCoste: "GP", capitulo: "3.4 Depósito" });
   } else if (ndepAct > 0) {
     var varDepA = tdepAct ? (tdepAct + "L") : "";
-    L.push({ concepto: "Grupo presión (depósito)", variante: varDepA, cantidad: ndepAct,
+    // v168 (24/10/2026, Guille): los depósitos que se reutilizan van con cantidad 0, como el grupo actual (no se ponen nuevos)
+    L.push({ concepto: "Grupo presión (depósito)", variante: varDepA, cantidad: 0,
              precio: 0, tipoCoste: "GP", capitulo: "3.4 Depósito" });
   }
   // 4. Tubo alimentacion (PE): metros de "Longitud tubo expulsion"; diametro reaprovechado de alimentacion.
