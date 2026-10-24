@@ -1650,6 +1650,90 @@ async function _telEnPisos(telefono) {
   for (let i = 1; i < pisos.length; i++) { if (pisos[i] && _telE164(pisos[i][0] || "") === telNorm) return true; }
   return false;
 }
+// v180 (24/10/2026, criterio de Guille: "a partir de ahora quiero usar al 99% el ro-boton... deben funcionar igual que si el
+//   robot se los hubiese pedido"; casos Diego Puerta 1 34-2A y Diego Puerta 5 39-4D) -- los ARCHIVOS que mandan los
+//   vecinos de pisos con los que el bot no trabaja (en M, o su comunidad fuera de la 05) ya no se pierden: se guardan TAL
+//   CUAL en la carpeta de su piso (la misma del bot: expediente / 01 DOCUMENTACION BOT / piso, getOrCreateCarpetaVivienda)
+//   y se apuntan en bot_documentos como "adicional" en REVISAR (origen ro_boton; en el motivo, el id del archivo en
+//   Twilio, para no guardarlo dos veces). El bot sigue sin contestar nada. Y _recuperarArchivosFuera() va a buscar a
+//   Twilio los que llegaron antes de esto y no se guardaron (al arrancar, una vez).
+const _v180 = {   // la descarga de Twilio, en un objeto para que el banco de pruebas la pueda simular
+  bajar: async (url) => Buffer.from((await axios.get(url, { responseType: "arraybuffer", auth: { username: process.env.TWILIO_ACCOUNT_SID, password: process.env.TWILIO_AUTH_TOKEN } })).data),
+};
+async function _pisoDeTel(telefono) {
+  const telNorm = _telE164(telefono);
+  if (!telNorm) return null;
+  const pisos = await _leerBotCompartido("pisos!A:AV");
+  for (let i = 1; i < pisos.length; i++) { const p = pisos[i]; if (p && _telE164(p[0] || "") === telNorm && p[1]) return { comunidad: String(p[1] || "").trim(), vivienda: String(p[2] || "").trim() }; }
+  return null;
+}
+async function _mediaYaGuardada(mediaId) {
+  if (!mediaId) return false;
+  const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_documentos!A:L" })).data.values || [];
+  return rows.some(r => r && String(r[9] || "").indexOf(mediaId) >= 0);
+}
+function _extDeMime(mimeType) {
+  const mime = String(mimeType || "application/octet-stream").split(";")[0].trim().toLowerCase();
+  return mime.includes("pdf") ? ".pdf" : (mime === "image/jpeg" || mime === "image/jpg") ? ".jpg" : mime.startsWith("image/") ? "." + mime.slice(6).replace(/[^a-z0-9]/g, "") : (mime.split("/")[1] ? "." + mime.split("/")[1].replace(/[^a-z0-9]/g, "").slice(0, 5) : "");
+}
+async function _guardarArchivoSuelto(telefono, piso, mediaUrl, mimeType, opts) {
+  opts = opts || {};
+  const mediaId = String(opts.mediaId || String(mediaUrl || "").split("/").pop() || "");
+  if (await _mediaYaGuardada(mediaId)) return "ya";
+  const buf = await _v180.bajar(mediaUrl);
+  if (buf.length > MAX_FILE_SIZE) return false;
+  const mime = String(mimeType || "application/octet-stream").split(";")[0].trim().toLowerCase();
+  const carpetaId = await getOrCreateCarpetaVivienda({ comunidad: piso.comunidad, vivienda: piso.vivienda, telefono });
+  const fecha = opts.fechaISO || ahoraISO();
+  const sello = String(fecha).replace(/[-:T.Z]/g, "").slice(0, 17);
+  const nombre = "RECIBIDO " + piso.comunidad + " (" + piso.vivienda + ")_" + sello + (opts.idx ? "-" + (opts.idx + 1) : "") + " (revisar)" + _extDeMime(mime);
+  const subido = await uploadToDrive(buf, nombre, mime, carpetaId);
+  const orig = /\.[a-z0-9]{2,5}$/i.test(String(opts.nombreOrig || "").trim()) ? " · " + String(opts.nombreOrig).trim() : "";
+  await getSheetsClient().spreadsheets.values.append({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_documentos!A:L", valueInputOption: "RAW",
+    requestBody: { values: [[telefono, piso.comunidad, piso.vivienda, "adicional", nombre, fecha, (subido && typeof subido.webViewLink === "string") ? subido.webViewLink : "", "ro_boton", "REVISAR",
+      "recibido por el ro-boton (el bot no trabaja con este piso)" + orig + " · media " + mediaId, "", ""]] } });
+  console.log("[bot] v180: archivo guardado (piso sin bot):", telefono, nombre);
+  return true;
+}
+// archivos que llegaron a pisos sin bot y no se guardaron (bot_contactos "archivo_fuera"): se recuperan de Twilio
+async function _recuperarArchivosFuera(dias) {
+  if (!twilioClient) return { ok: false, error: "Twilio no configurado" };
+  const desde = Date.now() - (dias || 30) * 86400000;
+  const rows = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:D" })).data.values || [];
+  const porTel = {};
+  for (const r of rows.slice(1)) {
+    if (!r || String(r[3] || "").trim() !== "archivo_fuera") continue;
+    const t = new Date(r[0] || 0).getTime(); if (!(t > desde)) continue;
+    const k = _telE164(r[1] || ""); if (!k) continue;
+    (porTel[k] = porTel[k] || []).push(t);
+  }
+  const out = { ok: true, guardados: 0, ya: 0, fallos: 0 };
+  for (const tel of Object.keys(porTel)) {
+    try {
+      const piso = await _pisoDeTel(tel); if (!piso) continue;
+      const tiempos = porTel[tel];
+      const msgs = await twilioClient.messages.list({ from: "whatsapp:" + tel, dateSentAfter: new Date(Math.min.apply(null, tiempos) - 3600000), limit: 300 });
+      for (const m of msgs) {
+        if (!(+m.numMedia > 0)) continue;
+        const tm = new Date(m.dateSent || m.dateCreated || 0).getTime();
+        if (!tiempos.some(t => Math.abs(t - tm) < 3 * 60 * 1000)) continue;   // solo los que se apuntaron como "archivo_fuera"
+        const medias = await twilioClient.messages(m.sid).media.list();
+        let idx = 0;
+        for (const md of medias) {
+          try {
+            const url = "https://api.twilio.com" + String(md.uri || "").replace(/\.json$/, "");
+            const r2 = await _guardarArchivoSuelto(tel, piso, url, md.contentType, { mediaId: md.sid, fechaISO: new Date(tm).toISOString(), nombreOrig: m.body, idx: medias.length > 1 ? idx : 0 });
+            if (r2 === "ya") out.ya++; else if (r2) out.guardados++; else out.fallos++;
+          } catch (e) { out.fallos++; console.error("[bot] v180 recuperar archivo:", tel, e.message); }
+          idx++;
+        }
+      }
+    } catch (e) { out.fallos++; console.error("[bot] v180 recuperar archivos de", tel, e.message); }
+  }
+  console.log("[bot] v180: archivos recuperados de Twilio:", JSON.stringify(out));
+  return out;
+}
+setTimeout(() => { _recuperarArchivosFuera(30).catch(e => console.error("[bot] v180 recuperar:", e.message)); }, 150 * 1000);
 async function pisoActivoParaBot(telefono) {
   const telNorm = normalizarTelefono(telefono);
   // 1) piso por teléfono (col A): leer comunidad (B) y bot_piso_activo (AV = idx 47)
@@ -4583,6 +4667,14 @@ app.post("/whatsapp", async (req, res) => {
         if (await _telEnPisos(telefonoKey)) {
           const _bodyF = String(req.body.Body || "").trim();
           await guardarContacto(telefonoKey, _bodyF, numMedia > 0 ? "archivo_fuera" : "texto_fuera", "");
+          if (numMedia > 0) {   // v180: el archivo se guarda en la carpeta de su piso (en segundo plano: Twilio no espera)
+            const _medias = []; for (let _i = 0; _i < numMedia; _i++) { if (req.body["MediaUrl" + _i]) _medias.push([req.body["MediaUrl" + _i], req.body["MediaContentType" + _i] || "application/octet-stream", _i]); }
+            const _fISO = ahoraISO();
+            (async () => {
+              const _piso = await _pisoDeTel(telefonoKey); if (!_piso) return;
+              for (const [_u, _m, _i] of _medias) { try { await _guardarArchivoSuelto(telefonoKey, _piso, _u, _m, { fechaISO: _fISO, nombreOrig: _bodyF, idx: _medias.length > 1 ? _i : 0 }); } catch (e) { console.error("[bot] v180 guardar archivo:", telefonoKey, e.message); } }
+            })().catch(e => console.error("[bot] v180:", e.message));
+          }
           console.log("Filtro bot: piso no activo, mensaje guardado (Ha respondido):", telefonoKey);
         }
       } catch (eF) { console.error("Filtro bot: guardar mensaje fuera:", eF.message); }
@@ -5454,7 +5546,8 @@ setTimeout(() => {
     reabrirSiFinalizado,   // v19.114
     responderVecino,       // v122
     importesComunidad, formaPagoDelPiso,   // v179: para la Respuesta sugerida (los importes de la toma de datos)
-    mediaDrive: MEDIA_DRIVE,   // v177: el Impreso toma datos tambien se adjunta en los correos (por su enlace de Drive)
+    mediaDrive: MEDIA_DRIVE,   // v177
+    _recuperarArchivosFuera, _guardarArchivoSuelto, _v180,   // v180: el Impreso toma datos tambien se adjunta en los correos (por su enlace de Drive)
     enviarAvisoM,          // v126
     pedirContacto,         // v128
     programarEnvio,        // v127: envios de Guille fuera del horario, programados

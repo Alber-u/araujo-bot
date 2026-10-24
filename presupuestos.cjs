@@ -525,6 +525,7 @@ module.exports = function (app) {
             tt.addEventListener('click', function () { var ab = tb.style.display === 'none'; tb.style.display = ab ? 'block' : 'none'; tt.textContent = '\uD83D\uDCCB ' + it.titulo + (ab ? ' \u25BE' : ' \u25B8'); });
             t.appendChild(tt); t.appendChild(tb);
           } else t.textContent = it.texto || '';
+          if (it.url) { var ln = document.createElement('a'); ln.href = it.url; ln.target = '_blank'; ln.rel = 'noopener'; ln.textContent = 'Abrir el archivo'; ln.style.cssText = 'display:inline-block;margin-top:3px;font-weight:600'; t.appendChild(document.createElement('br')); t.appendChild(ln); }   // v180
           g.appendChild(h); g.appendChild(t); w.appendChild(g); cont.appendChild(w);
         });
         cont.scrollTop = cont.scrollHeight;
@@ -18001,7 +18002,7 @@ module.exports = function (app) {
         if (mej) mej.usado = true; return mej ? mej.r : null;
       };
       const _hayErrorProg = _progs.some(p => String(p.r[5] || "") === "error");
-      const docs = ((rd.data.values || []).slice(1)).filter(d => d && t9(d[0]) === k && String(d[7] || "").trim() !== "manual").map(d => ({ t: new Date(d[5] || 0).getTime(), tipo: String(d[3] || ""), usado: false }));
+      const docs = ((rd.data.values || []).slice(1)).filter(d => d && t9(d[0]) === k && String(d[7] || "").trim() !== "manual").map(d => ({ t: new Date(d[5] || 0).getTime(), tipo: String(d[3] || ""), url: String(d[6] || ""), origen: String(d[7] || "").trim(), usado: false }));
       const etq = (c) => { const x = String(c || "").replace(/_/g, " ").trim(); return x ? x.charAt(0).toUpperCase() + x.slice(1) : "documento"; };
       const fmt = (iso) => { const d = new Date(iso); if (isNaN(d.getTime())) return String(iso || ""); return d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
       const corto = (x, n) => { x = String(x || "").trim(); return x.length > n ? x.slice(0, n - 1).trim() + "\u2026" : x; };
@@ -18049,8 +18050,12 @@ module.exports = function (app) {
           } else items.push({ quien: "bot", fecha: f, texto: bot });
           continue;
         }
-        if (tipo === "archivo_fuera") {   // v126: piso con el que el bot no trabaja: el archivo no se guarda
-          items.push({ quien: "vecino", fecha: f, texto: "\uD83D\uDCCE Ha mandado un archivo (no se guarda: el bot no trabaja con este piso; p\u00eddeselo por otra v\u00eda)" + (cli ? "\n" + cli : "") });
+        if (tipo === "archivo_fuera") {   // v126: piso con el que el bot no trabaja. v180: el archivo se guarda en la carpeta de su piso
+          const tc = new Date(c[0] || 0).getTime();
+          let mej = null;
+          for (const d of docs) { if (d.usado || !d.t || d.origen !== "ro_boton") continue; const dif = d.t - tc; if (dif >= -60000 && dif < 5 * 60 * 1000 && (!mej || Math.abs(dif) < Math.abs(mej.t - tc))) mej = d; }
+          if (mej) { mej.usado = true; items.push({ quien: "vecino", fecha: f, texto: "\uD83D\uDCCE Ha mandado un archivo (guardado en la carpeta de su piso, en REVISAR)" + (/\.[a-z0-9]{2,5}$/i.test(cli) ? "\n" + cli : ""), url: mej.url }); }
+          else items.push({ quien: "vecino", fecha: f, texto: "\uD83D\uDCCE Ha mandado un archivo (todav\u00eda no est\u00e1 guardado: el programa lo est\u00e1 recuperando; si no aparece en unos minutos, p\u00eddeselo otra vez)" + (cli ? "\n" + cli : "") });
           continue;
         }
         if (/^archivo/.test(tipo)) {

@@ -1141,6 +1141,37 @@ const CASOS = [
       ];
     },
   },
+  // ===== v180: los archivos de pisos sin bot se guardan en la carpeta de su piso =====
+  {
+    nombre: "Ro-botón: un archivo de un vecino cuyo piso está en manual se guarda en la carpeta de su piso (REVISAR) y la conversación lo enseña con su enlace (Diego Puerta 5 39-4D)",
+    desde: "v180",
+    prueba: async (S) => {
+      const B = S.app.locals.botWhatsapp;
+      if (!B || !B._v180) return [[false, "existe el guardado de archivos de pisos sin bot", "no"]];
+      const f = S.DATA.pisos.find((x, i) => i > 0 && /diego puerta 5/i.test(String(x[1] || "")) && String(x[2] || "").trim().toUpperCase() === "39-4D");
+      if (!f) return [[false, "está Diego Puerta 5 39-4D en pisos", "no"]];
+      const bajarAntes = B._v180.bajar; B._v180.bajar = async () => Buffer.from("%PDF-banco");
+      // Drive simulado: ya existen la carpeta del expediente, «01 DOCUMENTACION BOT» y la del piso (las mismas que usa el bot)
+      S.setDriveList(() => [{ id: "CARPEXP", name: "C Diego Puerta 5" }, { id: "CARPDOC", name: "01 DOCUMENTACION BOT" }, { id: "CARPVIV", name: "39-4D" }]);
+      const antes = S.DATA.bot_documentos.length;
+      try {
+        const req = { method: "POST", body: { From: "whatsapp:" + f[0], Body: "dni.pdf", NumMedia: "1", MediaUrl0: "https://api.twilio.com/2010-04-01/Accounts/ACx/Messages/MMx/Media/MEbanco180", MediaContentType0: "application/pdf", MessageSid: "SMv180" + Date.now() }, query: {}, headers: {}, get: () => "", protocol: "https", originalUrl: "/whatsapp" };
+        await new Promise((ok) => { const rr = { status() { return this; }, type() { return this; }, set() { return this; }, send() { ok(); }, end() { ok(); }, json() { ok(); }, sendStatus() { ok(); } }; Promise.resolve(S.routes["POST /whatsapp"](req, rr)).catch(() => ok()); });
+        await S.espera(1500);
+      } finally { B._v180.bajar = bajarAntes; S.setDriveList(null); }
+      const nuevas = S.DATA.bot_documentos.slice(antes);
+      const fila = nuevas.find(r => String(r[7]) === "ro_boton") || [];
+      const conv = (await S.call("GET", "/presupuestos/hoy/conversacion", { tel: f[0] })).body || {};
+      const it = (conv.items || []).filter(x => /Ha mandado un archivo/.test(x.texto || "")).pop() || {};
+      const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      return [
+        [String(fila[3]) === "adicional" && String(fila[8]) === "REVISAR" && /media MEbanco180/.test(String(fila[9] || "")) && /^RECIBIDO Diego Puerta 5 \(39-4D\)_/.test(String(fila[4] || "")), "se guarda en bot_documentos: adicional, REVISAR, con su nombre y el id de Twilio", JSON.stringify(fila)],
+        [/guardado en la carpeta de su piso/.test(it.texto || "") && !/no se guarda/.test(it.texto || ""), "la conversación dice que está guardado (no «no se guarda»)", JSON.stringify(it)],
+        [/Abrir el archivo/.test(hoy), "la ventana sabe enseñar el enlace del archivo", ""],
+        [typeof B._recuperarArchivosFuera === "function", "existe la recuperación de los archivos perdidos (Twilio)", ""],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
