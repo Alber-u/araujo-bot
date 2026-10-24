@@ -942,7 +942,7 @@ const CASOS = [
         [rt.nombre === "Nota simple (titular distinto)", "la respuesta tipo se llama «Nota simple (titular distinto)»", JSON.stringify(rt.nombre)],
         [/figura a nombre de Rafael Santisteban Conejo y M\S* Esperanza Nogales Delgado\./.test(rt.texto || "") && /^Buenas Rosa/.test(rt.texto || "") && /Muchas gracias\.$/.test(rt.texto || ""), "texto relleno con su nombre y los dos titulares (v174: ya sin «con ellos»)", rt.texto],
         [iBtn > 0 && iAdj > 0 && iBtn < iAdj && hoy.indexOf('"icoWa":"💬"') > 0, "el botón va a la izquierda de Adjuntar, con el 💬 de estilo-visual", iBtn + " / " + iAdj],
-        [src.indexOf('<label class="ptl-form-label">${ICONO_MAIL} Respuestas tipo</label>') > 0 && src.indexOf("Insertar respuesta tipo</label>") < 0, "en el correo, «📧 Respuestas tipo» (antes «Insertar respuesta tipo»)", ""],
+        [(src.indexOf('<label class="ptl-form-label">${ICONO_MAIL} Respuestas tipo</label>') > 0 || src.indexOf('>${ICONO_MAIL} Respuestas tipo</button>') > 0) && src.indexOf("Insertar respuesta tipo</label>") < 0, "en el correo, «📧 Respuestas tipo» (antes «Insertar respuesta tipo»; v177: botón)", ""],
       ];
     },
   },
@@ -1041,6 +1041,32 @@ const CASOS = [
         [/^Buenas Rosa Mª,\n/.test(a) && /Rafael Santisteban Conejo y Mª Esperanza Nogales Delgado\./.test(a), "5A: «Buenas Rosa Mª,» y los dos titulares completos", JSON.stringify(a.slice(0, 200))],
         [/^Buenas Antonio,\n/.test(b) && /Honeykiss SL\./.test(b), "4C: «Buenas Antonio,»", JSON.stringify(b.slice(0, 120))],
         [!mal.length, "nombres compuestos y apellidos con «de la» bien separados", JSON.stringify(mal)],
+      ];
+    },
+  },
+  // ===== v177: correos con los mismos botones que el WhatsApp =====
+  {
+    nombre: "Correos: botón «📧 Respuestas tipo» (sin «— elegir —») y «📎 Adjuntar» que rellena los casilleros, en Enviar mail manual, Email de fase y Ultimátum (Ardilla 9)",
+    desde: "v177",
+    prueba: async (S) => {
+      const t = S.DATA.plan5_toma_datos.find((x, i) => i > 0 && /ARDILLA 9$/i.test(String(x[0] || "").trim()));
+      const id = t ? String(t[1] || "") : "";
+      if (!/^ccpp_/.test(id)) return [[false, "está el id de Ardilla 9", id]];
+      let r = await S.call("GET", "/presupuestos/expediente", { id });
+      if (r.status === 302) r = await S.call("GET", "/documentacion/expediente", { id });   // en fase de documentacion, la ficha vive alli
+      const h = String(r.body || ""), rotos = scriptsRotos(h);
+      const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      const n1 = await S.call("POST", "/presupuestos/mail-adjunto/nombre", { url: "hola" });
+      const s1 = await S.call("POST", "/presupuestos/mail-adjunto/subir", { ccpp: "ccpp_no_existe", nombre: "a.pdf", mime: "application/pdf", b64: "QUJD" });
+      return [
+        [r.status === 200 && !rotos.length, "la ficha se pinta y sus scripts se leen", r.status + " " + rotos.join(" | ")],
+        [/id="ptlComSrespBtn"[^>]*>📧 Respuestas tipo<\/button>/.test(h) && !/— elegir —<\/option>/.test(h), "Enviar mail manual: botón «📧 Respuestas tipo», sin «— elegir —»", ""],
+        [new RegExp('data-adjmail="ptlComS" data-ccpp="' + id + '"').test(h), "Enviar mail manual: «📎 Adjuntar» con la comunidad", ""],
+        [/data-adjmail="ptl-mm-"/.test(h) && /_bAm\.dataset\.ccpp = ccppId/.test(h), "Email de fase: «📎 Adjuntar» (la comunidad se pone al abrir)", ""],
+        [/data-adjmail=\\?"ptl-ult-/.test(hoy) || /data-adjmail="ptl-ult-"/.test(hoy), "Ultimátum (HOY): «📎 Adjuntar»", ""],
+        [/Desde mi dispositivo(\\u2026|…)', function[\s\S]*Desde Drive \(enlace\)(\\u2026|…)'[\s\S]*'Impreso toma datos'[\s\S]*Documento personalizado(\\u2026|…)'/.test(h) && /"fijo":"https:\/\/drive\.google\.com\/file\/d\/15ZUevpwjtZKjfbaaoRJj--VKdqi8fnRo\/view"/.test(h), "la lista de Adjuntar, como en el WhatsApp, y el Impreso toma datos con su enlace de Drive", ""],
+        [n1.body && n1.body.ok === false && /no es un enlace de Drive/.test(n1.body.error || ""), "un enlace que no es de Drive se rechaza", JSON.stringify(n1.body)],
+        [s1.body && s1.body.ok === false && /no encuentro la comunidad/.test(s1.body.error || ""), "subir sin comunidad conocida no rompe", JSON.stringify(s1.body)],
       ];
     },
   },

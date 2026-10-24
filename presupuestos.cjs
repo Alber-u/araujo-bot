@@ -5919,6 +5919,92 @@ module.exports = function (app) {
   //   cada vez; el archivo se llama como el documento: "<Documento> - <Comunidad> <piso>.pdf" (general: sin piso).
   //   Los campos que se dejan vacios salen como raya larga para rellenar a mano.
   //   opc: { ccppId | comunidad (nombre, desde HOY), vivienda (piso ya elegido), modo, alAdjuntar }
+  // v177 (24/10/2026, criterio de Guille: "copiar los botones que tenemos en los whatsapps... los de adjuntar archivos")
+  //   -- boton "📎 Adjuntar" de las ventanas de correo (Enviar mail manual, Email de fase, Ultimatum). Rellena el primer
+  //   casillero libre de adjuntos: a la izquierda el nombre del archivo, a la derecha su enlace de Drive. Lo que ya esta en
+  //   Drive solo se enlaza; lo del dispositivo y los documentos personalizados se guardan en la carpeta "adjuntos" del
+  //   expediente (donde viven los adjuntos de los correos que llegan) y se enlazan. Boton: data-adjmail="<prefijo de
+  //   los ids de los casilleros>" y data-ccpp="<ccpp_id>".
+  function _clienteAdjMail(U) {
+    if (window.__adjMailListo) return; window.__adjMailListo = true;
+    var menu = null;
+    var cerrar = function () { if (menu) { menu.remove(); menu = null; } };
+    var hueco = function (pre) {
+      for (var n = 1; n <= 3; n++) {
+        var l = document.getElementById(pre + 'adj' + n + 'lbl'), u = document.getElementById(pre + 'adj' + n + 'url');
+        if (u && !String(u.value || '').trim() && !(l && String(l.value || '').trim())) return { l: l, u: u };
+      }
+      return null;
+    };
+    var poner = function (pre, nombre, url) {
+      var h = hueco(pre);
+      if (!h) { alert('Los 3 casilleros de adjuntos están ocupados: borra uno antes.'); return false; }
+      if (h.l) h.l.value = nombre || ''; h.u.value = url;
+      return true;
+    };
+    var sinExt = function (n) { return String(n || '').replace(/\.(pdf|jpe?g|png|docx?|xlsx?|pptx?)$/i, ''); };
+    var post = async function (url, body) {
+      var r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      var d = await r.json().catch(function () { return {}; });
+      if (!r.ok || !d.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+      return d;
+    };
+    var subir = async function (b, pre, a) {
+      if (!hueco(pre)) { alert('Los 3 casilleros de adjuntos están ocupados: borra uno antes.'); return; }
+      var t = b.textContent; b.disabled = true; b.textContent = '⏳ Guardando en Drive...';
+      try { var d = await post(U.subir, { ccpp: b.dataset.ccpp || '', nombre: a.nombre, mime: a.mime, b64: a.b64 }); poner(pre, sinExt(d.nombre || a.nombre), d.url); }
+      catch (e) { alert('No se ha podido adjuntar: ' + e.message); }
+      b.disabled = false; b.textContent = t;
+    };
+    var opciones = function (b, pre) {
+      return [
+        ['Desde mi dispositivo…', function () {
+          var fi = document.createElement('input'); fi.type = 'file'; fi.style.display = 'none'; document.body.appendChild(fi);
+          fi.addEventListener('change', function () {
+            var f = fi.files && fi.files[0]; fi.remove(); if (!f) return;
+            if (f.size > 15 * 1024 * 1024) { alert('El archivo pasa de 15 MB.'); return; }
+            var rd = new FileReader();
+            rd.onload = function () { subir(b, pre, { nombre: f.name, mime: f.type || 'application/octet-stream', b64: String(rd.result || '').split(',')[1] || '' }); };
+            rd.readAsDataURL(f);
+          });
+          fi.click();
+        }],
+        ['Desde Drive (enlace)…', async function () {
+          var url = prompt('Pega el enlace del documento de Drive (en Drive: Compartir → Copiar enlace):', '');
+          if (!url || !String(url).trim()) return;
+          if (!hueco(pre)) { alert('Los 3 casilleros de adjuntos están ocupados: borra uno antes.'); return; }
+          try { var d = await post(U.nombre, { url: String(url).trim() }); poner(pre, sinExt(d.nombre), String(url).trim()); }
+          catch (e) { alert('No se ha podido adjuntar: ' + e.message); }
+        }],
+        ['Impreso toma datos', function () {
+          if (!U.fijo) { alert('No encuentro el Impreso toma datos en Drive.'); return; }
+          poner(pre, 'Impreso toma datos', U.fijo);
+        }],
+        ['Documento personalizado…', function () {
+          if (!window.ptlDocsModal) { alert('No está disponible en esta pantalla.'); return; }
+          window.ptlDocsModal({ ccppId: b.dataset.ccpp || '', modo: 'adjuntar', alAdjuntar: function (a) { subir(b, pre, a); } });
+        }]
+      ];
+    };
+    document.addEventListener('click', function (ev) {
+      var b = ev.target && ev.target.closest ? ev.target.closest('[data-adjmail]') : null;
+      if (!b) { if (menu && !menu.contains(ev.target)) cerrar(); return; }
+      ev.preventDefault();
+      if (menu) { cerrar(); return; }
+      var pre = b.dataset.adjmail, rc = b.getBoundingClientRect();
+      menu = document.createElement('div');
+      menu.style.cssText = 'position:fixed;left:' + Math.round(rc.left) + 'px;top:' + Math.round(rc.bottom + 4) + 'px;background:#fff;color:#111;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:10002;min-width:220px;padding:4px 0;font-size:12px';
+      opciones(b, pre).forEach(function (op) {
+        var o = document.createElement('div'); o.textContent = op[0]; o.setAttribute('data-adjmitem', '1');
+        o.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap';
+        o.addEventListener('mouseenter', function () { o.style.background = '#eef3fb'; });
+        o.addEventListener('mouseleave', function () { o.style.background = ''; });
+        o.addEventListener('click', function (e2) { e2.stopPropagation(); cerrar(); op[1](); });
+        menu.appendChild(o);
+      });
+      document.body.appendChild(menu);
+    }, true);
+  }
   function _clienteDocsModal(U) {
     var escH = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
     var q = function (u, extra) { return u + (u.indexOf('?') < 0 ? '?' : '&') + extra; };
@@ -6271,6 +6357,7 @@ module.exports = function (app) {
       <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
     </div>
   </nav>
+  <script>(${_clienteAdjMail.toString()})(${JSON.stringify({ subir: urlT(token, "/presupuestos/mail-adjunto/subir"), nombre: urlT(token, "/presupuestos/mail-adjunto/nombre"), fijo: _urlImpresoTomaDatos() })});</script>
   <script>(${_clienteDocsModal.toString()})(${JSON.stringify({ menu: urlT(token, "/presupuestos/docs/menu"), huecos: urlT(token, "/presupuestos/docs/huecos"), gen: urlT(token, "/presupuestos/docs/generar") })});</script>
   <script>window.__ptlHorario=${JSON.stringify(_horarioP)};window.__ptlHorarioTxt=${JSON.stringify(_horarioModP.textoHorario(_horarioP))};window.__ptlCalcHorario=${_horarioModP.calcHorario.toString()};</script>
   <script>(${_clienteConfirmarEnvio.toString()})(${JSON.stringify({ conv: urlT(token, "/presupuestos/hoy/conversacion") })});</script>
@@ -7584,16 +7671,18 @@ module.exports = function (app) {
                 <label class="ptl-form-label">CCO (opcional)</label>
                 <input type="text" id="ptlComScco" placeholder="separar con coma" class="ptl-input-modal"/>
               </div>
-              ${(_respTipo.length || _segManual) ? `<div>
-                <label class="ptl-form-label">${ICONO_MAIL} Respuestas tipo</label>
-                <select id="ptlComSresp" class="ptl-input-modal" style="height:28px;padding:2px 8px;font-size:12px;line-height:1.3"><option value="">— elegir —</option>${_segManual ? `<option value="seg">${esc(_segManual.nombre)}</option>` : ""}${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
+              ${(_respTipo.length || _segManual) ? `<div style="position:relative">
+                <button type="button" id="ptlComSrespBtn" class="ptl-btn ptl-btn-secondary ptl-btn-sm" title="Elige una respuesta y entra en el cuerpo del mensaje">${ICONO_MAIL} Respuestas tipo</button>
+                <div id="ptlComSrespMenu" style="display:none;position:absolute;left:0;top:100%;margin-top:4px;background:#fff;color:#111;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:3;min-width:260px;padding:4px 0;font-size:12px"></div>
+                <select id="ptlComSresp" style="display:none"><option value="">—</option>${_segManual ? `<option value="seg">${esc(_segManual.nombre)}</option>` : ""}${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
               </div>` : ""}
               <div>
                 <label class="ptl-form-label">Cuerpo del mensaje</label>
                 <textarea id="ptlComScuerpo" rows="10" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical"></textarea>
               </div>
               <div>
-                <label class="ptl-form-label">Adjuntos (links de Drive, hasta 3)</label>
+                <label class="ptl-form-label">Adjuntos (hasta 3)</label>
+                <div style="margin:0 0 6px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjmail="ptlComS" data-ccpp="${esc(String(comu.ccpp_id || ""))}" title="Desde tu dispositivo, Drive, el Impreso toma datos o un documento personalizado: rellena el primer casillero libre">\uD83D\uDCCE Adjuntar</button></div>   <!-- v177 -->
                 <div style="display:flex;flex-direction:column;gap:6px">
                   <div class="ptl-flex-g6">
                     <input type="text" id="ptlComSadj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" class="ptl-input-modal" style="flex:0 0 200px;width:auto"/>
@@ -7609,7 +7698,7 @@ module.exports = function (app) {
                   </div>
                 </div>
                 <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:4px">
-                  Los archivos se descargan de Drive y se adjuntan al mail. En el histórico solo se guardan los links.
+                  Lo que ya está en Drive solo se enlaza; lo de tu dispositivo y los documentos personalizados se guardan en la carpeta «adjuntos» del expediente. En el histórico se guardan los enlaces.
                 </div>
               </div>
             </div>
@@ -8078,6 +8167,20 @@ module.exports = function (app) {
               sCu.value = t + (sCu.value.replace(/^\\s+/, '') ? '\\n\\n' + sCu.value.replace(/^\\s+/, '') : '');
               setTimeout(function () { sCu.focus(); sCu.setSelectionRange(t.length, t.length); sCu.scrollTop = 0; }, 30);
             };
+            // v177 (criterio de Guille: "igualarlas") -- boton "📧 Respuestas tipo" con su lista, como el del WhatsApp
+            const bResp = document.getElementById('ptlComSrespBtn'), mResp = document.getElementById('ptlComSrespMenu');
+            if (bResp && mResp && sResp) {
+              Array.prototype.forEach.call(sResp.options, function (op) {
+                if (!op.value) return;
+                const o = document.createElement('div'); o.textContent = op.textContent; o.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap';
+                o.addEventListener('mouseenter', function () { o.style.background = '#eef3fb'; });
+                o.addEventListener('mouseleave', function () { o.style.background = ''; });
+                o.addEventListener('click', function (e) { e.stopPropagation(); mResp.style.display = 'none'; sResp.value = op.value; sResp.dispatchEvent(new Event('change')); });
+                mResp.appendChild(o);
+              });
+              bResp.addEventListener('click', function (e) { e.stopPropagation(); mResp.style.display = (mResp.style.display === 'none') ? 'block' : 'none'; });
+              document.addEventListener('click', function (e) { if (!mResp.contains(e.target)) mResp.style.display = 'none'; });
+            }
             if (sResp) sResp.addEventListener('change', async function () {
               if (sResp.value === 'seg' && SEG_M) {
                 sResp.value = ''; sResp.disabled = true;
@@ -8982,7 +9085,8 @@ module.exports = function (app) {
                   <textarea id="ptl-mm-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
                 </div>
                 <div class="ptl-mb10">
-                  <label class="ptl-label-2nd">Adjuntos (links de Drive, hasta 3)</label>
+                  <label class="ptl-label-2nd">Adjuntos (hasta 3)</label>
+                  <div style="margin:0 0 6px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjmail="ptl-mm-" title="Desde tu dispositivo, Drive, el Impreso toma datos o un documento personalizado: rellena el primer casillero libre">\uD83D\uDCCE Adjuntar</button></div>
                   <div style="display:flex;flex-direction:column;gap:6px">
                     <div class="ptl-flex-g6">
                       <input type="text" id="ptl-mm-adj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" class="ptl-select-200"/>
@@ -8998,7 +9102,7 @@ module.exports = function (app) {
                     </div>
                   </div>
                   <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:4px">
-                    Los archivos se descargan de Drive y se adjuntan al mail. En el histórico solo se guardan los links.
+                    Lo que ya está en Drive solo se enlaza; lo de tu dispositivo y los documentos personalizados se guardan en la carpeta «adjuntos» del expediente. En el histórico se guardan los enlaces.
                   </div>
                 </div>
                 <div id="ptl-mm-estado" style="font-size:11px;color:var(--ptl-gray-500);margin-top:8px"></div>
@@ -9043,6 +9147,7 @@ module.exports = function (app) {
           ['ptl-mm-adj1lbl','ptl-mm-adj1url','ptl-mm-adj2lbl','ptl-mm-adj2url','ptl-mm-adj3lbl','ptl-mm-adj3url']
             .forEach(function(id){ var el = document.getElementById(id); if (el) el.value = ''; });
           document.getElementById('ptl-mm-estado').textContent = '';
+          { const _bAm = document.querySelector('[data-adjmail="ptl-mm-"]'); if (_bAm) _bAm.dataset.ccpp = ccppId || ''; }   // v177
           // Cargar plantilla del servidor
           try {
             const r = await fetch('${urlT(token, "/presupuestos/plantilla-mail")}&fase=' + encodeURIComponent(fase) + '&id=' + encodeURIComponent(ccppId));
@@ -16428,7 +16533,7 @@ module.exports = function (app) {
               h+='<div class="ptl-mb10"><label class="ptl-label-2nd">CC</label><input id="ptl-ult-cc" type="text" style="'+s+'"/></div>';
               h+='<div class="ptl-mb10"><label class="ptl-label-2nd">CCO <span style="color:var(--ptl-gray-400);font-weight:normal">(oculta, separar con coma)</span></label><input id="ptl-ult-cco" type="text" style="'+s+'"/></div>';
               h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Mensaje</label><textarea id="ptl-ult-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea></div>';
-              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Adjuntos (links de Drive, hasta 3)</label><div style="display:flex;flex-direction:column;gap:6px">';
+              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Adjuntos (hasta 3)</label><div style="margin:0 0 6px"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjmail="ptl-ult-" title="Desde tu dispositivo, Drive, el Impreso toma datos o un documento personalizado: rellena el primer casillero libre">\uD83D\uDCCE Adjuntar</button></div><div style="display:flex;flex-direction:column;gap:6px">';
               h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj1lbl" placeholder="Etiqueta (ej: DISIDENTES)" class="ptl-select-200"/><input type="text" id="ptl-ult-adj1url" placeholder="https://drive.google.com/..." class="ptl-input-flex"/></div>';
               h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj2lbl" placeholder="Etiqueta" class="ptl-select-200"/><input type="text" id="ptl-ult-adj2url" placeholder="https://drive.google.com/..." class="ptl-input-flex"/></div>';
               h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj3lbl" placeholder="Etiqueta" class="ptl-select-200"/><input type="text" id="ptl-ult-adj3url" placeholder="https://drive.google.com/..." class="ptl-input-flex"/></div>';
@@ -16458,6 +16563,7 @@ module.exports = function (app) {
               document.getElementById('ptl-ult-mensaje').value=''; document.getElementById('ptl-ult-dest').value='';
               document.getElementById('ptl-ult-cc').value=''; document.getElementById('ptl-ult-cco').value='';
               ['ptl-ult-adj1lbl','ptl-ult-adj1url','ptl-ult-adj2lbl','ptl-ult-adj2url','ptl-ult-adj3lbl','ptl-ult-adj3url'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+              var _bAu=document.querySelector('[data-adjmail="ptl-ult-"]'); if(_bAu) _bAu.dataset.ccpp=ccppId||'';   // v177
               document.getElementById('ptl-ult-estado').textContent='';
               // v19.29 -- En el paso de PRORROGA los botones dicen lo que pasa de verdad.
               var _esProrroga=/^ampliar/.test(accion);
@@ -17939,6 +18045,44 @@ module.exports = function (app) {
   // POST /presupuestos/hoy/responder-bot  (v122) -- Guille contesta a un vecino desde Avisos POR EL BOT.
   //   body: tel, texto, ayuda (1 = es una "Pide ayuda"). El bot comprueba la ventana de 24 h de WhatsApp.
   //   v127: con adjunto llega en JSON (archivo: {nombre, mime, b64} o {fijo: "solicitud"|"autorizacion"}).
+  // v177 -- enlace de Drive del Impreso toma datos (el mismo archivo que adjunta el bot), para los correos
+  function _urlImpresoTomaDatos() {
+    const md = (app.locals.botWhatsapp && app.locals.botWhatsapp.mediaDrive) || {};
+    const id = extraerIdDrive(md.solicitud || "");
+    return id ? "https://drive.google.com/file/d/" + id + "/view" : "";
+  }
+  // POST /presupuestos/mail-adjunto/subir (v177) -- { ccpp, nombre, mime, b64 }: guarda el archivo en la carpeta
+  //   "adjuntos" del expediente y devuelve { ok, nombre, url } para el casillero del correo.
+  app.post("/presupuestos/mail-adjunto/subir", require("body-parser").json({ limit: "25mb" }), async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const b = req.body || {};
+      const comu = await buscarComunidadPorId(String(b.ccpp || ""));
+      if (!comu) return res.json({ ok: false, error: "no encuentro la comunidad de este correo" });
+      const buf = Buffer.from(String(b.b64 || ""), "base64");
+      if (!buf.length) return res.json({ ok: false, error: "el archivo est\u00e1 vac\u00edo" });
+      if (buf.length > 15 * 1024 * 1024) return res.json({ ok: false, error: "pasa de 15 MB" });
+      const carpeta = await _getOrCreateCarpetaAdjuntosExpediente(comu.tipo_via, comu.direccion);
+      if (!carpeta) return res.json({ ok: false, error: "no hay carpeta de Drive para este expediente" });
+      const nombre = String(b.nombre || "documento").replace(/[\\/|]/g, "_");
+      const sub = await _subirBufferADrive(buf, nombre, String(b.mime || "application/octet-stream"), carpeta);
+      res.json({ ok: true, nombre, url: sub.webViewLink || ("https://drive.google.com/file/d/" + sub.id + "/view") });
+    } catch (e) { res.json({ ok: false, error: e.message }); }
+  });
+  // POST /presupuestos/mail-adjunto/nombre (v177) -- { url }: nombre del archivo de Drive (para la etiqueta del casillero);
+  //   si la cuenta del programa no lo puede leer pero el enlace es publico, sin nombre; si no, error.
+  app.post("/presupuestos/mail-adjunto/nombre", require("body-parser").json({ limit: "1mb" }), async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const url = String((req.body && req.body.url) || "");
+    const id = extraerIdDrive(url);
+    if (!id) return res.json({ ok: false, error: "no es un enlace de Drive (tiene que ser del tipo drive.google.com/file/d/...)" });
+    try { const m = (await getDriveClient().files.get({ fileId: id, fields: "name", supportsAllDrives: true })).data || {}; return res.json({ ok: true, nombre: String(m.name || "") }); }
+    catch (e) {
+      const v = await verificarLinkDrive(url).catch(() => ({ ok: false }));
+      if (v && v.ok) return res.json({ ok: true, nombre: "" });
+      return res.json({ ok: false, error: "el programa no puede leer ese documento (comp\u00e1rtelo con su cuenta de Google o rev\u00edsa el enlace)" });
+    }
+  });
   // POST /presupuestos/hoy/drive-adjunto (v175) -- baja un documento de Drive por su enlace para adjuntarlo en Contestar
   //   por el bot: { url } -> { ok, nombre, mime, b64 }. Con la cuenta de Google del programa (la de los enlaces de los
   //   correos): no cambia permisos. Solo PDF, JPG o PNG (un documento de Google sale en PDF), hasta 10 MB.
