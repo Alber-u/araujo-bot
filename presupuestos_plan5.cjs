@@ -1920,7 +1920,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
   var _pasoDoc = null;
   if(docsGP && docsGP.pasoInstalaciones){
     var _cn = String(condiciones||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
-    if(_cn.indexOf("paso de instalaciones a traves de su propiedad.") >= 0) _pasoDoc = docsGP.pasoInstalaciones;
+    // v165 (24/10/2026, criterio de Guille; caso Francisco Meneses 4 "...de su propiedad (garage)"): sin exigir el punto final
+    if(_cn.indexOf("paso de instalaciones a traves de su propiedad") >= 0) _pasoDoc = docsGP.pasoInstalaciones;
   }
     var _p5fname = ("Presupuesto Nº " + np + " - " + via + ((num!=null&&num!=="")?(" "+String(num)):"") + " (" + String(rev).split(" ")[0] + ") (presupuesto)(FALTA FIRMA)").replace(/[\/\\:*?"<>|]+/g," ").replace(/\s+/g," ").trim();
 

@@ -877,6 +877,20 @@ const CASOS = [
       ];
     },
   },
+  // ===== v165: autorización de paso aunque la frase no acabe en punto =====
+  {
+    nombre: "Presupuesto: sale la «Autorización paso de instalaciones» aunque detrás de «su propiedad» no haya punto (Francisco Meneses 4 «(garage)»)",
+    desde: "v165",
+    prueba: async (S) => {
+      const docs = async (re) => { const r = S.DATA.plan5_toma_datos.find((x, j) => j > 0 && re.test(String(x[0] || ""))); if (!r) return -1; const h = String((await S.call("GET", "/plan5/presupuesto", { dir: r[0] })).body || ""); return (h.match(/class="sheet legal gpdoc"/g) || []).length; };
+      const fm = await docs(/FRANCISCO MENESES 4/i), sp = await docs(/S[AÁ]NCHEZ PIZJU[AÁ]N 6/i), bl = await docs(/BALLENA 6/i);
+      return [
+        [fm === 2, "Francisco Meneses 4: grupo de presión + autorización de paso (2 documentos)", fm],
+        [sp === 1, "Sánchez Pizjuán 6 (enviado) no cambia", sp],
+        [bl === 2, "Ballena 6 (frase con punto) sigue igual", bl],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
