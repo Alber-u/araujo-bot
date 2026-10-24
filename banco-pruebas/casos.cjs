@@ -971,7 +971,7 @@ const CASOS = [
       const rt = (((await S.call("GET", "/presupuestos/hoy/conversacion", { tel: f[0] })).body || {}).respTipo || [])[0] || {};
       const partes = String(rt.texto || "").split("\n\n");
       return [
-        [partes.length >= 4 && /^Buenas Rosa.*,$/.test(partes[0]) && /^Gracias por la documentaci/.test(partes[1]) && /^¿Nos p/.test(partes[2]) && partes[partes.length - 1] === "Muchas gracias.", "en párrafos: saludo / lo que pasa / la pregunta / … / Muchas gracias.", JSON.stringify(rt.texto)],
+        [partes.length >= 4 && /^Buenas Rosa[^,]*,$/.test(partes[0]) && /^Gracias por la documentaci/.test(partes[1]) && /^¿Nos p/.test(partes[2]) && partes[partes.length - 1] === "Muchas gracias.", "en párrafos: saludo / lo que pasa / la pregunta / … / Muchas gracias.", JSON.stringify(rt.texto)],
       ];
     },
   },
@@ -1023,6 +1023,24 @@ const CASOS = [
         [/no es un enlace de Drive/.test(e1), "un enlace que no es de Drive se rechaza con un aviso claro", e1],
         [r.body && r.body.ok === false && /no es un enlace de Drive/.test(String(r.body.error || "")), "la ruta contesta con el aviso, sin romper", JSON.stringify(r.body)],
         [/"drive":"[^"]*\/presupuestos\/hoy\/drive-adjunto/.test(hoy), "la ventana sabe a qué ruta pedirlo", ""],
+      ];
+    },
+  },
+  // ===== v176: el saludo de las respuestas tipo, con el nombre de pila =====
+  {
+    nombre: "Respuestas tipo: «Buenas Rosa Mª,» / «Buenas Antonio,» (solo el nombre de pila) y los titulares completos (Malvaloca 1 5A y 4C)",
+    desde: "v176",
+    prueba: async (S) => {
+      const piso = (v) => S.DATA.pisos.find((x, i) => i > 0 && /malvaloca 1/i.test(String(x[1] || "")) && String(x[2] || "").trim().toUpperCase() === v);
+      const rt = async (f) => f ? ((((await S.call("GET", "/presupuestos/hoy/conversacion", { tel: f[0] })).body || {}).respTipo || [])[0] || {}).texto || "" : "";
+      const a = await rt(piso("5A")), b = await rt(piso("4C"));
+      let NV = {}; try { NV = require(require("path").join(S.RAIZ, "nombre-vecino.cjs")); } catch (e) {}
+      const casos = [["Enrique José Pérez de la Rosa Ruiz", "Enrique José"], ["María de los Ángeles García López", "María de los Ángeles"], ["Manuela Rodríguez de la Cruz", "Manuela"], ["(T) Ana Cristina Barroso Ruiz", "Ana Cristina"], ["Carlos Blanco", "Carlos"], ["Dolores López de la Puente / © Rosa (HIJA)", "Dolores"]];
+      const mal = typeof NV.nombrePila === "function" ? casos.filter(([n, e]) => NV.nombrePila(n) !== e) : casos;
+      return [
+        [/^Buenas Rosa Mª,\n/.test(a) && /Rafael Santisteban Conejo y Mª Esperanza Nogales Delgado\./.test(a), "5A: «Buenas Rosa Mª,» y los dos titulares completos", JSON.stringify(a.slice(0, 200))],
+        [/^Buenas Antonio,\n/.test(b) && /Honeykiss SL\./.test(b), "4C: «Buenas Antonio,»", JSON.stringify(b.slice(0, 120))],
+        [!mal.length, "nombres compuestos y apellidos con «de la» bien separados", JSON.stringify(mal)],
       ];
     },
   },

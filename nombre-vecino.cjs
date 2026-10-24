@@ -49,11 +49,45 @@ function esSociedad(n) {
   return /(^|[\s,])(S\.?\s?L\.?(\s?U\.?)?|S\.?\s?A\.?(\s?U\.?)?|S\.?\s?C\.?|C\.?\s?B\.?)$/i.test(t) || /\b(SOCIEDAD|SOCIMI|LIMITADA|AN[OÓ]NIMA)\b/i.test(t);
 }
 function notaEsSociedad(nota) { return titularesDeNota(nota).some(esSociedad); }
+// v176 (24/10/2026, criterio de Guille: "los saludos solo con el nombre... los titulares completos") -- nombre de pila:
+//   la primera palabra y, detras, las que sean nombres de pila conocidos ("Rosa Mª", "Enrique José", "Ana Cristina"),
+//   tambien con "del/de la/de los" + nombre ("María del Carmen", "Mª del Valle", "María de los Ángeles"). Asi no se
+//   confunde con los apellidos compuestos ("Rodríguez de la Cruz", "Pérez de la Rosa"). Lo de detras de "/" o entre
+//   parentesis no cuenta. Empresas y organismos: el nombre entero. Si falla, Guille lo corrige en el recuadro.
+const _NOMBRES = new Set(("mª m.ª ma aº jª fº josé jose maría maria manuel antonio juan luis carlos miguel ángel angel francisco javier jesús jesus " +
+  "rafael pedro pablo andrés andres alberto alejandro fernando enrique ignacio joaquín joaquin jorge víctor victor vicente ramón ramon " +
+  "alfonso agustín agustin emilio eduardo daniel david diego gonzalo guillermo jaime julio lorenzo mario martín martin nicolás nicolas " +
+  "óscar oscar ricardo roberto rodrigo salvador santiago sergio tomás tomas félix felix federico gabriel gregorio hugo iván ivan " +
+  "cristina carmen isabel pilar dolores rosa rosario mercedes teresa ana lucía lucia elena laura marta patricia paula raquel sara sonia " +
+  "susana beatriz silvia eva inmaculada josefa encarnación encarnacion concepción concepcion esperanza francisca antonia manuela " +
+  "victoria virginia asunción asuncion amparo ángeles angeles auxiliadora consolación consolacion inés ines irene julia luisa macarena " +
+  "magdalena milagros montserrat natalia nieves noelia nuria olga reyes rocío rocio soledad trinidad yolanda belén belen candelaria " +
+  "esther gloria lourdes margarita marina mónica monica alicia andrea adela aurora carolina celia clara elisa emilia estrella eugenia " +
+  "fátima fatima gema gemma guadalupe josefina leonor lidia loreto lola mar paloma regina remedios rosalía rosalia salud sagrario " +
+  "valle o luz cruz rosal sagrado corazón corazon").split(" "));
+const _NOMBRE_TRAS_PART = new Set("carmen valle o mar pilar rosario rocío rocio ángeles angeles consolación consolacion dolores mercedes montserrat luz cruz reyes nieves salud sagrario remedios milagros soledad gracia paz".split(" "));
+function nombrePila(nombre) {
+  const limpio = String(nombre || "").replace(/^\s*(\([^)]*\)\s*)+/, "").split("/")[0].replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  if (!limpio) return "";
+  if (esSociedad(limpio) || /\b(ayuntamiento|comunidad|delegaci[oó]n|junta|consejer[ií]a|ministerio|excmo|iltmo)\b/i.test(limpio)) return limpio;
+  const w = limpio.split(" ");
+  const out = [w[0]];
+  let i = 1;
+  while (i < w.length - 1) {
+    const x = w[i].toLowerCase();
+    if (_NOMBRES.has(x)) { out.push(w[i]); i++; continue; }
+    // "del Carmen", "de la O", "de los Ángeles"
+    let k = i; while (k < w.length - 1 && /^(de|del|la|las|los)$/i.test(w[k])) k++;
+    if (k > i && k < w.length - 1 && _NOMBRE_TRAS_PART.has(w[k].toLowerCase())) { out.push(...w.slice(i, k + 1)); i = k + 1; continue; }
+    break;
+  }
+  return out.join(" ");
+}
 function rellenarRespuestaTipo(plantilla, nota, nombre) {
-  const nb = String(nombre || "").replace(/^\s*(\([^)]*\)\s*)+/, "").replace(/\s+/g, " ").trim();
+  const nb = nombrePila(nombre);   // v176: el saludo, solo con el nombre de pila
   const tit = titularesDeNota(nota);
   const lista = !tit.length ? "[titulares]" : (tit.length === 1 ? tit[0] : tit.slice(0, -1).join(", ") + " y " + tit[tit.length - 1]);
   const conQuien = !tit.length ? "[ellos / esa persona]" : (tit.length > 1 ? "ellos" : "esa persona");
   return String(plantilla || "").replace(/\{nombre\}/g, nb || "[nombre]").replace(/\{titulares\}/g, lista).replace(/\{con_quien\}/g, conQuien);
 }
-module.exports = { saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, esSociedad, notaEsSociedad, RESP_NOTA_SIMPLE, RESP_NOTA_SIMPLE_SOCIEDAD, RESP_NOTA_SIMPLE_VIEJOS };
+module.exports = { saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, nombrePila, esSociedad, notaEsSociedad, RESP_NOTA_SIMPLE, RESP_NOTA_SIMPLE_SOCIEDAD, RESP_NOTA_SIMPLE_VIEJOS };
