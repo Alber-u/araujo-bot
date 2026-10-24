@@ -1996,7 +1996,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
 .firma .fleft table.fsig td{ width:50%; padding:0 6px 0 0; vertical-align:top; line-height:1.0; }
 .firma .fleft .fsigwrap{ position:relative; }
 .firma .fleft .fsello{ position:absolute; bottom:-1mm; right:-1mm; width:100px; height:auto; }
-.condpart{ color:#c00; white-space:pre-line; line-height:1.3; margin:4px 0 6px; min-height:9.1em; }
+.condpart{ color:#c00; white-space:pre-line; line-height:1.3; margin:4px 0 6px; min-height:9.1em; text-align:justify; }   /* v164: justificadas como las clausulas */
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
   table.firma td.fp{ width:48%; border:1px solid var(--navy); padding:6px 8px; vertical-align:top; }
   .fptab{ width:100%; border-collapse:collapse; color:var(--navy); font-weight:bold; }

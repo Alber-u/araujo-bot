@@ -862,6 +862,21 @@ const CASOS = [
       ];
     },
   },
+  // ===== v164: condiciones particulares justificadas =====
+  {
+    nombre: "Presupuesto: las condiciones particulares (en rojo) van justificadas, como las cláusulas",
+    desde: "v164",
+    prueba: async (S) => {
+      const r = S.DATA.plan5_toma_datos.find((x, j) => j > 0 && /FRANCISCO MENESES 4/i.test(String(x[0] || "")));
+      if (!r) return [[false, "está Francisco Meneses 4 en plan5_toma_datos", "no"]];
+      const h = String((await S.call("GET", "/plan5/presupuesto", { dir: r[0] })).body || "");
+      const css = (h.match(/\.condpart\{[^}]*\}/) || [""])[0];
+      return [
+        [/text-align:\s*justify/.test(css), "el estilo de las condiciones particulares justifica el texto", css],
+        [/class="condpart">[^<]*supeditado/.test(h), "las condiciones de Francisco Meneses 4 salen en el impreso", ""],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
