@@ -2746,6 +2746,7 @@ module.exports = function (app) {
       flujo_largo_sin_paginas: ["flujo_largo_sin_paginas", "vecino", "texto", "", "", "{documento}", "SI", "v128: responde 1 sin haber mandado ninguna pagina"],
       firma_equipo: ["firma_equipo", "vecino", "texto", "", "", "", "SI", "v150: va encima de lo que escribe Guille por Contestar por el bot"],
       resp_nota_simple: ["resp_nota_simple", "vecino", "texto", "", "", "{nombre} {titulares} {con_quien}", "SI", "v170: respuesta tipo de Contestar por el bot (Nota simple a nombre de otro)"],
+      resp_herencia: ["resp_herencia", "vecino", "texto", "", "", "{nombre} {falta_impreso_dni}", "SI", "v181: respuesta tipo de Contestar por el bot (herencia)"],
       resp_doc_completa: ["resp_doc_completa", "vecino", "texto", "", "", "{nombre}", "SI", "v179: respuesta tipo de Contestar por el bot (documentacion completa)"],
       resp_nota_simple_sociedad: ["resp_nota_simple_sociedad", "vecino", "texto", "", "", "{nombre} {titulares}", "SI", "v174: respuesta tipo de Contestar por el bot (Nota simple a nombre de una sociedad)"],
       // v126 -- avisos M por el bot (plantillas de Alberto): la fila se crea al guardar su HX
@@ -2917,6 +2918,11 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const rows = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS })).data.values || [];
     const _NV = require("./nombre-vecino.cjs");
+    // v181: la de herencia, si aun no existe su fila
+    if (!rows.some(x => x && String(x[0] || "").trim() === "resp_herencia")) {
+      await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: [["resp_herencia", "vecino", "texto", _NV.RESP_HERENCIA, "", "{nombre} {falta_impreso_dni}", "SI", "v181: respuesta tipo de Contestar por el bot (herencia)"]] } });
+      console.log("[presupuestos] v181: creada la fila resp_herencia");
+    }
     // v179: la de documentacion completa, si aun no existe su fila
     if (!rows.some(x => x && String(x[0] || "").trim() === "resp_doc_completa")) {
       await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: [["resp_doc_completa", "vecino", "texto", _NV.RESP_DOC_COMPLETA, "", "{nombre}", "SI", "v179: respuesta tipo de Contestar por el bot (documentacion completa)"]] } });
@@ -10643,6 +10649,7 @@ module.exports = function (app) {
       card("flujo_largo_sin_paginas","doc - \"1\" sin ninguna página ({documento})",{}),   // v128
       card("firma_equipo","Firma del equipo (sale escrita en el recuadro al contestar por el bot)",{}),   // v150; v155: va dentro del recuadro
       card("resp_nota_simple","Respuestas tipo: Nota simple (titular distinto) ({nombre} {titulares})",{}),   // v170
+      card("resp_herencia","Respuestas tipo: Herencia (documentos) ({nombre} {falta_impreso_dni})",{}),   // v181
       card("resp_doc_completa","Respuestas tipo: Documentaci\u00f3n completa ({nombre})",{}),   // v179
       card("resp_nota_simple_sociedad","Respuestas tipo: Nota simple (titular distinto) si el titular es una sociedad ({nombre} {titulares})",{}),   // v174
       card("flujo_sin_ia","texto del vecino con la IA dormida (sustituida por las dos de arriba)",{}),   // v19.118; v128: lo sustituyen las dos de arriba
@@ -18118,6 +18125,20 @@ module.exports = function (app) {
         const _rn = _pls.find(x => x.clave === _clv);   // sin fila todavia: el texto de siempre
         const _tn = _rn ? (_rn.activo ? String(_rn.texto || "").trim() : "") : (_soc ? _NV.RESP_NOTA_SIMPLE_SOCIEDAD : _NV.RESP_NOTA_SIMPLE);
         if (_tn) respTipo.push({ nombre: "Nota simple (titular distinto)", texto: _NV.rellenarRespuestaTipo(_tn, _notaV, _nomV) });
+        // v181 -- "Herencia (documentos)": la linea del Impreso toma datos y el DNI solo si no los ha mandado (cualquier estado)
+        const _rh = _pls.find(x => x.clave === "resp_herencia");
+        const _th = _rh ? (_rh.activo ? String(_rh.texto || "").trim() : "") : _NV.RESP_HERENCIA;
+        if (_th) {
+          const _tipos = docs.map(d => String(d.tipo || ""));
+          try {   // y lo que el bot dio por recibido (bot_expedientes documentos_recibidos): si Guille luego lo marco F, sigue contando como mandado
+            const _ex = (await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AE" })).data.values || [];
+            const _iR = (_ex[0] || []).map(x => String(x || "").trim()).indexOf("documentos_recibidos");
+            const _fx = _iR < 0 ? null : _ex.slice(1).find(r => r && t9(r[0]) === k);
+            if (_fx) String(_fx[_iR] || "").split(",").map(x => x.trim()).filter(Boolean).forEach(x => _tipos.push(x));
+          } catch (e3) {}
+          const _linea = _NV.lineaFaltaImpresoDni(_tipos.some(t => t === "solicitud_firmada"), _tipos.some(t => /^dni_/.test(t)));
+          respTipo.push({ nombre: "Herencia (documentos)", texto: _NV.rellenarRespuestaTipo(_th, _notaV, _nomV).replace(/\{falta_impreso_dni\}/g, _linea) });
+        }
         // v179 -- "Documentacion completa": si le queda algo sin OK en Datos documentacion, aviso (el bot seguiria mandando recordatorios)
         const _rc = _pls.find(x => x.clave === "resp_doc_completa");
         const _tc = _rc ? (_rc.activo ? String(_rc.texto || "").trim() : "") : _NV.RESP_DOC_COMPLETA;

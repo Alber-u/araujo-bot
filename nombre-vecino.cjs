@@ -93,4 +93,13 @@ function rellenarRespuestaTipo(plantilla, nota, nombre) {
 // v179 (24/10/2026, criterio de Guille: "para cerrar conversaciones... su documentacion esta completa") -- respuesta tipo
 //   "Documentacion completa" (la n.º 2 de §6.21.6, "Lo tenemos todo").
 const RESP_DOC_COMPLETA = "Buenas {nombre},\n\nYa tenemos toda la documentaci\u00f3n de su vivienda, completa y correcta.\n\nNosotros nos encargamos ahora de tramitarla con EMASESA. Si necesit\u00e1ramos algo m\u00e1s, se lo dir\u00edamos por aqu\u00ed.\n\nMuchas gracias.";
-module.exports = { RESP_DOC_COMPLETA, saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, nombrePila, esSociedad, notaEsSociedad, RESP_NOTA_SIMPLE, RESP_NOTA_SIMPLE_SOCIEDAD, RESP_NOTA_SIMPLE_VIEJOS };
+// v181 (24/10/2026, criterio de Guille: "¿podríamos hacer una respuesta tipo así?"; caso Malvaloca 1 5A) -- respuesta tipo
+//   "Herencia (documentos)". {falta_impreso_dni}: la linea del Impreso toma datos y el DNI, SOLO si no los ha mandado.
+const RESP_HERENCIA = "Buenas {nombre},\n\nEn los casos de herencia, a EMASESA le basta con el testamento y el certificado de defunci\u00f3n, o con la declaraci\u00f3n de herederos, en los que aparezca usted entre los herederos.{falta_impreso_dni}\n\nMuchas gracias.";
+function lineaFaltaImpresoDni(tieneImpreso, tieneDni) {
+  const f = [];
+  if (!tieneImpreso) f.push("su Impreso toma datos, rellenado y firmado por usted");
+  if (!tieneDni) f.push("su DNI por las dos caras");
+  return f.length ? "\n\nJunto con ellos, necesitamos " + f.join(", y ") + "." : "";
+}
+module.exports = { RESP_HERENCIA, lineaFaltaImpresoDni, RESP_DOC_COMPLETA, saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, nombrePila, esSociedad, notaEsSociedad, RESP_NOTA_SIMPLE, RESP_NOTA_SIMPLE_SOCIEDAD, RESP_NOTA_SIMPLE_VIEJOS };

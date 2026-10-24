@@ -1172,6 +1172,26 @@ const CASOS = [
       ];
     },
   },
+  // ===== v181: respuesta tipo «Herencia (documentos)» y normas para redactar =====
+  {
+    nombre: "Respuestas tipo: «Herencia (documentos)» entre «Nota simple» y «Documentación completa», sin pedir el impreso ni el DNI si ya los mandó (Malvaloca 1 5A); y la Respuesta sugerida lee las normas para redactar",
+    desde: "v181",
+    prueba: async (S) => {
+      const path = require("path");
+      let NV = {}, RS = {}; try { NV = require(path.join(S.RAIZ, "nombre-vecino.cjs")); RS = require(path.join(S.RAIZ, "respuesta-sugerida.cjs")); } catch (e) {}
+      const f = S.DATA.pisos.find((x, i) => i > 0 && /malvaloca 1/i.test(String(x[1] || "")) && String(x[2] || "").trim().toUpperCase() === "5A");
+      const rt = (((await S.call("GET", "/presupuestos/hoy/conversacion", { tel: f[0] })).body || {}).respTipo || []);
+      const nombres = rt.map(x => x.nombre), h = (rt.find(x => x.nombre === "Herencia (documentos)") || {}).texto || "";
+      const linea = typeof NV.lineaFaltaImpresoDni === "function" ? [NV.lineaFaltaImpresoDni(true, true), NV.lineaFaltaImpresoDni(false, true), NV.lineaFaltaImpresoDni(false, false)] : [];
+      const normas = typeof RS.normasDelManual === "function" ? RS.normasDelManual() : "";
+      return [
+        [JSON.stringify(nombres) === JSON.stringify(["Nota simple (titular distinto)", "Herencia (documentos)", "Documentación completa"]), "orden: Nota simple / Herencia / Documentación completa", JSON.stringify(nombres)],
+        [/^Buenas Rosa Mª,\n\nEn los casos de herencia, a EMASESA le basta con el testamento y el certificado de defunción, o con la declaración de herederos, en los que aparezca usted entre los herederos\.\n\nMuchas gracias\.$/.test(h), "Rosa ya mandó impreso y DNI: sin la línea de «Junto con ellos»", JSON.stringify(h)],
+        [linea[0] === "" && /necesitamos su Impreso toma datos, rellenado y firmado por usted\.$/.test(linea[1] || "") && /Impreso toma datos, rellenado y firmado por usted, y su DNI por las dos caras\.$/.test(linea[2] || ""), "la línea pide solo lo que falta", JSON.stringify(linea)],
+        [/La Nota simple va primero/.test(normas) && /No pedir lo que ya tenemos/.test(normas) && /Fallecimientos, con tacto/.test(normas), "la Respuesta sugerida lee las normas para redactar del manual", normas.length],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
