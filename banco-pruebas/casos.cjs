@@ -937,12 +937,27 @@ const CASOS = [
       const rt = (d.respTipo || [])[0] || {};
       const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
       const src = fs.readFileSync(path.join(S.RAIZ, "presupuestos.cjs"), "utf8");
-      const iBtn = hoy.indexOf("data-rtipo"), iAdj = hoy.indexOf("data-adjpc=");
+      const iBtn = hoy.indexOf("data-rtipo"), iAdj = hoy.indexOf("data-adjbtn=") > 0 ? hoy.indexOf("data-adjbtn=") : hoy.indexOf("data-adjpc=");
       return [
         [rt.nombre === "Nota simple (titular distinto)", "la respuesta tipo se llama «Nota simple (titular distinto)»", JSON.stringify(rt.nombre)],
         [/figura a nombre de Rafael Santisteban Conejo y M\S* Esperanza Nogales Delgado\./.test(rt.texto || "") && /con ellos\?/.test(rt.texto || "") && /^Buenas Rosa/.test(rt.texto || "") && /Muchas gracias\.$/.test(rt.texto || ""), "texto relleno con su nombre y los dos titulares («con ellos»)", rt.texto],
         [iBtn > 0 && iAdj > 0 && iBtn < iAdj && hoy.indexOf('"icoWa":"💬"') > 0, "el botón va a la izquierda de Adjuntar, con el 💬 de estilo-visual", iBtn + " / " + iAdj],
         [src.indexOf('<label class="ptl-form-label">${ICONO_MAIL} Respuestas tipo</label>') > 0 && src.indexOf("Insertar respuesta tipo</label>") < 0, "en el correo, «📧 Respuestas tipo» (antes «Insertar respuesta tipo»)", ""],
+      ];
+    },
+  },
+  // ===== v171: un solo «📎 Adjuntar» con su lista =====
+  {
+    nombre: "Contestar por el bot: un solo botón «📎 Adjuntar» con «Desde mi PC… / Impreso toma datos / Documento personalizado…» (antes 3 botones)",
+    desde: "v171",
+    prueba: async (S) => {
+      const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      const i = hoy.indexOf("data-amenu"), menu = i < 0 ? "" : hoy.slice(i, hoy.indexOf("</div></span>", i));
+      const op = (menu.match(/data-aitem="1"[^>]*>[^<]*</g) || []).map(x => x.replace(/^[^>]*>|<$/g, ""));
+      return [
+        [/data-adjbtn="1"[^>]*>\\uD83D\\uDCCE Adjuntar</.test(hoy), "hay un botón «📎 Adjuntar»", ""],
+        [JSON.stringify(op) === JSON.stringify(["Desde mi PC\\u2026", "Impreso toma datos", "Documento personalizado\\u2026"]), "su lista, en este orden: Desde mi PC… / Impreso toma datos / Documento personalizado…", JSON.stringify(op)],
+        [!/class="ptl-btn[^"]*"[^>]*data-fijo=/.test(hoy) && !/\\uDCC4 documento<\/button>/.test(hoy), "ya no están los botones sueltos «Impreso toma datos» y «📄 documento»", ""],
       ];
     },
   },

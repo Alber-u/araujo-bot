@@ -544,9 +544,12 @@ module.exports = function (app) {
               + '<div data-adj="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px">'
               + '<span style="position:relative;display:inline-block"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-rtipo="1" title="Elige una respuesta y se escribe en el recuadro (la ves antes de enviar)">' + (U.icoWa || '') + ' Respuestas tipo</button>'   // v170
               + '<div data-rmenu="1" style="display:none;position:absolute;left:0;bottom:100%;margin-bottom:4px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:2;min-width:240px;padding:4px 0"></div></span>'
-              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjpc="1" title="PDF, JPG o PNG (hasta 10 MB)">\uD83D\uDCCE Adjuntar</button>'
-              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="solicitud">Impreso toma datos</button>'
-              + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-docs="1" title="Elige un documento del programa, rell\u00e9nalo y se adjunta">\uD83D\uDCC4 documento</button>'   // v128: menu de Imprimir documentos (antes: autorizacion usufructo en blanco)
+              + '<span style="position:relative;display:inline-block"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjbtn="1" title="Desde tu PC, el Impreso toma datos o un documento personalizado">\uD83D\uDCCE Adjuntar</button>'   // v171: un solo boton con su lista (antes 3 botones)
+              + '<div data-amenu="1" style="display:none;position:absolute;left:0;bottom:100%;margin-bottom:4px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:2;min-width:220px;padding:4px 0">'
+              + '<div data-adjpc="1" data-aitem="1" title="PDF, JPG o PNG (hasta 10 MB)">Desde mi PC\u2026</div>'
+              + '<div data-fijo="solicitud" data-aitem="1">Impreso toma datos</div>'
+              + '<div data-docs="1" data-aitem="1" title="Elige un documento del programa; sale relleno con los datos del vecino y del piso">Documento personalizado\u2026</div>'
+              + '</div></span>'
               + '<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:none">'
               + '<span data-chip="1" style="display:none;align-items:center;gap:4px;background:#e8f0fe;border:1px solid #9bb8d8;border-radius:999px;padding:2px 8px"><span data-chipn="1"></span><a href="#" data-chipx="1" title="Quitar el adjunto" style="text-decoration:none;color:#a32d2d;font-weight:700">\u2715</a></span>'
               + '</div>'
@@ -592,6 +595,7 @@ module.exports = function (app) {
       if (bRt) bRt.addEventListener('click', function (ev) {
         ev.stopPropagation();
         if (mRt.style.display !== 'none') { mRt.style.display = 'none'; return; }
+        var _mA = fondo.querySelector('[data-amenu]'); if (_mA) _mA.style.display = 'none';   // v171
         Promise.resolve(_convP).then(function (d) {
           var lista = (d && d.respTipo) || [];
           mRt.innerHTML = '';
@@ -619,6 +623,17 @@ module.exports = function (app) {
       var adj = null, fin = fondo.querySelector('input[type=file]'), chip = fondo.querySelector('[data-chip]');
       var ponAdj = function (a, nom) { adj = a; chip.style.display = a ? 'inline-flex' : 'none'; fondo.querySelector('[data-chipn]').textContent = a ? '\uD83D\uDCCE ' + nom : ''; };
       fondo.querySelector('[data-chipx]').addEventListener('click', function (e) { e.preventDefault(); fin.value = ''; ponAdj(null); });
+      // v171 (24/10/2026, criterio de Guille: "un botón de respuestas tipo y otro de adjuntar documentos") -- Adjuntar abre
+      //   su lista: Desde mi PC / Impreso toma datos / Documento personalizado (el menu de Imprimir documentos, relleno)
+      var bAd = fondo.querySelector('[data-adjbtn]'), mAd = fondo.querySelector('[data-amenu]');
+      fondo.querySelectorAll('[data-aitem]').forEach(function (o) {
+        o.style.cssText = 'padding:6px 10px;font-size:12px;cursor:pointer;white-space:nowrap';
+        o.addEventListener('mouseenter', function () { o.style.background = '#eef3fb'; });
+        o.addEventListener('mouseleave', function () { o.style.background = ''; });
+        o.addEventListener('click', function () { mAd.style.display = 'none'; });
+      });
+      bAd.addEventListener('click', function (ev) { ev.stopPropagation(); if (mRt) mRt.style.display = 'none'; mAd.style.display = (mAd.style.display === 'none') ? 'block' : 'none'; });
+      fondo.addEventListener('click', function (ev) { if (!mAd.contains(ev.target)) mAd.style.display = 'none'; });
       fondo.querySelector('[data-adjpc]').addEventListener('click', function () { fin.click(); });
       fondo.querySelectorAll('[data-fijo]').forEach(function (x) { x.addEventListener('click', function () { ponAdj({ fijo: x.dataset.fijo }, x.textContent + ' (PDF)'); }); });
       // v128 -- documento del programa (menu de Imprimir documentos con el piso ya elegido), relleno y adjunto
