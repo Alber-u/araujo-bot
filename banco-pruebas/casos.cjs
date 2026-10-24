@@ -891,6 +891,21 @@ const CASOS = [
       ];
     },
   },
+  // ===== v166: grupo de presión más corto y tabla más compacta =====
+  {
+    nombre: "Presupuesto: «2 bombas 2,53Kw + calderín 300L» (más corto) y filas de la tabla más juntas (Doctor Jaime Marcos 3)",
+    desde: "v166",
+    prueba: async (S) => {
+      const r = S.DATA.plan5_toma_datos.find((x, j) => j > 0 && /JAIME MARCOS 3/i.test(String(x[0] || "")));
+      if (!r) return [[false, "está Doctor Jaime Marcos 3 en plan5_toma_datos", "no"]];
+      const h = String((await S.call("GET", "/plan5/presupuesto", { dir: r[0] })).body || "");
+      const gp = (h.match(/\d+ bombas? [^<]*/) || [""])[0];
+      return [
+        [gp === "2 bombas 2,53Kw + calderín 300L", "texto corto del grupo de presión", gp],
+        [/table\.ptab td\{ padding:0\.4px 4px/.test(h) && /table\.ptab\{[^}]*line-height:1\.0;/.test(h), "filas de la tabla más juntas", ""],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
