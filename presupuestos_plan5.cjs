@@ -1543,9 +1543,20 @@ function _p5memoria(R, meta, saved){
   // v22.4 (28/09/2026) -- Abastecimiento actual: singular/plural segun el NUMERO DE PEINES del grupo
   //   (no segun las comas de la casilla Puerta: un peine "DR, IZ, ATICO" es UN montante); "ATICO" se
   //   escribe "el ático"; "puertas" en minuscula.
-  var _peinesAct = (function(){ var grupos=[]; peines.forEach(function(pe){ if(!pe || !(pe.maIE||pe.maEng)) return; var ie = String(pe.maIE||"").toUpperCase().indexOf("EXT")>=0 ? "exterior" : "interior"; var eng = String(pe.maEng||"").toUpperCase().indexOf("BA\u00d1O")>=0 ? "ba\u00f1os" : "cocinas"; var g=null; for(var i=0;i<grupos.length;i++){ if(grupos[i].ie===ie && grupos[i].eng===eng){ g=grupos[i]; break; } } if(!g){ g={ie:ie,eng:eng,n:0,puertas:[],atico:false}; grupos.push(g); } g.n++; String(pe.puerta||"").split(/\s*(?:,|\/|&|\+|\s+y\s+|\s+e\s+)\s*/i).forEach(function(tk){ tk=String(tk||"").trim(); if(!tk) return; if(/^(\u00e1|a)tico$/i.test(tk) || /^at$/i.test(tk)){ g.atico=true; return; } if(g.puertas.indexOf(tk)<0) g.puertas.push(tk); }); });
+  // v163 (24/10/2026, criterio de Guille: "Los de las puertas A, D y B, C") -- las puertas salen de cada peine tal como estan
+  //   escritas (PUERTA(S)); si varios peines coinciden (interior/exterior y enganche), se unen respetando cada peine:
+  //   dos peines "A, D y B, C"; tres o mas "A, D; B, C y E, F". Si cada peine tiene una sola puerta, como antes: "A, B y C".
+  var _peinesAct = (function(){ var grupos=[]; peines.forEach(function(pe){ if(!pe || !(pe.maIE||pe.maEng)) return; var ie = String(pe.maIE||"").toUpperCase().indexOf("EXT")>=0 ? "exterior" : "interior"; var eng = String(pe.maEng||"").toUpperCase().indexOf("BA\u00d1O")>=0 ? "ba\u00f1os" : "cocinas"; var g=null; for(var i=0;i<grupos.length;i++){ if(grupos[i].ie===ie && grupos[i].eng===eng){ g=grupos[i]; break; } } if(!g){ g={ie:ie,eng:eng,n:0,puertas:[],peinesP:[],atico:false}; grupos.push(g); } g.n++; var _suyas=[]; String(pe.puerta||"").split(/\s*(?:,|\/|&|\+|\s+y\s+|\s+e\s+)\s*/i).forEach(function(tk){ tk=String(tk||"").trim(); if(!tk) return; if(/^(\u00e1|a)tico$/i.test(tk) || /^at$/i.test(tk)){ g.atico=true; return; } if(_suyas.indexOf(tk)<0) _suyas.push(tk); if(g.puertas.indexOf(tk)<0) g.puertas.push(tk); }); if(_suyas.length) g.peinesP.push(_suyas); });
+    var _listaPeines = function(g){
+      if (g.peinesP.every(function(x){ return x.length===1; })) return g.atico ? (g.puertas.join(", ") + " y del \u00e1tico") : _p5listaES(g.puertas);
+      var et = g.peinesP.map(function(x){ return x.join(", "); });
+      if (g.atico) et.push("del \u00e1tico");
+      if (et.length===1) return et[0];
+      var sep = et.length===2 ? ", " : "; ";
+      return et.slice(0,-1).join(sep) + " y " + et[et.length-1];
+    };
     return grupos.map(function(g){
-      var de = g.puertas.length ? ((g.puertas.length===1 ? "de la puerta " : "de las puertas ") + (g.atico ? (g.puertas.join(", ") + " y del \u00e1tico") : _p5listaES(g.puertas))) : (g.atico ? "del \u00e1tico" : "");
+      var de = g.puertas.length ? ((g.puertas.length===1 ? "de la puerta " : "de las puertas ") + _listaPeines(g)) : (g.atico ? "del \u00e1tico" : "");
       if(g.n===1) return de ? (" El "+de+" es "+g.ie+" y engancha en "+g.eng+".") : (" El montante es "+g.ie+" y engancha en "+g.eng+".");
       var adj = (g.ie==="exterior") ? "exteriores" : "interiores";
       return de ? (" Los "+de+" son "+adj+" y enganchan en "+g.eng+".") : (" Los montantes son "+adj+" y enganchan en "+g.eng+".");

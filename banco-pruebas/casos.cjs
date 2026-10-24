@@ -643,8 +643,14 @@ const CASOS = [
     nombre: "Aviso M de la 05: el {{4}} dice qué documentos faltan",
     desde: "v152",
     prueba: async (S) => {
-      const j = (await S.call("GET", "/presupuestos/hoy", { soloAvisosM: "1" })).body || {};
-      const m05 = (j.avisos || []).filter((a) => /^plan5_recordatorio_m[12]$/.test(a.clave || "") && a.pendiente !== undefined);
+      let j = (await S.call("GET", "/presupuestos/hoy", { soloAvisosM: "1" })).body || {};
+      let m05 = (j.avisos || []).filter((a) => /^plan5_recordatorio_m[12]$/.test(a.clave || "") && a.pendiente !== undefined);
+      if (!m05.length) {   // con el Sheet de un día sin M1 pendientes: se quitan las marcas de M1 (en memoria) para que salgan
+        S.DATA.bot_expedientes.slice(1).forEach((r) => { if (r) r[26] = ""; });
+        const iAZ = 51; S.DATA.pisos.slice(1).forEach((r) => { if (r && r[iAZ]) r[iAZ] = String(r[iAZ]).replace(/(^|;)\s*M1=[^;]*/g, ""); });
+        j = (await S.call("GET", "/presupuestos/hoy", { soloAvisosM: "1" })).body || {};
+        m05 = (j.avisos || []).filter((a) => /^plan5_recordatorio_m[12]$/.test(a.clave || "") && a.pendiente !== undefined);
+      }
       if (!m05.length) return [[false, "hay avisos M1/M2 por el bot", "ninguno"]];
       const conLista = m05.filter((a) => /^la documentación que falta de su vivienda \(.+\)$/.test(a.pendiente || ""));
       const NOMBRES = /^(Impreso toma datos|DNI del (propietario|familiar|inquilino|representante|pagador)|Impreso autorización usufructo|Libro de familia|Contrato de alquiler completo y firmado|Certificado de empadronamiento|NIF\/CIF de la sociedad|Escritura de constitución|Poderes del representante|Licencia de apertura o declaración responsable|Justificante de ingresos|Documento de titularidad bancaria)$/;
@@ -840,6 +846,19 @@ const CASOS = [
         [r2.resp === "", "«Ok» tras un mensaje de Guille: sin respuesta", JSON.stringify(r2)],
         [r3.resp === "" && /Mañana/.test(r3.ayuda), "aviso tras un mensaje de Guille: sin «De acuerdo…» y a Pide ayuda", JSON.stringify(r3)],
         [/Lo vemos/.test(r4.resp), "si el mensaje de Guille tiene más de 24 h, el bot vuelve a contestar", JSON.stringify(r4)],
+      ];
+    },
+  },
+  // ===== v163: puertas de los montantes actuales respetando cada peine =====
+  {
+    nombre: "Presupuesto: «Los de las puertas A, D y B, C…» respeta las puertas de cada peine (Francisco Meneses 4); Sánchez Pizjuán 6 igual",
+    desde: "v163",
+    prueba: async (S) => {
+      const abast = async (re) => { const r = S.DATA.plan5_toma_datos.find((x, j) => j > 0 && re.test(String(x[0] || ""))); if (!r) return "(no está)"; const h = String((await S.call("GET", "/plan5/presupuesto", { dir: r[0] })).body || ""); const m = h.match(/ABASTECIMIENTO ACTUAL:<\/b><br>([^<]*)/); return m ? m[1].replace(/\s+/g, " ").trim() : "?"; };
+      const fm = await abast(/FRANCISCO MENESES 4/i), sp = await abast(/S[AÁ]NCHEZ PIZJU[AÁ]N 6/i);
+      return [
+        [/Los de las puertas A, D y B, C son exteriores y enganchan en cocinas\./.test(fm), "Francisco Meneses 4: puertas por peine", fm],
+        [/Los de las puertas 1, 2, 3 y 4 son exteriores y enganchan en cocinas\./.test(sp), "Sánchez Pizjuán 6 (enviado) no cambia", sp],
       ];
     },
   },
