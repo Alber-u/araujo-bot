@@ -866,7 +866,7 @@ function _p5tablaPresupuesto(dsg, cuadro, matX){
     } else if(r.fuentes.length===1 && String(r.num).indexOf("3.")===0){
       var l3=r.fuentes[0];
       precio = _p5eur((l3.precio||0)*fac(l3.tipo));
-      cant = _p5num(l3.cantidad) + ((l3.ud && +l3.cantidad)?(" "+_p5esc(l3.ud)):"");   // v168: con 0 sale "0" a secas, como el grupo actual
+      cant = _p5num(l3.cantidad) + (l3.ud?(" "+_p5esc(l3.ud)):"");
     } else if(r.fuentes.length===0){
       precio = ""; cant = "";
     } else {
