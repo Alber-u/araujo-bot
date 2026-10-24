@@ -542,6 +542,8 @@ module.exports = function (app) {
         + '<div data-conv="1" style="max-height:320px;overflow:auto;border:1px solid #e3e1da;border-radius:8px;padding:6px 8px;background:#fafaf7;margin-bottom:10px"></div>'
         + (ok ? '<textarea rows="5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:13px" placeholder="Tu respuesta (sale del número del bot)"></textarea>'
               + '<div data-adj="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px">'
+              + '<span style="position:relative;display:inline-block"><button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-rtipo="1" title="Elige una respuesta y se escribe en el recuadro (la ves antes de enviar)">' + (U.icoWa || '') + ' Respuestas tipo</button>'   // v170
+              + '<div data-rmenu="1" style="display:none;position:absolute;left:0;bottom:100%;margin-bottom:4px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:2;min-width:240px;padding:4px 0"></div></span>'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-adjpc="1" title="PDF, JPG o PNG (hasta 10 MB)">\uD83D\uDCCE Adjuntar</button>'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-fijo="solicitud">Impreso toma datos</button>'
               + '<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" data-docs="1" title="Elige un documento del programa, rell\u00e9nalo y se adjunta">\uD83D\uDCC4 documento</button>'   // v128: menu de Imprimir documentos (antes: autorizacion usufructo en blanco)
@@ -584,6 +586,35 @@ module.exports = function (app) {
       //   se puede borrar. Se envia exactamente lo que hay en el recuadro (el bot ya no anade nada).
       var ta = fondo.querySelector('textarea'); setTimeout(function () { ta.focus(); }, 30);
       Promise.resolve(_convP).then(function (d) { if (d && d.firma && !String(ta.value || '').trim()) { ta.value = d.firma + '\n\n'; try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {} } });
+      // v170 (24/10/2026, criterio de Guille) -- "Respuestas tipo": lista corta (las de Flujo bot, ya rellenas con los
+      //   datos de este vecino); al elegir una, se escribe en el recuadro debajo de la firma. No se envia nada solo.
+      var bRt = fondo.querySelector('[data-rtipo]'), mRt = fondo.querySelector('[data-rmenu]');
+      if (bRt) bRt.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        if (mRt.style.display !== 'none') { mRt.style.display = 'none'; return; }
+        Promise.resolve(_convP).then(function (d) {
+          var lista = (d && d.respTipo) || [];
+          mRt.innerHTML = '';
+          if (!lista.length) { var v0 = document.createElement('div'); v0.style.cssText = 'padding:6px 10px;font-size:12px;color:#777'; v0.textContent = 'No hay respuestas tipo (se activan en Flujo bot).'; mRt.appendChild(v0); }
+          lista.forEach(function (it) {
+            var o = document.createElement('div'); o.textContent = it.nombre;
+            o.style.cssText = 'padding:6px 10px;font-size:12px;cursor:pointer;white-space:nowrap';
+            o.addEventListener('mouseenter', function () { o.style.background = '#eef3fb'; });
+            o.addEventListener('mouseleave', function () { o.style.background = ''; });
+            o.addEventListener('click', function () {
+              mRt.style.display = 'none';
+              var fi = (d && d.firma) ? String(d.firma) : '', actual = String(ta.value || '');
+              var resto = (fi && actual.indexOf(fi) === 0) ? actual.slice(fi.length).trim() : actual.trim();
+              if (resto && !confirm('Ya hay texto escrito en el recuadro. \u00bfLo cambio por la respuesta tipo?')) return;
+              ta.value = ((fi && actual.indexOf(fi) === 0) || (fi && !actual.trim()) ? fi + '\n\n' : '') + it.texto;
+              try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+            });
+            mRt.appendChild(o);
+          });
+          mRt.style.display = 'block';
+        });
+      });
+      fondo.addEventListener('click', function () { if (mRt) mRt.style.display = 'none'; });
       // v127 -- adjunto: uno del PC (PDF/JPG/PNG, hasta 10 MB) o uno de los fijos del bot
       var adj = null, fin = fondo.querySelector('input[type=file]'), chip = fondo.querySelector('[data-chip]');
       var ponAdj = function (a, nom) { adj = a; chip.style.display = a ? 'inline-flex' : 'none'; fondo.querySelector('[data-chipn]').textContent = a ? '\uD83D\uDCCE ' + nom : ''; };
@@ -747,7 +778,7 @@ module.exports = function (app) {
   }
   function _scriptVecinoBot(token) {
     const U = { conv: urlT(token, "/presupuestos/hoy/conversacion"), resp: urlT(token, "/presupuestos/hoy/responder-bot"), mbot: urlT(token, "/presupuestos/hoy/aviso-bot"), contacto: urlT(token, "/presupuestos/hoy/pedir-contacto"), ctexto: urlT(token, "/presupuestos/hoy/pedir-contacto-texto"),
-      mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }) };
+      mtexto: urlT(token, "/presupuestos/hoy/aviso-texto"), marcar: urlT(token, "/presupuestos/hoy-bot-llamado"), avisosM: urlT(token, "/presupuestos/hoy", { soloAvisosM: "1" }), icoWa: ICONO_WHATSAPP };   // v170: icono de estilo-visual
     return "(" + _clienteVecinoBot.toString() + ")(" + JSON.stringify(U) + ");";
   }
   function urlT(token, path, params) {
@@ -2710,6 +2741,7 @@ module.exports = function (app) {
       flujo_aviso_vecino: ["flujo_aviso_vecino", "vecino", "texto", "", "", "", "SI", "v128: el vecino avisa de algo (manana lo mando...): va a Pide ayuda y el bot sigue"],
       flujo_largo_sin_paginas: ["flujo_largo_sin_paginas", "vecino", "texto", "", "", "{documento}", "SI", "v128: responde 1 sin haber mandado ninguna pagina"],
       firma_equipo: ["firma_equipo", "vecino", "texto", "", "", "", "SI", "v150: va encima de lo que escribe Guille por Contestar por el bot"],
+      resp_nota_simple: ["resp_nota_simple", "vecino", "texto", "", "", "{nombre} {titulares} {con_quien}", "SI", "v170: respuesta tipo de Contestar por el bot (Nota simple a nombre de otro)"],
       // v126 -- avisos M por el bot (plantillas de Alberto): la fila se crea al guardar su HX
       ..._FILAS_AVISOS_M };
     if (rowIndex < 0 && _CLAVES_NUEVAS[clave]) {
@@ -2874,6 +2906,15 @@ module.exports = function (app) {
     console.log("[presupuestos] v150: creada la fila firma_equipo");
   }
   setTimeout(() => { _migFirmaV150().catch(e => console.error("[presupuestos] v150 firma:", e.message)); }, 66000);
+  // v170 -- la respuesta tipo "Nota simple (titular distinto)": se crea su fila UNA vez; luego se cambia o se apaga en Flujo bot
+  async function _migRespNotaV170() {
+    const sheets = getSheetsClient();
+    const rows = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS })).data.values || [];
+    if (rows.some(x => x && String(x[0] || "").trim() === "resp_nota_simple")) return;
+    await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS, valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: [["resp_nota_simple", "vecino", "texto", require("./nombre-vecino.cjs").RESP_NOTA_SIMPLE, "", "{nombre} {titulares} {con_quien}", "SI", "v170: respuesta tipo de Contestar por el bot (Nota simple a nombre de otro)"]] } });
+    console.log("[presupuestos] v170: creada la fila resp_nota_simple");
+  }
+  setTimeout(() => { _migRespNotaV170().catch(e => console.error("[presupuestos] v170 respuesta tipo:", e.message)); }, 68000);
   async function _migBotV19118() {
     const sheets = getSheetsClient();
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
@@ -7498,7 +7539,7 @@ module.exports = function (app) {
                 <input type="text" id="ptlComScco" placeholder="separar con coma" class="ptl-input-modal"/>
               </div>
               ${(_respTipo.length || _segManual) ? `<div>
-                <label class="ptl-form-label">Insertar respuesta tipo</label>
+                <label class="ptl-form-label">${ICONO_MAIL} Respuestas tipo</label>
                 <select id="ptlComSresp" class="ptl-input-modal" style="height:28px;padding:2px 8px;font-size:12px;line-height:1.3"><option value="">— elegir —</option>${_segManual ? `<option value="seg">${esc(_segManual.nombre)}</option>` : ""}${_respTipo.map((r, i) => `<option value="${i}">${esc(r.nombre)}</option>`).join("")}</select>
               </div>` : ""}
               <div>
@@ -10167,7 +10208,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>💬 Respuestas tipo (${_rt.length})</span>
+                <span>${ICONO_MAIL} Respuestas tipo (${_rt.length})</span>
               </div>
               <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Textos para insertar en los correos manuales (Enviar mail manual, Responder, Reenviar). Para borrar una, deja su nombre vacío y guarda. La firma se añade sola.</div>
             </div>
@@ -10314,7 +10355,7 @@ module.exports = function (app) {
       if (code === "empadronamiento") return "pide_empadronamiento";
       const m = String(code).match(/^dni_(?:([a-z]+)_)?(delante|detras)$/);
       if (m) return "pide_dni_" + m[2];
-      if (code.indexOf("bienvenida_") === 0 || code.indexOf("flujo_") === 0 || code.indexOf("aviso_") === 0 || code.indexOf("error_") === 0 || code === "doc_recibido" || code === "seguir_expediente" || code === "firma_equipo") return code;   // v155: la firma iba a "pide_firma_equipo" y la tarjeta salia vacia
+      if (code.indexOf("bienvenida_") === 0 || code.indexOf("flujo_") === 0 || code.indexOf("aviso_") === 0 || code.indexOf("error_") === 0 || code === "doc_recibido" || code === "seguir_expediente" || code === "firma_equipo" || code.indexOf("resp_") === 0) return code;   // v155: la firma iba a "pide_firma_equipo" y la tarjeta salia vacia
       return "pide_" + code;
     }
     const COMPARTIDAS = { pide_solicitud_firmada:1, pide_dni_delante:1, pide_dni_detras:1, pide_empadronamiento:1 };
@@ -10439,6 +10480,7 @@ module.exports = function (app) {
       card("flujo_aviso_vecino","texto del vecino - aviso (el bot sigue)",{}),   // v128
       card("flujo_largo_sin_paginas","doc - \"1\" sin ninguna página ({documento})",{}),   // v128
       card("firma_equipo","Firma del equipo (sale escrita en el recuadro al contestar por el bot)",{}),   // v150; v155: va dentro del recuadro
+      card("resp_nota_simple","Respuestas tipo: Nota simple (titular distinto) ({nombre} {titulares} {con_quien})",{}),   // v170
       card("flujo_sin_ia","texto del vecino con la IA dormida (sustituida por las dos de arriba)",{}),   // v19.118; v128: lo sustituyen las dos de arriba
       card("flujo_falta_antes_de_cerrar","doc - falta algo al terminar ({falta})",{}),   // v127
     ].map(c => "<div>" + c + "</div>").join("");
@@ -17695,8 +17737,8 @@ module.exports = function (app) {
       ]);
       // v159 (23/10/2026, criterio de Guille: "cuanto mas unificado mejor") -- comunidad, piso y nombre de la ficha del
       //   telefono, para la linea "Malvaloca 1 1B · David" de TODAS las ventanas de envio por el bot.
-      let vecino = null;
-      for (const r of ((rpv.data.values || []).slice(1))) { if (r && t9(r[0]) === k && r[1]) { vecino = { comunidad: String(r[1] || "").trim(), vivienda: String(r[2] || "").trim(), nombre: String(r[4] || "").replace(/^\s*\(\?\)\s*/, "").trim() }; break; } }
+      let vecino = null, _notaV = "", _nomV = "";   // v170: Nota simple y nombre de arriba, para las respuestas tipo
+      for (const r of ((rpv.data.values || []).slice(1))) { if (r && t9(r[0]) === k && r[1]) { vecino = { comunidad: String(r[1] || "").trim(), vivienda: String(r[2] || "").trim(), nombre: String(r[4] || "").replace(/^\s*\(\?\)\s*/, "").trim() }; _notaV = String(r[3] || ""); _nomV = String(r[4] || ""); break; } }
       // v128 (21/10/2026, criterio de Guille: "tiene que salir en verde y quedarse despues en verde... cuando haya
       //   salido se borra [el aviso de programado] y sabemos que se ha enviado") -- lo programado se cruza con
       //   bot_programados (mismo telefono, apuntado a la vez, < 2 min): pendiente = UNA burbuja con el texto y arriba
@@ -17812,8 +17854,16 @@ module.exports = function (app) {
       let ultVecino = "";
       for (const c of _filasC) { if (/^(texto|archivo)(_fase08|_fuera)?$/.test(String(c[3] || "").trim()) && String(c[0] || "") > ultVecino) ultVecino = String(c[0]); }
       let firma = "";   // v150: firma_equipo (si esta activa), para ensenarla en la ventana de contestar
-      try { const _pf = (await leerPlantillasBot()).find(x => x.clave === "firma_equipo"); if (_pf && _pf.activo) firma = String(_pf.texto || "").trim(); } catch (e) {}
-      res.json({ ok: true, items, ultVecino, firma, vecino });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
+      let respTipo = [];   // v170: respuestas tipo de WhatsApp, ya rellenas con los datos de este vecino
+      try {
+        const _pls = await leerPlantillasBot();
+        const _pf = _pls.find(x => x.clave === "firma_equipo"); if (_pf && _pf.activo) firma = String(_pf.texto || "").trim();
+        const _NV = require("./nombre-vecino.cjs");
+        const _rn = _pls.find(x => x.clave === "resp_nota_simple");   // sin fila todavia: el texto de siempre
+        const _tn = _rn ? (_rn.activo ? String(_rn.texto || "").trim() : "") : _NV.RESP_NOTA_SIMPLE;
+        if (_tn) respTipo.push({ nombre: "Nota simple (titular distinto)", texto: _NV.rellenarRespuestaTipo(_tn, _notaV, _nomV) });
+      } catch (e) {}
+      res.json({ ok: true, items, ultVecino, firma, vecino, respTipo });   // todos: el recuadro tiene scroll y abre abajo, en lo ultimo
     } catch (e) {
       console.error("[presupuestos] GET /hoy/conversacion:", e.message);
       res.json({ ok: false, error: e.message });

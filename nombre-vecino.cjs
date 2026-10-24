@@ -27,4 +27,17 @@ function saludoVecino(nota, nombre) {
   if (tit.some((t) => mismaPersona(nb, t))) return nb;
   return nb + " (Titular - " + tit[0] + (tit.length > 1 ? " y otros" : "") + ")";
 }
-module.exports = { saludoVecino, titularesDeNota, mismaPersona };
+// v170 (24/10/2026, criterio de Guille: "Nota simple (titular distinto)... lo que queremos es preguntarle por qué en la
+//   nota simple viene un titular distinto") -- respuesta tipo de WhatsApp (boton "Respuestas tipo" de Contestar por el bot).
+//   Rellena {nombre} (el de arriba, pisos col E), {titulares} (los de la Nota simple: "A", "A y B", "A, B y C") y
+//   {con_quien} ("ellos" si son varios, "esa persona" si es uno: asi no hay que adivinar si es hombre o mujer).
+//   Lo que no se sabe sale entre corchetes para que lo escriba Guille.
+const RESP_NOTA_SIMPLE = "Buenas {nombre}, gracias por la documentaci\u00f3n. Revis\u00e1ndola hemos visto que, seg\u00fan la Nota simple, la vivienda figura a nombre de {titulares}. \u00bfNos puede explicar qu\u00e9 relaci\u00f3n tiene usted con {con_quien}? Seg\u00fan lo que nos diga, le indicaremos qu\u00e9 documentaci\u00f3n hace falta. Muchas gracias.";
+function rellenarRespuestaTipo(plantilla, nota, nombre) {
+  const nb = String(nombre || "").replace(/^\s*(\([^)]*\)\s*)+/, "").replace(/\s+/g, " ").trim();
+  const tit = titularesDeNota(nota);
+  const lista = !tit.length ? "[titulares]" : (tit.length === 1 ? tit[0] : tit.slice(0, -1).join(", ") + " y " + tit[tit.length - 1]);
+  const conQuien = !tit.length ? "[ellos / esa persona]" : (tit.length > 1 ? "ellos" : "esa persona");
+  return String(plantilla || "").replace(/\{nombre\}/g, nb || "[nombre]").replace(/\{titulares\}/g, lista).replace(/\{con_quien\}/g, conQuien);
+}
+module.exports = { saludoVecino, titularesDeNota, mismaPersona, rellenarRespuestaTipo, RESP_NOTA_SIMPLE };

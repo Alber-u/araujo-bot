@@ -925,6 +925,27 @@ const CASOS = [
       ];
     },
   },
+  // ===== v170: botón «💬 Respuestas tipo» en Contestar por el bot; «📧 Respuestas tipo» en el correo =====
+  {
+    nombre: "Contestar por el bot: botón «💬 Respuestas tipo» con «Nota simple (titular distinto)» ya relleno (Malvaloca 1 5A); el correo dice «📧 Respuestas tipo»",
+    desde: "v170",
+    prueba: async (S) => {
+      const fs = require("fs"), path = require("path");
+      const f = S.DATA.pisos.find((x, i) => i > 0 && /malvaloca 1/i.test(String(x[1] || "")) && String(x[2] || "").trim().toUpperCase() === "5A");
+      if (!f) return [[false, "está Malvaloca 1 5A en pisos", "no"]];
+      const d = (await S.call("GET", "/presupuestos/hoy/conversacion", { tel: f[0] })).body || {};
+      const rt = (d.respTipo || [])[0] || {};
+      const hoy = String((await S.call("GET", "/presupuestos/hoy", {})).body || "");
+      const src = fs.readFileSync(path.join(S.RAIZ, "presupuestos.cjs"), "utf8");
+      const iBtn = hoy.indexOf("data-rtipo"), iAdj = hoy.indexOf("data-adjpc=");
+      return [
+        [rt.nombre === "Nota simple (titular distinto)", "la respuesta tipo se llama «Nota simple (titular distinto)»", JSON.stringify(rt.nombre)],
+        [/figura a nombre de Rafael Santisteban Conejo y M\S* Esperanza Nogales Delgado\./.test(rt.texto || "") && /con ellos\?/.test(rt.texto || "") && /^Buenas Rosa/.test(rt.texto || "") && /Muchas gracias\.$/.test(rt.texto || ""), "texto relleno con su nombre y los dos titulares («con ellos»)", rt.texto],
+        [iBtn > 0 && iAdj > 0 && iBtn < iAdj && hoy.indexOf('"icoWa":"💬"') > 0, "el botón va a la izquierda de Adjuntar, con el 💬 de estilo-visual", iBtn + " / " + iAdj],
+        [src.indexOf('<label class="ptl-form-label">${ICONO_MAIL} Respuestas tipo</label>') > 0 && src.indexOf("Insertar respuesta tipo</label>") < 0, "en el correo, «📧 Respuestas tipo» (antes «Insertar respuesta tipo»)", ""],
+      ];
+    },
+  },
 ];
 
 module.exports = { CASOS, scriptsRotos };
